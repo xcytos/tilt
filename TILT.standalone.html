@@ -1203,8 +1203,12 @@ panel = createPanel({
 });
 
 if (manifestError) {
-    panel.setError(`models/manifest.json could not be loaded (${manifestError}). `
-        + 'Serve this folder over HTTP to load model presets.');
+    const openedFromFile = !/^https?:$/.test(location.protocol);
+    panel.setError(openedFromFile
+        ? 'Opened straight from a file, so models/ could not be read. '
+            + 'Showing the built-in model - serve this folder over HTTP to load presets.'
+        : `models/manifest.json could not be loaded (${manifestError}). `
+            + 'Serve this folder over HTTP to load model presets.');
 }
 
 let minimized = false;
