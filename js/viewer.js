@@ -12,8 +12,29 @@ const THEME = {
 
 const FRAME_DIR = new THREE.Vector3(0, 4, -25).normalize();
 
+// Breathing room between side-by-side models in "all at once" mode.
+const OVERLAY_GAP = 2.5;
+
 const FALLBACK_BOUNDS =
     new THREE.Box3(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, 9, 6));
+
+// Pure. Takes world spans ([minX, maxX]) measured with every model back at its
+// base position and returns the X offset each one needs: packs them left to
+// right with `gap` between neighbours, then shifts the whole row so its centre
+// lands on the origin. A lone span comes back as a plain re-centring, so the
+// single-model view keeps framing exactly as it did before overlay mode.
+export function layoutOffsets(spans, gap = OVERLAY_GAP) {
+    const offs = [];
+    let cursor = 0;
+    for (const span of spans) {
+        const min = span[0], max = span[1];
+        if (!(max > min)) { offs.push(0); continue; }
+        offs.push(cursor - min);
+        cursor += max - min + gap;
+    }
+    const back = -Math.max(0, cursor - gap) / 2;
+    return offs.map(o => o + back);
+}
 
 // The grid is baked into the floor texture instead of drawn as separate lines.
 // LineBasicMaterial cannot receive shadows, so standalone lines stayed bright
@@ -173,11 +194,12 @@ export class Viewer {
         };
     }
 
+    // Mounting is decoupled from framing: overlay mode adds several models
+    // and frames once, after layoutGroups has positioned them.
     addModel(model) {
         this.scene.add(model.object3D);
         this.models.push(model);
         if (model.setTheme) model.setTheme(this.isDark);
-        this.frameScene();
         return model;
     }
 
@@ -187,7 +209,6 @@ export class Viewer {
         this.models.splice(i, 1);
         this.scene.remove(model.object3D);
         if (model.dispose) model.dispose();
-        this.frameScene();
         return true;
     }
 
@@ -209,16 +230,48 @@ export class Viewer {
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
     }
 
-    computeBounds() {
+    // World bounds of a set of models, before any overlay offset is applied.
+    computeBoundsOf(models) {
         const box = new THREE.Box3();
         const tmp = new THREE.Box3();
-        for (const m of this.models) {
+        for (const m of models) {
             if (!m.object3D) continue;
             tmp.setFromObject(m.object3D);
             if (!tmp.isEmpty()) box.union(tmp);
         }
+        return box;
+    }
+
+    computeBounds() {
+        const box = this.computeBoundsOf(this.models);
         if (box.isEmpty()) return FALLBACK_BOUNDS.clone();
         return box;
+    }
+
+    // `groups` is an array of model arrays (one per preset). Spacing is derived
+    // from each group's own bounds so presets never overlap, and the row is
+    // re-centred. Only X is touched: the floor stays a single shared stage.
+    layoutGroups(groups, gap = OVERLAY_GAP) {
+        for (const g of groups) {
+            for (const m of g) {
+                if (!m.object3D) continue;
+                m.object3D.position.x -= m.layoutX || 0;
+                m.layoutX = 0;
+            }
+        }
+        const spans = groups.map(g => {
+            const b = this.computeBoundsOf(g);
+            return b.isEmpty() ? [0, 0] : [b.min.x, b.max.x];
+        });
+        const offs = layoutOffsets(spans, gap);
+        groups.forEach((g, i) => {
+            for (const m of g) {
+                if (!m.object3D) continue;
+                m.object3D.position.x += offs[i];
+                m.layoutX = offs[i];
+            }
+        });
+        return offs;
     }
 
     frameScene(bounds = this.computeBounds()) {

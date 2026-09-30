@@ -692,8 +692,29 @@ const THEME = {
 
 const FRAME_DIR = new THREE.Vector3(0, 4, -25).normalize();
 
+// Breathing room between side-by-side models in "all at once" mode.
+const OVERLAY_GAP = 2.5;
+
 const FALLBACK_BOUNDS =
     new THREE.Box3(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, 9, 6));
+
+// Pure. Takes world spans ([minX, maxX]) measured with every model back at its
+// base position and returns the X offset each one needs: packs them left to
+// right with `gap` between neighbours, then shifts the whole row so its centre
+// lands on the origin. A lone span comes back as a plain re-centring, so the
+// single-model view keeps framing exactly as it did before overlay mode.
+function layoutOffsets(spans, gap = OVERLAY_GAP) {
+    const offs = [];
+    let cursor = 0;
+    for (const span of spans) {
+        const min = span[0], max = span[1];
+        if (!(max > min)) { offs.push(0); continue; }
+        offs.push(cursor - min);
+        cursor += max - min + gap;
+    }
+    const back = -Math.max(0, cursor - gap) / 2;
+    return offs.map(o => o + back);
+}
 
 // The grid is baked into the floor texture instead of drawn as separate lines.
 // LineBasicMaterial cannot receive shadows, so standalone lines stayed bright
@@ -853,11 +874,12 @@ class Viewer {
         };
     }
 
+    // Mounting is decoupled from framing: overlay mode adds several models
+    // and frames once, after layoutGroups has positioned them.
     addModel(model) {
         this.scene.add(model.object3D);
         this.models.push(model);
         if (model.setTheme) model.setTheme(this.isDark);
-        this.frameScene();
         return model;
     }
 
@@ -867,7 +889,6 @@ class Viewer {
         this.models.splice(i, 1);
         this.scene.remove(model.object3D);
         if (model.dispose) model.dispose();
-        this.frameScene();
         return true;
     }
 
@@ -889,16 +910,48 @@ class Viewer {
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
     }
 
-    computeBounds() {
+    // World bounds of a set of models, before any overlay offset is applied.
+    computeBoundsOf(models) {
         const box = new THREE.Box3();
         const tmp = new THREE.Box3();
-        for (const m of this.models) {
+        for (const m of models) {
             if (!m.object3D) continue;
             tmp.setFromObject(m.object3D);
             if (!tmp.isEmpty()) box.union(tmp);
         }
+        return box;
+    }
+
+    computeBounds() {
+        const box = this.computeBoundsOf(this.models);
         if (box.isEmpty()) return FALLBACK_BOUNDS.clone();
         return box;
+    }
+
+    // `groups` is an array of model arrays (one per preset). Spacing is derived
+    // from each group's own bounds so presets never overlap, and the row is
+    // re-centred. Only X is touched: the floor stays a single shared stage.
+    layoutGroups(groups, gap = OVERLAY_GAP) {
+        for (const g of groups) {
+            for (const m of g) {
+                if (!m.object3D) continue;
+                m.object3D.position.x -= m.layoutX || 0;
+                m.layoutX = 0;
+            }
+        }
+        const spans = groups.map(g => {
+            const b = this.computeBoundsOf(g);
+            return b.isEmpty() ? [0, 0] : [b.min.x, b.max.x];
+        });
+        const offs = layoutOffsets(spans, gap);
+        groups.forEach((g, i) => {
+            for (const m of g) {
+                if (!m.object3D) continue;
+                m.object3D.position.x += offs[i];
+                m.layoutX = offs[i];
+            }
+        });
+        return offs;
     }
 
     frameScene(bounds = this.computeBounds()) {
@@ -934,13 +987,14 @@ const CHECK_CLS = 'custom-checkbox';
 const FIELD_CLS = 'w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 '
     + 'dark:border-zinc-600 bg-white/70 dark:bg-zinc-800/70 '
     + 'text-gray-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-sky-400';
+const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1';
 
 const fmt = (value, unit) =>
     (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
 
 function blockShell(key, label) {
     const wrap = document.createElement('div');
-    wrap.className = 'mb-4';
+    wrap.className = 'mb-3';
     const head = document.createElement('div');
     head.className = 'flex justify-between text-xs mb-1';
     const labelEl = document.createElement('label');
@@ -971,7 +1025,7 @@ function rangeBlock(key, p, current) {
 
 function toggleBlock(key, p, current) {
     const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = `param-${key}`;
@@ -986,7 +1040,7 @@ function toggleBlock(key, p, current) {
 
 function themeBlock(isDark, onChange) {
     const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'toggle-theme';
@@ -1000,42 +1054,50 @@ function themeBlock(isDark, onChange) {
     return { wrap, input };
 }
 
-// The controls bar is generated from the active model's parameter schema, so
-// the viewer never hard-codes a specific model's sliders. Switching models
-// re-renders the param blocks in place and leaves the selector intact.
+function heading(text) {
+    const el = document.createElement('div');
+    el.className = HEADING_CLS;
+    el.textContent = text;
+    return el;
+}
+
+function modeButtonCls(active) {
+    return 'flex-1 text-xs font-semibold py-1.5 px-2 rounded-md border transition-colors '
+        + (active
+            ? 'bg-sky-600 border-sky-600 text-white'
+            : 'bg-white/70 border-gray-300 text-gray-600 hover:border-sky-400 '
+                + 'dark:bg-zinc-800/70 dark:border-zinc-600 dark:text-zinc-300 '
+                + 'dark:hover:border-sky-500');
+}
+
+// The controls bar is generated from each mounted model's parameter schema, so
+// the viewer never hard-codes a specific model's sliders. A "group" is one
+// preset's worth of models ({ id, models }); single mode renders the active
+// group as one flat block, overlay mode renders every mounted group as an
+// accordion so several presets can be tuned side by side.
 function createPanel(opts) {
     const {
-        body, model, catalog = [], activeId,
-        onSelect, onParamsChange, onThemeChange, themeIsDark = false
+        body, model, groups = [], catalog = [], activeId, mode = 'single',
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
 
+    let currentMode = mode;
+    let currentGroups = groups;
     let current = model;
-    let rows = {};
-    let select = null;
+    let activeId_ = activeId;
+
+    let sections = [];
+    let live = { selects: [], checks: [], buttons: [] };
+    let busy = false;
     let themeInput = null;
+    let liveTheme = themeIsDark;
+    let lastSignature = null;
 
     body.textContent = '';
-
-    if (catalog.length > 1) {
-        const shell = blockShell('model', 'Model');
-        shell.value.remove();
-        select = document.createElement('select');
-        select.id = 'param-model';
-        select.className = FIELD_CLS;
-        for (const entry of catalog) {
-            const opt = document.createElement('option');
-            opt.value = entry.id;
-            opt.textContent = entry.name;
-            select.appendChild(opt);
-        }
-        select.value = activeId || (catalog[0] && catalog[0].id);
-        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
-        shell.wrap.appendChild(select);
-        body.appendChild(shell.wrap);
-    }
 
     const msg = document.createElement('p');
     msg.id = 'panel-msg';
@@ -1045,53 +1107,225 @@ function createPanel(opts) {
     const host = document.createElement('div');
     body.appendChild(host);
 
-    function render() {
-        host.textContent = '';
-        rows = {};
-        if (titleEl) titleEl.textContent = current.name;
-        if (subEl) subEl.textContent = current.subtitle || '';
+    function emit(partial, targets) {
+        onParamsChange && onParamsChange(partial, targets);
+    }
 
+    function applyBusy() {
+        for (const el of live.selects) el.disabled = busy;
+        for (const el of live.checks) el.disabled = busy;
+        for (const el of live.buttons) el.disabled = busy;
+    }
+
+    // One collapsible block of parameters for one preset. `targets` is the
+    // preset's models, so a preset holding several objects is edited at once.
+    function section(group, collapsible, open) {
+        const key = group.id || 'active';
+        const targets = (group.models || []).filter(Boolean);
+        const schema = targets[0];
+
+        let root, inner;
+        if (collapsible) {
+            root = document.createElement('details');
+            root.className = 'mb-3 rounded-lg border '
+                + 'border-gray-200 dark:border-zinc-700 bg-white/40 dark:bg-zinc-800/40';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-3 py-2 text-xs '
+                + 'font-semibold text-gray-700 dark:text-zinc-200';
+            summary.textContent = schema ? schema.name : group.id;
+            inner = document.createElement('div');
+            inner.className = 'px-3 pb-3';
+            root.append(summary, inner);
+            root.open = !!open;
+        } else {
+            root = document.createElement('div');
+            inner = root;
+        }
+
+        const rows = {};
         const toggles = [];
-        for (const [key, p] of Object.entries(current.params)) {
-            if (p.type === 'range') {
-                const built = rangeBlock(key, p, current.state[key]);
-                built.input.addEventListener('input', e => {
-                    const v = parseFloat(e.target.value);
-                    built.value.textContent = fmt(v, p.unit);
-                    onParamsChange && onParamsChange({ [key]: v });
-                });
-                rows[key] = built;
-                host.appendChild(built.wrap);
-            } else if (p.type === 'toggle') {
-                const built = toggleBlock(key, p, current.state[key]);
-                built.input.addEventListener('change', e => {
-                    onParamsChange && onParamsChange({ [key]: e.target.checked });
-                });
-                rows[key] = built;
-                toggles.push(built.wrap);
+        if (schema && schema.params) {
+            for (const [k, p] of Object.entries(schema.params)) {
+                const state = schema.state[k];
+                if (p.type === 'range') {
+                    const built = rangeBlock(`${key}-${k}`, p, state);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        built.value.textContent = fmt(v, p.unit);
+                        emit({ [k]: v }, targets);
+                    });
+                    rows[k] = built;
+                    inner.appendChild(built.wrap);
+                } else if (p.type === 'toggle') {
+                    const built = toggleBlock(`${key}-${k}`, p, state);
+                    built.input.addEventListener('change', e => {
+                        emit({ [k]: e.target.checked }, targets);
+                    });
+                    rows[k] = built;
+                    toggles.push(built.wrap);
+                }
             }
         }
 
+        if (toggles.length) {
+            const row = document.createElement('div');
+            row.className = 'flex flex-wrap gap-4 pt-1';
+            toggles.forEach(t => row.appendChild(t));
+            inner.appendChild(row);
+        }
+
+        const sec = { key, targets, rows, root };
+        sections.push(sec);
+        return root;
+    }
+
+    function modeBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Display'));
+        const row = document.createElement('div');
+        row.className = 'flex gap-2';
+        for (const [val, text] of [['single', 'One at a time'], ['overlay', 'All at once']]) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = text;
+            btn.className = modeButtonCls(val === currentMode);
+            btn.addEventListener('click', () => {
+                if (val !== currentMode && onModeChange) onModeChange(val);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    function selectBlock() {
+        const shell = blockShell('model', 'Model');
+        shell.value.remove();
+        const select = document.createElement('select');
+        select.id = 'param-model';
+        select.className = FIELD_CLS;
+        for (const entry of catalog) {
+            const opt = document.createElement('option');
+            opt.value = entry.id;
+            opt.textContent = entry.name;
+            select.appendChild(opt);
+        }
+        select.value = activeId_ || (catalog[0] && catalog[0].id);
+        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
+        shell.wrap.appendChild(select);
+        live.selects.push(select);
+        return shell.wrap;
+    }
+
+    // Which presets are mounted. In overlay mode this is how models get in and
+    // out of the scene; the accordions below only appear for what is mounted.
+    function pickerBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Shown'));
+        const list = document.createElement('div');
+        list.className = 'flex flex-col gap-1';
+        const shown = new Set(currentGroups.map(g => g.id));
+        for (const entry of catalog) {
+            const lab = document.createElement('label');
+            lab.className = 'flex items-center gap-2 text-sm cursor-pointer '
+                + 'hover:text-sky-600 transition-colors';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = CHECK_CLS;
+            cb.checked = shown.has(entry.id);
+            cb.addEventListener('change', e => onToggle && onToggle(entry.id, e.target.checked));
+            const span = document.createElement('span');
+            span.className = 'font-medium';
+            span.textContent = entry.name;
+            lab.append(cb, span);
+            list.appendChild(lab);
+            live.checks.push(cb);
+        }
+        wrap.appendChild(list);
+        return wrap;
+    }
+
+    function themeFooter() {
         const footer = document.createElement('div');
-        footer.className = 'flex gap-4 pt-4 border-t border-gray-200 dark:border-zinc-700';
-        toggles.forEach(t => footer.appendChild(t));
+        footer.className = 'flex gap-4 pt-3 mt-1 border-t border-gray-200 dark:border-zinc-700';
         const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
         themeInput = theme.input;
         footer.appendChild(theme.wrap);
-        host.appendChild(footer);
+        return footer;
     }
 
-    // Live viewer theme, so a model-driven theme switch and the
-    // prefers-color-scheme default both show the right checkbox state.
-    let liveTheme = themeIsDark;
+    function signature() {
+        return [
+            currentMode,
+            currentGroups.map(g => g.id).join(','),
+            activeId_ || '',
+            (current && current.name) || ''
+        ].join('|');
+    }
 
-    render();
+    function render() {
+        host.textContent = '';
+        sections = [];
+        live = { selects: [], checks: [], buttons: [] };
+
+        const overlay = currentMode === 'overlay';
+        if (overlay || catalog.length > 1) host.appendChild(modeBlock());
+
+        if (overlay) {
+            if (catalog.length > 1) host.appendChild(pickerBlock());
+            currentGroups.forEach((g, i) => host.appendChild(section(g, true, i === 0)));
+        } else {
+            if (catalog.length > 1) host.appendChild(selectBlock());
+            if (currentGroups[0]) host.appendChild(section(currentGroups[0], false, true));
+        }
+
+        if (titleEl) titleEl.textContent = (current && current.name) || '';
+        if (subEl) {
+            subEl.textContent = overlay
+                ? `${currentGroups.length} model${currentGroups.length === 1 ? '' : 's'} - all at once`
+                : (current && current.subtitle) || '';
+        }
+
+        if (!currentGroups.length) {
+            const empty = document.createElement('p');
+            empty.className = 'text-xs text-gray-500 dark:text-zinc-400 mb-2';
+            empty.textContent = 'No models shown.';
+            host.appendChild(empty);
+        }
+
+        host.appendChild(themeFooter());
+        applyBusy();
+    }
+
+    function renderIfChanged(force) {
+        const sig = signature();
+        if (!force && sig === lastSignature) return false;
+        lastSignature = sig;
+        render();
+        return true;
+    }
+
+    renderIfChanged(true);
 
     return {
         get model() { return current; },
-        setModel(m) { current = m; render(); },
-        setActive(id) { if (select) select.value = id; },
-        setBusy(busy) { if (select) select.disabled = busy; },
+        get mode() { return currentMode; },
+
+        // One call, one re-render: the composition root refreshes everything
+        // after a scene sync and this only repaints if something visible moved.
+        refresh(next = {}, force = false) {
+            if (next.mode !== undefined) currentMode = next.mode;
+            if (next.groups !== undefined) currentGroups = next.groups;
+            if (next.activeId !== undefined) activeId_ = next.activeId;
+            if (next.model !== undefined) current = next.model;
+            renderIfChanged(force);
+            return this;
+        },
+
+        setBusy(value) { busy = !!value; applyBusy(); },
         setError(text) {
             msg.textContent = text || '';
             msg.classList.toggle('hidden', !text);
@@ -1100,12 +1334,18 @@ function createPanel(opts) {
             liveTheme = isDark;
             if (themeInput) themeInput.checked = isDark;
         },
+        // Re-read model state into the inputs without rebuilding the DOM, so an
+        // external param change never collapses an open accordion.
         sync() {
-            for (const [key, r] of Object.entries(rows)) {
-                const v = current.state[key];
-                if (r.value) r.value.textContent = fmt(v, current.params[key].unit);
-                if (r.input.type === 'checkbox') r.input.checked = !!v;
-                else r.input.value = v;
+            for (const sec of sections) {
+                const owner = sec.targets[0];
+                if (!owner) continue;
+                for (const [k, r] of Object.entries(sec.rows)) {
+                    const v = owner.state[k];
+                    if (r.value) r.value.textContent = fmt(v, owner.params[k].unit);
+                    if (r.input.type === 'checkbox') r.input.checked = !!v;
+                    else r.input.value = v;
+                }
             }
         }
     };
@@ -1126,48 +1366,164 @@ try {
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 
-// Mounted models. Stage 3.2 mounts several at once; everything below already
-// iterates `models[]` instead of assuming a single instance.
-let models = [];
-let panel = null;
+// Scene state. `mode` chooses between one preset on stage and several side by
+// side; `mounted` holds exactly what is in the scene, keyed by preset id.
+let mode = 'single';
 let activeId = null;
+let overlayIds = [];
+const mounted = new Map();
+let lastPrimary = null;
+let panel = null;
 let rebuildQueued = false;
+
+// Display order always follows the manifest, not the order ticks were clicked.
+function orderIds() {
+    if (mode === 'single') return activeId ? [activeId] : [];
+    const rank = new Map(registry.list.map((e, i) => [e.id, i]));
+    return overlayIds.slice()
+        .sort((a, b) => (rank.has(a) ? rank.get(a) : 1e9) - (rank.has(b) ? rank.get(b) : 1e9));
+}
+
+function groups() {
+    return orderIds()
+        .filter(id => mounted.has(id))
+        .map(id => ({ id, models: mounted.get(id) }));
+}
+
+function primaryId() { return orderIds()[0] || null; }
 
 function scheduleRebuild() {
     if (rebuildQueued) return;
     rebuildQueued = true;
     requestAnimationFrame(() => {
         rebuildQueued = false;
-        for (const m of models) if (m.dirty && m.build) m.build();
+        const gs = groups();
+        for (const g of gs) for (const m of g.models) if (m.dirty && m.build) m.build();
+        // Re-space only. The camera is left alone so dragging a slider never
+        // yanks the view around.
+        viewer.layoutGroups(gs.map(g => g.models));
     });
 }
 
-async function activate(id) {
+// Each preset may declare its own environment; the primary one wins. Applied
+// only when the primary actually changes, so a manual dark-mode toggle is not
+// overwritten the moment you move a slider.
+async function applyPrimaryTheme() {
+    const primary = primaryId();
+    if (primary === lastPrimary) return;
+    lastPrimary = primary;
+    if (!primary) return;
+
+    const def = await registry.load(primary);
+    const theme = def.environment && def.environment.theme;
+    if (!theme) return;
+    const dark = theme === 'dark';
+    viewer.setTheme(dark);
+    if (panel) panel.setTheme(dark);
+}
+
+// Reconcile the scene with `orderIds()`: drop what no longer belongs, mount
+// what is missing, re-space, then refresh the panel.
+async function syncScene() {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
-        const def = await registry.load(id);
-        const { models: next, environment } = await registry.instantiate(def);
+        const want = orderIds();
 
-        viewer.clearModels();
-        models = next;
-        for (const m of models) viewer.addModel(m);
-        activeId = id;
-
-        if (environment.theme) {
-            const dark = environment.theme === 'dark';
-            viewer.setTheme(dark);
-            if (panel) panel.setTheme(dark);
+        for (const [id, models] of [...mounted]) {
+            if (want.includes(id)) continue;
+            for (const m of models) viewer.removeModel(m);
+            mounted.delete(id);
         }
-        if (panel) { panel.setModel(models[0]); panel.setActive(id); }
-        return models;
+
+        const failures = [];
+        for (const id of want) {
+            if (mounted.has(id)) continue;
+            try {
+                const def = await registry.load(id);
+                const { models } = await registry.instantiate(def);
+                for (const m of models) viewer.addModel(m);
+                mounted.set(id, models);
+            } catch (err) {
+                console.error('[registry]', err);
+                failures.push({ id, message: (err && err.message) || String(err) });
+            }
+        }
+
+        // Forget presets that could not be built, so the next sync does not
+        // retry them in a loop.
+        if (failures.length) {
+            const bad = new Set(failures.map(f => f.id));
+            overlayIds = overlayIds.filter(id => !bad.has(id));
+            if (mode === 'single' && activeId && bad.has(activeId)) {
+                const fallback = registry.list.find(e => !bad.has(e.id));
+                activeId = fallback ? fallback.id : null;
+            }
+        }
+
+        const gs = groups();
+        viewer.layoutGroups(gs.map(g => g.models));
+        viewer.frameScene();
+
+        await applyPrimaryTheme();
+
+        if (panel) {
+            panel.refresh({
+                mode,
+                groups: gs,
+                activeId,
+                model: gs[0] ? gs[0].models[0] : null
+            });
+            panel.sync();
+        }
+
+        if (failures.length) throw new Error(failures.map(f => f.message).join('; '));
+        return gs;
     } catch (err) {
-        console.error('[registry]', err);
-        if (panel) panel.setError(err.message || String(err));
+        if (panel) panel.setError((err && err.message) || String(err));
         throw err;
     } finally {
         if (panel) panel.setBusy(false);
     }
 }
+
+async function activate(id) {
+    mode = 'single';
+    activeId = id;
+    return syncScene();
+}
+
+async function setMode(next) {
+    if (next !== 'single' && next !== 'overlay' || next === mode) return;
+    mode = next;
+
+    if (mode === 'overlay' && !overlayIds.length) {
+        overlayIds = activeId ? [activeId] : registry.list.slice(0, 1).map(e => e.id);
+    }
+    if (mode === 'single' && !overlayIds.includes(activeId) && overlayIds.length) {
+        activeId = overlayIds[0];
+    }
+    return syncScene();
+}
+
+async function toggleOverlay(id, on) {
+    if (on) {
+        if (!overlayIds.includes(id)) overlayIds.push(id);
+    } else {
+        overlayIds = overlayIds.filter(x => x !== id);
+    }
+    return syncScene();
+}
+
+// Panel callbacks fire unguarded promises; a rejected one must not reach
+// window.onunhandledrejection, which the boot overlay treats as fatal.
+const guard = fn => (...args) => {
+    try {
+        const out = fn(...args);
+        if (out && typeof out.then === 'function') out.catch(() => {});
+    } catch (err) {
+        console.error('[panel]', err);
+    }
+};
 
 const prefersDark = document.documentElement.classList.contains('dark');
 viewer.setTheme(prefersDark);
@@ -1181,19 +1537,41 @@ await registry.loadManifest().catch(err => {
 });
 
 const firstEntry = registry.list[0];
-await activate(firstEntry.id);
+let startupError = '';
+mode = 'single';
+activeId = firstEntry.id;
+try {
+    await syncScene();
+} catch (err) {
+    startupError = (err && err.message) || String(err);
+    console.error('[scene]', err);
+}
+
+const firstGroup = groups()[0];
 
 panel = createPanel({
     body: panelBody,
-    model: models[0],
+    model: firstGroup ? firstGroup.models[0] : null,
+    groups: groups(),
+    mode,
     catalog: registry.list,
     activeId,
     themeIsDark: viewer.isDark,
-    onSelect: id => activate(id),
-    onParamsChange: partial => {
-        const target = panel ? panel.model : models[0];
-        if (!target) return;
-        target.setParams(partial);
+    onSelect: guard(id => activate(id)),
+    onModeChange: guard(next => setMode(next)),
+    onToggle: guard((id, on) => toggleOverlay(id, on)),
+    onParamsChange: (partial, targets) => {
+        const fallback = panel ? panel.model : null;
+        const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
+            .filter(Boolean);
+        for (const m of list) {
+            if (!m.setParams || !m.params) continue;
+            const known = {};
+            for (const [k, v] of Object.entries(partial)) {
+                if (m.params[k]) known[k] = v;
+            }
+            if (Object.keys(known).length) m.setParams(known);
+        }
         scheduleRebuild();
     },
     onThemeChange: isDark => {
@@ -1202,7 +1580,9 @@ panel = createPanel({
     }
 });
 
-if (manifestError) {
+if (startupError) {
+    panel.setError(startupError);
+} else if (manifestError) {
     const openedFromFile = !/^https?:$/.test(location.protocol);
     panel.setError(openedFromFile
         ? 'Opened straight from a file, so models/ could not be read. '
@@ -1222,9 +1602,12 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 viewer.start();
 
 window.O2 = {
-    viewer, panel, registry, activate, scheduleRebuild,
-    get models() { return models; },
-    get activeId() { return activeId; }
+    viewer, panel, registry, activate, setMode, toggleOverlay, syncScene, scheduleRebuild,
+    get models() { return [...mounted.values()].flat(); },
+    get mounted() { return [...mounted.keys()]; },
+    get mode() { return mode; },
+    get activeId() { return activeId; },
+    get overlayIds() { return overlayIds.slice(); }
 };
     </script>
 </body>

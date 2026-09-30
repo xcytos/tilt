@@ -46,7 +46,9 @@ for (const f of FILES) {
         /OrbitControls/.test(viewer) && /RoomEnvironment/.test(viewer) &&
         /makeFloorTexture/.test(viewer) && /frameCamera/.test(viewer) && /setTheme/.test(viewer));
   check('panel builds controls from a schema (no hard-coded sliders)',
-        !/slider-gap/.test(panel) && /Object\.entries\((current|model)\.params\)/.test(panel));
+        !/slider-gap/.test(panel) && !/param-gap|toggle-fabric/.test(panel) &&
+        /Object\.entries\(\w+\.params\)/.test(panel) &&
+        /rangeBlock\(/.test(panel) && /toggleBlock\(/.test(panel));
   check('model owns its geometry, params, theme and anchors',
         /createBaseFrame/.test(model) && /generateFabricGeometry/.test(model) &&
         /PARAMS/.test(model) && /MODEL_THEME/.test(model) && /getAnchors/.test(model));

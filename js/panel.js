@@ -4,13 +4,14 @@ const CHECK_CLS = 'custom-checkbox';
 const FIELD_CLS = 'w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 '
     + 'dark:border-zinc-600 bg-white/70 dark:bg-zinc-800/70 '
     + 'text-gray-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-sky-400';
+const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1';
 
 const fmt = (value, unit) =>
     (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
 
 function blockShell(key, label) {
     const wrap = document.createElement('div');
-    wrap.className = 'mb-4';
+    wrap.className = 'mb-3';
     const head = document.createElement('div');
     head.className = 'flex justify-between text-xs mb-1';
     const labelEl = document.createElement('label');
@@ -41,7 +42,7 @@ function rangeBlock(key, p, current) {
 
 function toggleBlock(key, p, current) {
     const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = `param-${key}`;
@@ -56,7 +57,7 @@ function toggleBlock(key, p, current) {
 
 function themeBlock(isDark, onChange) {
     const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.id = 'toggle-theme';
@@ -70,42 +71,50 @@ function themeBlock(isDark, onChange) {
     return { wrap, input };
 }
 
-// The controls bar is generated from the active model's parameter schema, so
-// the viewer never hard-codes a specific model's sliders. Switching models
-// re-renders the param blocks in place and leaves the selector intact.
+function heading(text) {
+    const el = document.createElement('div');
+    el.className = HEADING_CLS;
+    el.textContent = text;
+    return el;
+}
+
+function modeButtonCls(active) {
+    return 'flex-1 text-xs font-semibold py-1.5 px-2 rounded-md border transition-colors '
+        + (active
+            ? 'bg-sky-600 border-sky-600 text-white'
+            : 'bg-white/70 border-gray-300 text-gray-600 hover:border-sky-400 '
+                + 'dark:bg-zinc-800/70 dark:border-zinc-600 dark:text-zinc-300 '
+                + 'dark:hover:border-sky-500');
+}
+
+// The controls bar is generated from each mounted model's parameter schema, so
+// the viewer never hard-codes a specific model's sliders. A "group" is one
+// preset's worth of models ({ id, models }); single mode renders the active
+// group as one flat block, overlay mode renders every mounted group as an
+// accordion so several presets can be tuned side by side.
 export function createPanel(opts) {
     const {
-        body, model, catalog = [], activeId,
-        onSelect, onParamsChange, onThemeChange, themeIsDark = false
+        body, model, groups = [], catalog = [], activeId, mode = 'single',
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
 
+    let currentMode = mode;
+    let currentGroups = groups;
     let current = model;
-    let rows = {};
-    let select = null;
+    let activeId_ = activeId;
+
+    let sections = [];
+    let live = { selects: [], checks: [], buttons: [] };
+    let busy = false;
     let themeInput = null;
+    let liveTheme = themeIsDark;
+    let lastSignature = null;
 
     body.textContent = '';
-
-    if (catalog.length > 1) {
-        const shell = blockShell('model', 'Model');
-        shell.value.remove();
-        select = document.createElement('select');
-        select.id = 'param-model';
-        select.className = FIELD_CLS;
-        for (const entry of catalog) {
-            const opt = document.createElement('option');
-            opt.value = entry.id;
-            opt.textContent = entry.name;
-            select.appendChild(opt);
-        }
-        select.value = activeId || (catalog[0] && catalog[0].id);
-        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
-        shell.wrap.appendChild(select);
-        body.appendChild(shell.wrap);
-    }
 
     const msg = document.createElement('p');
     msg.id = 'panel-msg';
@@ -115,53 +124,225 @@ export function createPanel(opts) {
     const host = document.createElement('div');
     body.appendChild(host);
 
-    function render() {
-        host.textContent = '';
-        rows = {};
-        if (titleEl) titleEl.textContent = current.name;
-        if (subEl) subEl.textContent = current.subtitle || '';
+    function emit(partial, targets) {
+        onParamsChange && onParamsChange(partial, targets);
+    }
 
+    function applyBusy() {
+        for (const el of live.selects) el.disabled = busy;
+        for (const el of live.checks) el.disabled = busy;
+        for (const el of live.buttons) el.disabled = busy;
+    }
+
+    // One collapsible block of parameters for one preset. `targets` is the
+    // preset's models, so a preset holding several objects is edited at once.
+    function section(group, collapsible, open) {
+        const key = group.id || 'active';
+        const targets = (group.models || []).filter(Boolean);
+        const schema = targets[0];
+
+        let root, inner;
+        if (collapsible) {
+            root = document.createElement('details');
+            root.className = 'mb-3 rounded-lg border '
+                + 'border-gray-200 dark:border-zinc-700 bg-white/40 dark:bg-zinc-800/40';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-3 py-2 text-xs '
+                + 'font-semibold text-gray-700 dark:text-zinc-200';
+            summary.textContent = schema ? schema.name : group.id;
+            inner = document.createElement('div');
+            inner.className = 'px-3 pb-3';
+            root.append(summary, inner);
+            root.open = !!open;
+        } else {
+            root = document.createElement('div');
+            inner = root;
+        }
+
+        const rows = {};
         const toggles = [];
-        for (const [key, p] of Object.entries(current.params)) {
-            if (p.type === 'range') {
-                const built = rangeBlock(key, p, current.state[key]);
-                built.input.addEventListener('input', e => {
-                    const v = parseFloat(e.target.value);
-                    built.value.textContent = fmt(v, p.unit);
-                    onParamsChange && onParamsChange({ [key]: v });
-                });
-                rows[key] = built;
-                host.appendChild(built.wrap);
-            } else if (p.type === 'toggle') {
-                const built = toggleBlock(key, p, current.state[key]);
-                built.input.addEventListener('change', e => {
-                    onParamsChange && onParamsChange({ [key]: e.target.checked });
-                });
-                rows[key] = built;
-                toggles.push(built.wrap);
+        if (schema && schema.params) {
+            for (const [k, p] of Object.entries(schema.params)) {
+                const state = schema.state[k];
+                if (p.type === 'range') {
+                    const built = rangeBlock(`${key}-${k}`, p, state);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        built.value.textContent = fmt(v, p.unit);
+                        emit({ [k]: v }, targets);
+                    });
+                    rows[k] = built;
+                    inner.appendChild(built.wrap);
+                } else if (p.type === 'toggle') {
+                    const built = toggleBlock(`${key}-${k}`, p, state);
+                    built.input.addEventListener('change', e => {
+                        emit({ [k]: e.target.checked }, targets);
+                    });
+                    rows[k] = built;
+                    toggles.push(built.wrap);
+                }
             }
         }
 
+        if (toggles.length) {
+            const row = document.createElement('div');
+            row.className = 'flex flex-wrap gap-4 pt-1';
+            toggles.forEach(t => row.appendChild(t));
+            inner.appendChild(row);
+        }
+
+        const sec = { key, targets, rows, root };
+        sections.push(sec);
+        return root;
+    }
+
+    function modeBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Display'));
+        const row = document.createElement('div');
+        row.className = 'flex gap-2';
+        for (const [val, text] of [['single', 'One at a time'], ['overlay', 'All at once']]) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = text;
+            btn.className = modeButtonCls(val === currentMode);
+            btn.addEventListener('click', () => {
+                if (val !== currentMode && onModeChange) onModeChange(val);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    function selectBlock() {
+        const shell = blockShell('model', 'Model');
+        shell.value.remove();
+        const select = document.createElement('select');
+        select.id = 'param-model';
+        select.className = FIELD_CLS;
+        for (const entry of catalog) {
+            const opt = document.createElement('option');
+            opt.value = entry.id;
+            opt.textContent = entry.name;
+            select.appendChild(opt);
+        }
+        select.value = activeId_ || (catalog[0] && catalog[0].id);
+        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
+        shell.wrap.appendChild(select);
+        live.selects.push(select);
+        return shell.wrap;
+    }
+
+    // Which presets are mounted. In overlay mode this is how models get in and
+    // out of the scene; the accordions below only appear for what is mounted.
+    function pickerBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Shown'));
+        const list = document.createElement('div');
+        list.className = 'flex flex-col gap-1';
+        const shown = new Set(currentGroups.map(g => g.id));
+        for (const entry of catalog) {
+            const lab = document.createElement('label');
+            lab.className = 'flex items-center gap-2 text-sm cursor-pointer '
+                + 'hover:text-sky-600 transition-colors';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = CHECK_CLS;
+            cb.checked = shown.has(entry.id);
+            cb.addEventListener('change', e => onToggle && onToggle(entry.id, e.target.checked));
+            const span = document.createElement('span');
+            span.className = 'font-medium';
+            span.textContent = entry.name;
+            lab.append(cb, span);
+            list.appendChild(lab);
+            live.checks.push(cb);
+        }
+        wrap.appendChild(list);
+        return wrap;
+    }
+
+    function themeFooter() {
         const footer = document.createElement('div');
-        footer.className = 'flex gap-4 pt-4 border-t border-gray-200 dark:border-zinc-700';
-        toggles.forEach(t => footer.appendChild(t));
+        footer.className = 'flex gap-4 pt-3 mt-1 border-t border-gray-200 dark:border-zinc-700';
         const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
         themeInput = theme.input;
         footer.appendChild(theme.wrap);
-        host.appendChild(footer);
+        return footer;
     }
 
-    // Live viewer theme, so a model-driven theme switch and the
-    // prefers-color-scheme default both show the right checkbox state.
-    let liveTheme = themeIsDark;
+    function signature() {
+        return [
+            currentMode,
+            currentGroups.map(g => g.id).join(','),
+            activeId_ || '',
+            (current && current.name) || ''
+        ].join('|');
+    }
 
-    render();
+    function render() {
+        host.textContent = '';
+        sections = [];
+        live = { selects: [], checks: [], buttons: [] };
+
+        const overlay = currentMode === 'overlay';
+        if (overlay || catalog.length > 1) host.appendChild(modeBlock());
+
+        if (overlay) {
+            if (catalog.length > 1) host.appendChild(pickerBlock());
+            currentGroups.forEach((g, i) => host.appendChild(section(g, true, i === 0)));
+        } else {
+            if (catalog.length > 1) host.appendChild(selectBlock());
+            if (currentGroups[0]) host.appendChild(section(currentGroups[0], false, true));
+        }
+
+        if (titleEl) titleEl.textContent = (current && current.name) || '';
+        if (subEl) {
+            subEl.textContent = overlay
+                ? `${currentGroups.length} model${currentGroups.length === 1 ? '' : 's'} - all at once`
+                : (current && current.subtitle) || '';
+        }
+
+        if (!currentGroups.length) {
+            const empty = document.createElement('p');
+            empty.className = 'text-xs text-gray-500 dark:text-zinc-400 mb-2';
+            empty.textContent = 'No models shown.';
+            host.appendChild(empty);
+        }
+
+        host.appendChild(themeFooter());
+        applyBusy();
+    }
+
+    function renderIfChanged(force) {
+        const sig = signature();
+        if (!force && sig === lastSignature) return false;
+        lastSignature = sig;
+        render();
+        return true;
+    }
+
+    renderIfChanged(true);
 
     return {
         get model() { return current; },
-        setModel(m) { current = m; render(); },
-        setActive(id) { if (select) select.value = id; },
-        setBusy(busy) { if (select) select.disabled = busy; },
+        get mode() { return currentMode; },
+
+        // One call, one re-render: the composition root refreshes everything
+        // after a scene sync and this only repaints if something visible moved.
+        refresh(next = {}, force = false) {
+            if (next.mode !== undefined) currentMode = next.mode;
+            if (next.groups !== undefined) currentGroups = next.groups;
+            if (next.activeId !== undefined) activeId_ = next.activeId;
+            if (next.model !== undefined) current = next.model;
+            renderIfChanged(force);
+            return this;
+        },
+
+        setBusy(value) { busy = !!value; applyBusy(); },
         setError(text) {
             msg.textContent = text || '';
             msg.classList.toggle('hidden', !text);
@@ -170,12 +351,18 @@ export function createPanel(opts) {
             liveTheme = isDark;
             if (themeInput) themeInput.checked = isDark;
         },
+        // Re-read model state into the inputs without rebuilding the DOM, so an
+        // external param change never collapses an open accordion.
         sync() {
-            for (const [key, r] of Object.entries(rows)) {
-                const v = current.state[key];
-                if (r.value) r.value.textContent = fmt(v, current.params[key].unit);
-                if (r.input.type === 'checkbox') r.input.checked = !!v;
-                else r.input.value = v;
+            for (const sec of sections) {
+                const owner = sec.targets[0];
+                if (!owner) continue;
+                for (const [k, r] of Object.entries(sec.rows)) {
+                    const v = owner.state[k];
+                    if (r.value) r.value.textContent = fmt(v, owner.params[k].unit);
+                    if (r.input.type === 'checkbox') r.input.checked = !!v;
+                    else r.input.value = v;
+                }
             }
         }
     };
