@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DECOR = path.resolve(HERE, '..');
 
-const html = fs.readFileSync(path.join(DECOR, 'js/models/o2tilt.js'), 'utf8');
+const html = fs.readFileSync(path.join(DECOR, 'js/objects/o2tilt.js'), 'utf8');
 
 function extract(name) {
   const start = html.indexOf(`function ${name}(`);

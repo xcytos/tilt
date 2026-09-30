@@ -1,0 +1,12 @@
+{
+  "id": "o2tilt-classic",
+  "name": "O2-TILT Classic",
+  "environment": { "theme": "light" },
+  "objects": [
+    {
+      "type": "o2tilt-frame",
+      "params": { "gap": 3, "pan": 0, "pitch": 0, "decline": 0, "fabric": true },
+      "elements": []
+    }
+  ]
+}

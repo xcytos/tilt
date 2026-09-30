@@ -1,6 +1,7 @@
 import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
-import { createO2TiltModel } from './models/o2tilt.js';
+import { Registry } from './registry.js';
+import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
@@ -13,13 +14,16 @@ try {
     throw err;
 }
 
-// Models registered with the viewer. Stage 2+ swaps this single entry for a
-// manifest-driven list; everything below already works on `models[]`.
-const models = [createO2TiltModel()];
-models.forEach(m => viewer.addModel(m));
+const registry = new Registry('./models');
+registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 
-// Coalesce every input event in a frame into one rebuild per model.
+// Mounted models. Stage 3.2 mounts several at once; everything below already
+// iterates `models[]` instead of assuming a single instance.
+let models = [];
+let panel = null;
+let activeId = null;
 let rebuildQueued = false;
+
 function scheduleRebuild() {
     if (rebuildQueued) return;
     rebuildQueued = true;
@@ -29,17 +33,70 @@ function scheduleRebuild() {
     });
 }
 
-const panel = createPanel({
-    body: panelBody,
-    model: models[0],
-    onParamsChange: partial => {
-        for (const m of models) m.setParams(partial);
-        scheduleRebuild();
-    },
-    onThemeChange: isDark => viewer.setTheme(isDark)
+async function activate(id) {
+    if (panel) { panel.setBusy(true); panel.setError(''); }
+    try {
+        const def = await registry.load(id);
+        const { models: next, environment } = await registry.instantiate(def);
+
+        viewer.clearModels();
+        models = next;
+        for (const m of models) viewer.addModel(m);
+        activeId = id;
+
+        if (environment.theme) {
+            const dark = environment.theme === 'dark';
+            viewer.setTheme(dark);
+            if (panel) panel.setTheme(dark);
+        }
+        if (panel) { panel.setModel(models[0]); panel.setActive(id); }
+        return models;
+    } catch (err) {
+        console.error('[registry]', err);
+        if (panel) panel.setError(err.message || String(err));
+        throw err;
+    } finally {
+        if (panel) panel.setBusy(false);
+    }
+}
+
+const prefersDark = document.documentElement.classList.contains('dark');
+viewer.setTheme(prefersDark);
+
+// Without a server the manifest cannot be fetched; the registry then serves
+// its built-in definition so the viewer still comes up.
+let manifestError = '';
+await registry.loadManifest().catch(err => {
+    manifestError = err.message;
+    console.warn('[registry] manifest not loaded, using the built-in model:', err);
 });
 
-viewer.setTheme(document.documentElement.classList.contains('dark'));
+const firstEntry = registry.list[0];
+await activate(firstEntry.id);
+
+panel = createPanel({
+    body: panelBody,
+    model: models[0],
+    catalog: registry.list,
+    activeId,
+    themeIsDark: viewer.isDark,
+    onSelect: id => activate(id),
+    onParamsChange: partial => {
+        const target = panel ? panel.model : models[0];
+        if (!target) return;
+        target.setParams(partial);
+        scheduleRebuild();
+    },
+    onThemeChange: isDark => {
+        viewer.setTheme(isDark);
+        if (panel) panel.setTheme(isDark);
+    }
+});
+
+if (manifestError) {
+    panel.setError(`models/manifest.json could not be loaded (${manifestError}). `
+        + 'Serve this folder over HTTP to load model presets.');
+}
 
 let minimized = false;
 document.getElementById('btn-minimize').addEventListener('click', () => {
@@ -51,5 +108,8 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 
 viewer.start();
 
-// Exposed for the registry/manifest stage and for manual debugging.
-window.O2 = { viewer, models, panel, scheduleRebuild };
+window.O2 = {
+    viewer, panel, registry, activate, scheduleRebuild,
+    get models() { return models; },
+    get activeId() { return activeId; }
+};

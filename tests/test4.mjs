@@ -26,7 +26,7 @@ check('importmap is valid JSON', (() => {
 check('sliders moved out of the shell', !html.includes('slider-gap') && !html.includes('toggle-fabric'));
 check('panel body is empty markup', /id="panel-body"><\/div>/.test(html));
 
-const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/models/o2tilt.js'];
+const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/registry.js', 'js/objects/o2tilt.js'];
 for (const f of FILES) check(`exists ${f}`, fs.existsSync(path.join(DECOR, f)));
 
 for (const f of FILES) {
@@ -40,13 +40,13 @@ for (const f of FILES) {
 {
   const viewer = fs.readFileSync(path.join(DECOR, 'js/viewer.js'), 'utf8');
   const panel = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
-  const model = fs.readFileSync(path.join(DECOR, 'js/models/o2tilt.js'), 'utf8');
+  const model = fs.readFileSync(path.join(DECOR, 'js/objects/o2tilt.js'), 'utf8');
   const app = fs.readFileSync(path.join(DECOR, 'js/app.js'), 'utf8');
   check('viewer owns scene/renderer/controls/env/floor/theme/frame',
         /OrbitControls/.test(viewer) && /RoomEnvironment/.test(viewer) &&
         /makeFloorTexture/.test(viewer) && /frameCamera/.test(viewer) && /setTheme/.test(viewer));
   check('panel builds controls from a schema (no hard-coded sliders)',
-        !/slider-gap/.test(panel) && /Object\.entries\(model\.params\)/.test(panel));
+        !/slider-gap/.test(panel) && /Object\.entries\((current|model)\.params\)/.test(panel));
   check('model owns its geometry, params, theme and anchors',
         /createBaseFrame/.test(model) && /generateFabricGeometry/.test(model) &&
         /PARAMS/.test(model) && /MODEL_THEME/.test(model) && /getAnchors/.test(model));
@@ -56,7 +56,7 @@ for (const f of FILES) {
 }
 
 console.log('\nStage 2: model contract (real module import)');
-const modelSrc = fs.readFileSync(path.join(DECOR, 'js/models/o2tilt.js'), 'utf8');
+const modelSrc = fs.readFileSync(path.join(DECOR, 'js/objects/o2tilt.js'), 'utf8');
 const patched = modelSrc.replace("from 'three'", `from '${pathToFileURL(path.join(HERE, 'vendor', 'three160.js')).href}'`);
 const tmpFile = path.join(TMP, 'o2tilt.contract.mjs');
 fs.writeFileSync(tmpFile, patched);

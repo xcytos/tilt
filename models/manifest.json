@@ -1,0 +1,22 @@
+{
+  "models": [
+    {
+      "id": "o2tilt-classic",
+      "name": "O2-TILT Classic",
+      "file": "o2tilt-classic.json",
+      "tags": ["frame", "curtain"]
+    },
+    {
+      "id": "o2tilt-slope",
+      "name": "O2-TILT Slope",
+      "file": "o2tilt-slope.json",
+      "tags": ["frame", "curtain"]
+    },
+    {
+      "id": "o2tilt-arc",
+      "name": "O2-TILT Arc",
+      "file": "o2tilt-arc.json",
+      "tags": ["frame", "curtain"]
+    }
+  ]
+}
