@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>O2-TILT Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: {} }
+        }
+    </script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+        
+        .ui-panel {
+            position: absolute; top: 1rem; left: 1rem; z-index: 10;
+            width: 320px; border-radius: 0.75rem;
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            max-width: calc(100vw - 2rem);
+        }
+        .dark .ui-panel { box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+        .panel-body { 
+            padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
+            max-height: min(600px, calc(100vh - 7rem)); overflow-y: auto; overflow-x: hidden; 
+        }
+        .panel-body.collapsed { 
+            max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
+            overflow: hidden;
+        }
+        
+        .btn-minimize {
+            width: 28px; height: 28px; border-radius: 6px; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; margin: 8px 0; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-runnable-track { 
+            width: 100%; height: 6px; cursor: pointer; border-radius: 3px; 
+            background: #cbd5e1; 
+        }
+        .dark input[type=range]::-webkit-slider-runnable-track { background: #52525b; }
+        
+        input[type=range]::-webkit-slider-thumb { 
+            height: 16px; width: 16px; border-radius: 50%; background: #0284c7; 
+            cursor: pointer; -webkit-appearance: none; margin-top: -5px; 
+            box-shadow: 0 0 6px rgba(2,132,199,0.5);
+            transition: transform 0.1s;
+        }
+        .dark input[type=range]::-webkit-slider-thumb { background: #38bdf8; }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
+        
+        .custom-checkbox { width: 1.25rem; height: 1.25rem; cursor: pointer; accent-color: #0ea5e9; }
+
+        #boot {
+            position: fixed; inset: 0; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+            background: #f3f4f6; color: #4b5563;
+            font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+            transition: opacity 0.4s ease;
+        }
+        .dark #boot { background: #18181b; color: #a1a1aa; }
+        #boot.hidden { opacity: 0; pointer-events: none; }
+        .boot-spinner {
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 3px solid #cbd5e1; border-top-color: #0284c7;
+            animation: bootspin 0.8s linear infinite;
+        }
+        .dark .boot-spinner { border-color: #3f3f46; border-top-color: #38bdf8; }
+        #boot.failed .boot-spinner { animation: none; border-top-color: #ef4444; }
+        @keyframes bootspin { to { transform: rotate(360deg); } }
+    </style>
+    
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script>
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
+    <script>
+        // External ES modules cannot be loaded from file:// or content:// (no
+        // CORS), so when the page is opened directly from a file manager, hand
+        // off to the single-file build instead of failing on js/app.js.
+        (function () {
+            if (/^https?:$/.test(location.protocol)) return;
+            if (/TILT\.standalone\.html$/.test(location.pathname)) return;
+            try {
+                location.replace(new URL('TILT.standalone.html', location.href).href);
+            } catch (e) { /* the boot overlay reports the module failure */ }
+        })();
+    </script>
+</head>
+<body class="bg-gray-100 transition-colors duration-300">
+
+    <div id="boot">
+        <div class="boot-spinner"></div>
+        <p id="boot-msg">Loading viewer</p>
+    </div>
+    <script>
+        (function () {
+            function fail(msg) {
+                if (window.__bootFail) clearTimeout(window.__bootFail);
+                var b = document.getElementById('boot');
+                var m = document.getElementById('boot-msg');
+                if (m) m.textContent = msg;
+                if (b) b.classList.add('failed');
+            }
+            window.__bootFail = setTimeout(function () {
+                fail('Could not load Three.js - check your connection');
+            }, 12000);
+
+            // Local modules only load over http:// - catch it instead of
+            // leaving the spinner up forever.
+            window.addEventListener('error', function (e) {
+                var src = (e.target && (e.target.src || e.target.href)) || '';
+                if (e.target && e.target !== window && (src || e.message)) {
+                    fail(e.message || 'Failed to load ' + src);
+                }
+            }, true);
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e.reason;
+                fail((r && r.message) || 'Failed to start the viewer');
+            });
+        })();
+    </script>
+
+    <div class="ui-panel bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-gray-200 dark:border-zinc-700" id="ui-panel">
+        <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-zinc-700">
+            <div>
+                <h1 class="text-base font-bold text-sky-600 dark:text-sky-400 tracking-wide leading-tight" id="model-name">Model</h1>
+                <p class="text-[10px] text-gray-500 dark:text-zinc-400 uppercase tracking-widest leading-tight" id="model-sub">&nbsp;</p>
+            </div>
+            <button class="btn-minimize bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border border-gray-300 dark:border-zinc-600" id="btn-minimize" aria-label="Toggle UI">
+                <svg id="icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path></svg>
+                <svg id="icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+        </div>
+
+        <div class="panel-body text-gray-800 dark:text-zinc-200" id="panel-body"></div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ---- js/registry.js ----
+const MANIFEST_FILE = 'manifest.json';
+
+// Used when the manifest cannot be fetched (no server, bad path), so the
+// viewer still boots with something on screen instead of an empty stage.
+const BUILTIN = {
+    id: 'o2tilt-classic',
+    name: 'O2-TILT Classic',
+    environment: { theme: 'light' },
+    objects: [{
+        type: 'o2tilt-frame',
+        params: { gap: 3, pan: 0, pitch: 0, decline: 0, fabric: true },
+        elements: []
+    }]
+};
+
+const THEMES = ['light', 'dark'];
+
+function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Pure: no fetch, no three. Returns a list of human-readable problems.
+// `types` is a Map of type -> { factory, params }.
+function validateDef(def, types) {
+    const errs = [];
+    if (!isPlainObject(def)) return ['definition must be a JSON object'];
+
+    if (typeof def.id !== 'string' || !def.id) errs.push('missing "id"');
+    if (typeof def.name !== 'string' || !def.name) errs.push('missing "name"');
+
+    if (def.environment !== undefined) {
+        if (!isPlainObject(def.environment)) errs.push('"environment" must be an object');
+        else if (def.environment.theme !== undefined && !THEMES.includes(def.environment.theme)) {
+            errs.push(`environment.theme must be one of ${THEMES.join(', ')}`);
+        }
+    }
+
+    if (!Array.isArray(def.objects) || def.objects.length === 0) {
+        errs.push('"objects" must be a non-empty array');
+        return errs;
+    }
+
+    def.objects.forEach((o, i) => {
+        const at = `objects[${i}]`;
+        if (!isPlainObject(o)) { errs.push(`${at} must be an object`); return; }
+        if (typeof o.type !== 'string' || !o.type) { errs.push(`${at}.type must be a string`); return; }
+
+        const reg = types ? types.get(o.type) : null;
+        if (types && !reg) { errs.push(`${at}.type "${o.type}" is not registered`); return; }
+        if (!reg) return;
+
+        const params = o.params === undefined ? {} : o.params;
+        if (!isPlainObject(params)) { errs.push(`${at}.params must be an object`); return; }
+
+        const schema = reg.params || {};
+        for (const [k, v] of Object.entries(params)) {
+            const p = schema[k];
+            if (!p) { errs.push(`${at}.params: unknown "${k}"`); continue; }
+            if (p.type === 'range') {
+                if (typeof v !== 'number' || !Number.isFinite(v)) {
+                    errs.push(`${at}.params.${k} must be a number`);
+                } else if (v < p.min || v > p.max) {
+                    errs.push(`${at}.params.${k}=${v} outside [${p.min}, ${p.max}]`);
+                }
+            } else if (p.type === 'toggle') {
+                if (typeof v !== 'boolean') errs.push(`${at}.params.${k} must be true or false`);
+            }
+        }
+
+        if (o.elements !== undefined && !Array.isArray(o.elements)) {
+            errs.push(`${at}.elements must be an array`);
+        }
+    });
+
+    return errs;
+}
+
+class Registry {
+    constructor(base = './models') {
+        this.base = String(base).replace(/\/+$/, '');
+        this.types = new Map();
+        this.entries = [];
+        this.defs = new Map();
+        this.source = 'builtin';
+    }
+
+    register(type, factory, params = {}) {
+        this.types.set(type, { factory, params });
+        return this;
+    }
+
+    get list() {
+        if (this.entries.length) return this.entries;
+        return [{ id: BUILTIN.id, name: BUILTIN.name, file: null, tags: ['builtin'] }];
+    }
+
+    // 'builtin' until a manifest has been fetched successfully.
+    get manifestSource() { return this.source; }
+
+    async loadManifest() {
+        const url = `${this.base}/${MANIFEST_FILE}`;
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+
+        let data;
+        try { data = await res.json(); }
+        catch (e) { throw new Error(`${MANIFEST_FILE} is not valid JSON: ${e.message}`); }
+
+        if (!isPlainObject(data) || !Array.isArray(data.models)) {
+            throw new Error(`${MANIFEST_FILE} needs a "models" array`);
+        }
+        if (!data.models.length) throw new Error(`${MANIFEST_FILE} lists no models`);
+
+        const seen = new Set();
+        const entries = data.models.map((m, i) => {
+            if (!isPlainObject(m)) throw new Error(`models[${i}] must be an object`);
+            const id = typeof m.id === 'string' ? m.id : '';
+            const file = typeof m.file === 'string' ? m.file : '';
+            if (!id) throw new Error(`models[${i}] needs an "id"`);
+            if (!file) throw new Error(`models[${i}] needs a "file"`);
+            if (seen.has(id)) throw new Error(`duplicate model id "${id}"`);
+            if (file.includes('..') || file.startsWith('/') || file.includes(':')) {
+                throw new Error(`models[${i}].file must stay inside the models folder`);
+            }
+            seen.add(id);
+            return {
+                id,
+                name: typeof m.name === 'string' && m.name ? m.name : id,
+                file,
+                tags: Array.isArray(m.tags) ? m.tags.map(String) : []
+            };
+        });
+
+        this.entries = entries;
+        this.defs.clear();
+        this.source = 'manifest';
+        return entries;
+    }
+
+    async load(id) {
+        const cached = this.defs.get(id);
+        if (cached) return cached;
+
+        let def;
+        if (this.source !== 'manifest' && id === BUILTIN.id) {
+            def = BUILTIN;
+        } else {
+            const entry = this.entries.find(e => e.id === id);
+            if (!entry) throw new Error(`unknown model id "${id}"`);
+
+            const url = `${this.base}/${entry.file}`;
+            const res = await fetch(url, { cache: 'no-cache' });
+            if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+            try { def = await res.json(); }
+            catch (e) { throw new Error(`${entry.file} is not valid JSON: ${e.message}`); }
+        }
+
+        const errs = validateDef(def, this.types);
+        if (errs.length) throw new Error(`${id}: ${errs.join('; ')}`);
+
+        this.defs.set(id, def);
+        return def;
+    }
+
+    // Turns a definition into live models. Returns both, because the viewer
+    // and the environment (theme) are separate concerns.
+    async instantiate(def) {
+        const errs = validateDef(def, this.types);
+        if (errs.length) throw new Error(`${def && def.id}: ${errs.join('; ')}`);
+
+        const models = [];
+        for (const [i, o] of def.objects.entries()) {
+            const model = this.types.get(o.type).factory(o.params || {});
+            model.id = def.id;
+            model.name = def.name;
+            model.objectIndex = i;
+            model.def = def;
+            models.push(model);
+        }
+        return { models, environment: def.environment || {} };
+    }
+}
+
+// ---- js/objects/o2tilt.js ----
+const MODEL_ID = 'o2tilt';
+const MODEL_NAME = 'O2-TILT Frame';
+const MODEL_SUBTITLE = 'Modular Control';
+
+const POLE_MAX_HEIGHT = 8.0;
+const RAIL_LENGTH = 12.0;
+const WAVE_AMP = 1.0;
+const RAIL_RADIUS = 0.12;
+const POLE_RADIUS = 0.08;
+const FABRIC_RES_X = 300;
+const FABRIC_RES_Y = 8;
+const POLE_COUNT = 4;
+const MAX_DROP = 5.0;
+const PLEAT_FREQ = 30;
+const PLEAT_DEPTH = 0.12;
+const ANCHOR_RAIL_SAMPLES = 24;
+
+const PARAMS = {
+    gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 6,   step: 0.1, value: 3,  unit: ' ft' },
+    pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: 0, max: 90,  step: 1,   value: 0,  unit: '°' },
+    pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 20,  step: 1,   value: 0,  unit: '°' },
+    decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
+    fabric:  { label: 'Curtains',          type: 'toggle', value: false }
+};
+
+const MODEL_THEME = {
+    light: { fabric: 0xffffff, fabricEnv: 0.15, metalEnv: 1.0 },
+    dark:  { fabric: 0xd4d4d8, fabricEnv: 0.08, metalEnv: 0.4 }
+};
+
+function createBaseFrame(bMat) {
+    const group = new THREE.Group();
+    const w = 1.6, d = 1.6, thick = 0.12, h = 0.12;
+
+    const mark = m => { m.castShadow = true; m.receiveShadow = true; return m; };
+
+    // 1. Square base frame
+    const geoX = new THREE.BoxGeometry(w, h, thick);
+    const geoZ = new THREE.BoxGeometry(thick, h, d - thick * 2);
+
+    const b1 = new THREE.Mesh(geoX, bMat); b1.position.set(0, h / 2, d / 2 - thick / 2);
+    const b2 = new THREE.Mesh(geoX, bMat); b2.position.set(0, h / 2, -d / 2 + thick / 2);
+    const b3 = new THREE.Mesh(geoZ, bMat); b3.position.set(w / 2 - thick / 2, h / 2, 0);
+    const b4 = new THREE.Mesh(geoZ, bMat); b4.position.set(-w / 2 + thick / 2, h / 2, 0);
+    [b1, b2, b3, b4].forEach(m => group.add(mark(m)));
+
+    // 2. Pole base plate + collar (the pole foot the braces anchor into)
+    const PLATE_R = 0.30, PLATE_H = 0.10;
+    const COLLAR_R = 0.14, COLLAR_TOP = 0.66;
+    const plate = mark(new THREE.Mesh(
+        new THREE.CylinderGeometry(PLATE_R, PLATE_R, PLATE_H, 24), bMat));
+    plate.position.y = PLATE_H / 2;
+    const collar = mark(new THREE.Mesh(
+        new THREE.CylinderGeometry(COLLAR_R, COLLAR_R, COLLAR_TOP - PLATE_H, 24), bMat));
+    collar.position.y = (PLATE_H + COLLAR_TOP) / 2;
+    group.add(plate, collar);
+
+    // 3. Four diagonal braces, each embedded at BOTH ends
+    const a = new THREE.Vector3(0.06, 0.58, 0);
+    const b = new THREE.Vector3(w / 2 - thick / 2, h / 2, 0);
+    const dir = b.clone().sub(a);
+    const gLen = dir.length();
+    const braceGeo = new THREE.CylinderGeometry(0.045, 0.045, gLen, 8);
+    braceGeo.translate(0, gLen / 2, 0);
+    const braceQ = new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0), dir.normalize());
+
+    for (let i = 0; i < 4; i++) {
+        const holder = new THREE.Group();
+        const g = mark(new THREE.Mesh(braceGeo, bMat));
+        g.position.copy(a);
+        g.quaternion.copy(braceQ);
+        holder.add(g);
+        holder.rotation.y = (Math.PI / 2) * i;
+        group.add(holder);
+    }
+    return group;
+}
+
+function getStructuralPoints(state, isRight, segments) {
+    const pts = [];
+    const panRad = state.pan * (Math.PI / 180);
+    const pitchRad = state.pitch * (Math.PI / 180);
+    const halfGap = state.gap / 2.0;
+
+    const sinP = Math.sin(pitchRad), cosP = Math.cos(pitchRad);
+    const sinA = Math.sin(panRad),   cosA = Math.cos(panRad);
+
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+
+        const localX = t * RAIL_LENGTH;
+        const wave = Math.sin(t * Math.PI * 6) * WAVE_AMP;
+
+        // Decline: a pure vertical drop, independent of pitch.
+        const dropY = -t * (state.decline / 100) * MAX_DROP;
+
+        // Pitch: roll the serpentine about the rail's own X axis. Poles sit
+        // where wave === 0, so their heights are unaffected by pitch.
+        const pitchedY = -wave * sinP;
+        const pitchedZ =  wave * cosP;
+
+        // Pan: yaw the whole rail about Y, anchored at the centre gap
+        const panX = localX * cosA + pitchedZ * sinA;
+        const panZ = -localX * sinA + pitchedZ * cosA;
+
+        let wX = halfGap + panX;
+        let wY = POLE_MAX_HEIGHT + dropY + pitchedY;
+        let wZ = panZ;
+
+        if (!isRight) wX = -wX;
+
+        pts.push(new THREE.Vector3(wX, wY, wZ));
+    }
+    return pts;
+}
+
+function generateFabricGeometry(curvePts, isRight) {
+    const cols = FABRIC_RES_X, rows = FABRIC_RES_Y;
+    const verts = [], uvs = [], indices = [];
+    const rowStride = rows + 1;
+
+    for (let i = 0; i <= cols; i++) {
+        const t = i / cols;
+        const pt = curvePts[i];
+
+        let tan = new THREE.Vector3();
+        if (i < cols) tan.subVectors(curvePts[i + 1], pt);
+        else tan.subVectors(pt, curvePts[i - 1]);
+        tan.y = 0;
+        if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
+        tan.normalize();
+
+        const normal = new THREE.Vector3(-tan.z, 0, tan.x);
+        if (!isRight) normal.negate();
+
+        const phase = t * Math.PI * 2 * PLEAT_FREQ;
+
+        for (let j = 0; j <= rows; j++) {
+            const v = j / rows;
+            const y = THREE.MathUtils.lerp(pt.y - RAIL_RADIUS, 0, v);
+            const amp = PLEAT_DEPTH * (0.55 + 0.45 * v);
+            const off = Math.sin(phase) * amp;
+            verts.push(pt.x + normal.x * off, y, pt.z + normal.z * off);
+            uvs.push(t, 1 - v);
+        }
+    }
+
+    for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+            const a = i * rowStride + j;
+            const b = a + 1;
+            const c = (i + 1) * rowStride + j;
+            const d = c + 1;
+            indices.push(a, b, d);
+            indices.push(a, d, c);
+        }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+}
+
+function createO2TiltModel(initial = {}) {
+    const root = new THREE.Group();
+    root.name = MODEL_ID;
+
+    const matRail = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.6, roughness: 0.3 });
+    const matPole = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, roughness: 0.4 });
+    const matBase = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.7, roughness: 0.2 });
+    const matFabric = new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.9, metalness: 0.1,
+        side: THREE.DoubleSide, envMapIntensity: 0.15
+    });
+
+    const state = {};
+    for (const k of Object.keys(PARAMS)) state[k] = PARAMS[k].value;
+    Object.assign(state, initial);
+
+    const polesL = [], polesR = [], basesL = [], basesR = [];
+    for (let i = 0; i < POLE_COUNT; i++) {
+        for (const [pArr, bArr] of [[polesL, basesL], [polesR, basesR]]) {
+            const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, 1, 16), matPole);
+            pole.geometry.translate(0, 0.5, 0);
+            pole.castShadow = true;
+            const base = createBaseFrame(matBase);
+            root.add(pole, base);
+            pArr.push(pole);
+            bArr.push(base);
+        }
+    }
+
+    let railL = null, railR = null, fabricL = null, fabricR = null;
+    let anchors = [];
+    let anchorsStale = true;
+
+    function release(mesh) {
+        if (!mesh) return;
+        root.remove(mesh);
+        mesh.geometry.dispose();
+    }
+
+    function build() {
+        const ptsL = getStructuralPoints(state, false, FABRIC_RES_X);
+        const ptsR = getStructuralPoints(state, true, FABRIC_RES_X);
+
+        for (let i = 0; i < POLE_COUNT; i++) {
+            const idx = Math.floor((i / (POLE_COUNT - 1)) * FABRIC_RES_X);
+
+            const pR = ptsR[idx];
+            polesR[i].position.set(pR.x, 0, pR.z);
+            polesR[i].scale.set(1, Math.max(0.1, pR.y), 1);
+            basesR[i].position.set(pR.x, 0, pR.z);
+            basesR[i].rotation.y = state.pan * (Math.PI / 180);
+
+            const pL = ptsL[idx];
+            polesL[i].position.set(pL.x, 0, pL.z);
+            polesL[i].scale.set(1, Math.max(0.1, pL.y), 1);
+            basesL[i].position.set(pL.x, 0, pL.z);
+            basesL[i].rotation.y = -state.pan * (Math.PI / 180);
+        }
+
+        release(railR); release(railL); railR = railL = null;
+        const rCurv = new THREE.CatmullRomCurve3(ptsR);
+        const lCurv = new THREE.CatmullRomCurve3(ptsL);
+        rCurv.arcLengthDivisions = lCurv.arcLengthDivisions = Math.max(200, FABRIC_RES_X);
+        railR = new THREE.Mesh(new THREE.TubeGeometry(rCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
+        railL = new THREE.Mesh(new THREE.TubeGeometry(lCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
+        railR.castShadow = railL.castShadow = true;
+        root.add(railR, railL);
+
+        release(fabricR); release(fabricL); fabricR = fabricL = null;
+        if (state.fabric) {
+            fabricR = new THREE.Mesh(generateFabricGeometry(ptsR, true), matFabric);
+            fabricL = new THREE.Mesh(generateFabricGeometry(ptsL, false), matFabric);
+            fabricR.castShadow = fabricL.castShadow = true;
+            root.add(fabricR, fabricL);
+        }
+
+        anchorsStale = true;
+        model.dirty = false;
+    }
+
+    // Anchors are where ELEMENTS (curtain, flowers, balloons) may attach.
+    // kind: 'rail'  - along the serpentine rail, with tangent + outward normal
+    //       'pole'  - top of each pole
+    //       'base'  - floor plate of each base
+    function getAnchors() {
+        if (!anchorsStale) return anchors;
+        anchors = [];
+
+        for (const side of [false, true]) {
+            const pts = getStructuralPoints(state, side, ANCHOR_RAIL_SAMPLES);
+            for (let i = 0; i < pts.length; i++) {
+                const prv = pts[Math.max(i - 1, 0)];
+                const nxt = pts[Math.min(i + 1, pts.length - 1)];
+                const tangent = nxt.clone().sub(prv).normalize();
+                const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
+                if (!side) normal.negate();
+                anchors.push({
+                    id: `rail-${side ? 'R' : 'L'}-${i}`,
+                    kind: 'rail',
+                    side: side ? 'R' : 'L',
+                    position: pts[i].clone(),
+                    tangent,
+                    normal
+                });
+            }
+        }
+
+        for (const [tag, pArr, bArr] of [['L', polesL, basesL], ['R', polesR, basesR]]) {
+            for (let i = 0; i < pArr.length; i++) {
+                anchors.push({
+                    id: `pole-${tag}-${i}`,
+                    kind: 'pole',
+                    side: tag,
+                    position: new THREE.Vector3(pArr[i].position.x, pArr[i].scale.y, pArr[i].position.z),
+                    tangent: new THREE.Vector3(0, 1, 0),
+                    normal: new THREE.Vector3(1, 0, 0)
+                });
+                anchors.push({
+                    id: `base-${tag}-${i}`,
+                    kind: 'base',
+                    side: tag,
+                    position: bArr[i].position.clone(),
+                    tangent: new THREE.Vector3(1, 0, 0),
+                    normal: new THREE.Vector3(0, 1, 0)
+                });
+            }
+        }
+
+        anchorsStale = false;
+        return anchors;
+    }
+
+    function setTheme(isDark) {
+        const t = isDark ? MODEL_THEME.dark : MODEL_THEME.light;
+        matFabric.color.setHex(t.fabric);
+        matFabric.envMapIntensity = t.fabricEnv;
+        matRail.envMapIntensity = t.metalEnv;
+        matPole.envMapIntensity = t.metalEnv;
+        matBase.envMapIntensity = t.metalEnv;
+    }
+
+    function dispose() {
+        release(railL); release(railR); release(fabricL); release(fabricR);
+        railL = railR = fabricL = fabricR = null;
+        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.clear();
+        [matRail, matPole, matBase, matFabric].forEach(m => m.dispose());
+        anchors = [];
+    }
+
+    const model = {
+        id: MODEL_ID,
+        name: MODEL_NAME,
+        subtitle: MODEL_SUBTITLE,
+        object3D: root,
+        params: PARAMS,
+        state,
+        dirty: true,
+        build,
+        getAnchors,
+        setTheme,
+        setParams(partial) { Object.assign(state, partial); model.dirty = true; },
+        dispose
+    };
+
+    build();
+    return model;
+}
+
+// ---- js/viewer.js ----
+const FLOOR_SIZE = 200;
+const GRID_CELLS = 100;
+
+const THEME = {
+    light: { bg: 0xf3f4f6, ambient: 0.8, key: 1.5, floorEnv: 0.1 },
+    dark:  { bg: 0x18181b, ambient: 0.4, key: 2.0, floorEnv: 0.05 }
+};
+
+const FRAME_DIR = new THREE.Vector3(0, 4, -25).normalize();
+
+const FALLBACK_BOUNDS =
+    new THREE.Box3(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, 9, 6));
+
+// The grid is baked into the floor texture instead of drawn as separate lines.
+// LineBasicMaterial cannot receive shadows, so standalone lines stayed bright
+// inside a shadow and glared against the darkened floor.
+function makeFloorTexture(base, line, anisotropy) {
+    const S = 64;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = base;
+    g.fillRect(0, 0, S, S);
+    g.strokeStyle = line;
+    g.lineWidth = 3;
+    g.strokeRect(0, 0, S, S);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(GRID_CELLS, GRID_CELLS);
+    tex.anisotropy = anisotropy;
+    return tex;
+}
+
+function failBoot(message) {
+    if (window.__bootFail) clearTimeout(window.__bootFail);
+    const box = document.getElementById('boot');
+    const msg = document.getElementById('boot-msg');
+    if (msg) msg.textContent = message;
+    if (box) box.classList.add('failed');
+}
+
+// Fit `bounds` into the viewport along the fixed view bearing. Deriving the
+// distance from the real bounds and the current aspect keeps the whole scene
+// visible on portrait phones, where a fixed camera position crops it badly.
+function frameCamera(camera, controls, bounds) {
+    const center = bounds.getCenter(new THREE.Vector3());
+    const half = bounds.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+
+    const zAxis = FRAME_DIR.clone();
+    const xAxis = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), zAxis).normalize();
+    const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+    const extent = v => Math.abs(v.x) * half.x + Math.abs(v.y) * half.y + Math.abs(v.z) * half.z;
+
+    const vHalf = THREE.MathUtils.degToRad(camera.fov) / 2;
+    const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+    const dist = Math.max(extent(xAxis) / Math.tan(hHalf),
+                          extent(yAxis) / Math.tan(vHalf))
+               + extent(zAxis);
+
+    controls.target.copy(center);
+    camera.position.copy(center).addScaledVector(FRAME_DIR, dist * 1.12);
+    camera.updateProjectionMatrix();
+    controls.update();
+}
+
+class Viewer {
+    constructor(container) {
+        this.container = container;
+        this.models = [];
+        this.isDark = false;
+        this.onFirstRender = null;
+        this._booted = false;
+        this._framedAspect = window.innerWidth / window.innerHeight;
+
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(THEME.light.bg);
+
+        this.camera = new THREE.PerspectiveCamera(
+            45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera.position.set(0, 8, -25);
+
+        let renderer;
+        try {
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+        } catch (err) {
+            failBoot('WebGL is not available in this browser');
+            throw err;
+        }
+        this.renderer = renderer;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Image based lighting, otherwise metalness reads as flat black
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        const roomEnv = new RoomEnvironment(renderer);
+        this.scene.environment = pmrem.fromScene(roomEnv, 0.04).texture;
+        roomEnv.dispose();
+        pmrem.dispose();
+
+        this.controls = new OrbitControls(this.camera, renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.05;
+        this.controls.target.set(0, 4, 0);
+        this.controls.maxPolarAngle = Math.PI / 2 - 0.05;
+
+        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        this.scene.add(this.ambientLight);
+
+        this.mainLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        this.mainLight.position.set(15, 25, -20);
+        this.mainLight.castShadow = true;
+        this.mainLight.shadow.mapSize.width = 2048;
+        this.mainLight.shadow.mapSize.height = 2048;
+        this.mainLight.shadow.camera.left = -20;
+        this.mainLight.shadow.camera.right = 20;
+        this.mainLight.shadow.camera.top = 20;
+        this.mainLight.shadow.camera.bottom = -20;
+        this.scene.add(this.mainLight);
+
+        this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        this.fillLight.position.set(-15, 10, 20);
+        this.scene.add(this.fillLight);
+
+        const aniso = renderer.capabilities.getMaxAnisotropy();
+        this.floorTex = {
+            light: makeFloorTexture('#e5e7eb', '#c7ccd3', aniso),
+            dark:  makeFloorTexture('#27272a', '#46464e', aniso)
+        };
+        this.matFloor = new THREE.MeshStandardMaterial({
+            color: 0xffffff, roughness: 1, envMapIntensity: 0.1, map: this.floorTex.light
+        });
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), this.matFloor);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        this.scene.add(floor);
+
+        this._onResize = () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            // Ignore the URL bar showing/hiding; reframe on real aspect changes
+            if (Math.abs(this.camera.aspect - this._framedAspect) > this._framedAspect * 0.3) {
+                this._framedAspect = this.camera.aspect;
+                this.frameScene();
+            }
+        };
+        window.addEventListener('resize', this._onResize);
+
+        this._raf = 0;
+        this._tick = () => {
+            this._raf = requestAnimationFrame(this._tick);
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+
+            if (!this._booted) {
+                this._booted = true;
+                if (window.__bootFail) clearTimeout(window.__bootFail);
+                const boot = document.getElementById('boot');
+                if (boot) {
+                    boot.classList.add('hidden');
+                    setTimeout(() => boot.remove(), 500);
+                }
+                if (this.onFirstRender) this.onFirstRender();
+            }
+        };
+    }
+
+    addModel(model) {
+        this.scene.add(model.object3D);
+        this.models.push(model);
+        if (model.setTheme) model.setTheme(this.isDark);
+        this.frameScene();
+        return model;
+    }
+
+    removeModel(model) {
+        const i = this.models.indexOf(model);
+        if (i < 0) return false;
+        this.models.splice(i, 1);
+        this.scene.remove(model.object3D);
+        if (model.dispose) model.dispose();
+        this.frameScene();
+        return true;
+    }
+
+    clearModels() {
+        while (this.models.length) this.removeModel(this.models[0]);
+    }
+
+    setTheme(isDark) {
+        this.isDark = isDark;
+        const t = isDark ? THEME.dark : THEME.light;
+
+        document.documentElement.classList.toggle('dark', isDark);
+        this.scene.background.setHex(t.bg);
+        this.matFloor.map = this.floorTex[isDark ? 'dark' : 'light'];
+        this.matFloor.envMapIntensity = t.floorEnv;
+        this.ambientLight.intensity = t.ambient;
+        this.mainLight.intensity = t.key;
+
+        for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
+    }
+
+    computeBounds() {
+        const box = new THREE.Box3();
+        const tmp = new THREE.Box3();
+        for (const m of this.models) {
+            if (!m.object3D) continue;
+            tmp.setFromObject(m.object3D);
+            if (!tmp.isEmpty()) box.union(tmp);
+        }
+        if (box.isEmpty()) return FALLBACK_BOUNDS.clone();
+        return box;
+    }
+
+    frameScene(bounds = this.computeBounds()) {
+        frameCamera(this.camera, this.controls, bounds);
+    }
+
+    start() {
+        if (!this._raf) this._tick();
+    }
+
+    stop() {
+        if (this._raf) cancelAnimationFrame(this._raf);
+        this._raf = 0;
+    }
+
+    dispose() {
+        this.stop();
+        window.removeEventListener('resize', this._onResize);
+        this.clearModels();
+        this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        [this.matFloor].forEach(m => m.dispose());
+        this.renderer.dispose();
+        if (this.renderer.domElement.parentNode) {
+            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+        }
+    }
+}
+
+// ---- js/panel.js ----
+const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
+const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
+const CHECK_CLS = 'custom-checkbox';
+const FIELD_CLS = 'w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 '
+    + 'dark:border-zinc-600 bg-white/70 dark:bg-zinc-800/70 '
+    + 'text-gray-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-sky-400';
+
+const fmt = (value, unit) =>
+    (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
+
+function blockShell(key, label) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-4';
+    const head = document.createElement('div');
+    head.className = 'flex justify-between text-xs mb-1';
+    const labelEl = document.createElement('label');
+    labelEl.className = LABEL_CLS;
+    labelEl.textContent = label;
+    labelEl.htmlFor = `param-${key}`;
+    const value = document.createElement('span');
+    value.className = VALUE_CLS;
+    value.id = `val-${key}`;
+    head.append(labelEl, value);
+    wrap.append(head);
+    return { wrap, value };
+}
+
+function rangeBlock(key, p, current) {
+    const { wrap, value } = blockShell(key, p.label);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `param-${key}`;
+    input.min = p.min;
+    input.max = p.max;
+    input.step = p.step;
+    input.value = current;
+    value.textContent = fmt(current, p.unit);
+    wrap.appendChild(input);
+    return { wrap, input, value };
+}
+
+function toggleBlock(key, p, current) {
+    const wrap = document.createElement('label');
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = `param-${key}`;
+    input.className = CHECK_CLS;
+    input.checked = !!current;
+    const span = document.createElement('span');
+    span.className = 'font-medium tracking-wide';
+    span.textContent = p.label;
+    wrap.append(input, span);
+    return { wrap, input };
+}
+
+function themeBlock(isDark, onChange) {
+    const wrap = document.createElement('label');
+    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors w-1/2';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = 'toggle-theme';
+    input.className = CHECK_CLS;
+    input.checked = isDark;
+    input.addEventListener('change', e => onChange(e.target.checked));
+    const span = document.createElement('span');
+    span.className = 'font-medium tracking-wide';
+    span.textContent = 'Dark Mode';
+    wrap.append(input, span);
+    return { wrap, input };
+}
+
+// The controls bar is generated from the active model's parameter schema, so
+// the viewer never hard-codes a specific model's sliders. Switching models
+// re-renders the param blocks in place and leaves the selector intact.
+function createPanel(opts) {
+    const {
+        body, model, catalog = [], activeId,
+        onSelect, onParamsChange, onThemeChange, themeIsDark = false
+    } = opts;
+
+    const titleEl = document.getElementById('model-name');
+    const subEl = document.getElementById('model-sub');
+
+    let current = model;
+    let rows = {};
+    let select = null;
+    let themeInput = null;
+
+    body.textContent = '';
+
+    if (catalog.length > 1) {
+        const shell = blockShell('model', 'Model');
+        shell.value.remove();
+        select = document.createElement('select');
+        select.id = 'param-model';
+        select.className = FIELD_CLS;
+        for (const entry of catalog) {
+            const opt = document.createElement('option');
+            opt.value = entry.id;
+            opt.textContent = entry.name;
+            select.appendChild(opt);
+        }
+        select.value = activeId || (catalog[0] && catalog[0].id);
+        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
+        shell.wrap.appendChild(select);
+        body.appendChild(shell.wrap);
+    }
+
+    const msg = document.createElement('p');
+    msg.id = 'panel-msg';
+    msg.className = 'hidden mb-3 text-[11px] leading-snug text-red-600 dark:text-red-400';
+    body.appendChild(msg);
+
+    const host = document.createElement('div');
+    body.appendChild(host);
+
+    function render() {
+        host.textContent = '';
+        rows = {};
+        if (titleEl) titleEl.textContent = current.name;
+        if (subEl) subEl.textContent = current.subtitle || '';
+
+        const toggles = [];
+        for (const [key, p] of Object.entries(current.params)) {
+            if (p.type === 'range') {
+                const built = rangeBlock(key, p, current.state[key]);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    built.value.textContent = fmt(v, p.unit);
+                    onParamsChange && onParamsChange({ [key]: v });
+                });
+                rows[key] = built;
+                host.appendChild(built.wrap);
+            } else if (p.type === 'toggle') {
+                const built = toggleBlock(key, p, current.state[key]);
+                built.input.addEventListener('change', e => {
+                    onParamsChange && onParamsChange({ [key]: e.target.checked });
+                });
+                rows[key] = built;
+                toggles.push(built.wrap);
+            }
+        }
+
+        const footer = document.createElement('div');
+        footer.className = 'flex gap-4 pt-4 border-t border-gray-200 dark:border-zinc-700';
+        toggles.forEach(t => footer.appendChild(t));
+        const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
+        themeInput = theme.input;
+        footer.appendChild(theme.wrap);
+        host.appendChild(footer);
+    }
+
+    // Live viewer theme, so a model-driven theme switch and the
+    // prefers-color-scheme default both show the right checkbox state.
+    let liveTheme = themeIsDark;
+
+    render();
+
+    return {
+        get model() { return current; },
+        setModel(m) { current = m; render(); },
+        setActive(id) { if (select) select.value = id; },
+        setBusy(busy) { if (select) select.disabled = busy; },
+        setError(text) {
+            msg.textContent = text || '';
+            msg.classList.toggle('hidden', !text);
+        },
+        setTheme(isDark) {
+            liveTheme = isDark;
+            if (themeInput) themeInput.checked = isDark;
+        },
+        sync() {
+            for (const [key, r] of Object.entries(rows)) {
+                const v = current.state[key];
+                if (r.value) r.value.textContent = fmt(v, current.params[key].unit);
+                if (r.input.type === 'checkbox') r.input.checked = !!v;
+                else r.input.value = v;
+            }
+        }
+    };
+}
+
+// ---- js/app.js ----
+const container = document.getElementById('canvas-container');
+const panelBody = document.getElementById('panel-body');
+
+let viewer;
+try {
+    viewer = new Viewer(container);
+} catch (err) {
+    console.error(err);
+    throw err;
+}
+
+const registry = new Registry('./models');
+registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
+
+// Mounted models. Stage 3.2 mounts several at once; everything below already
+// iterates `models[]` instead of assuming a single instance.
+let models = [];
+let panel = null;
+let activeId = null;
+let rebuildQueued = false;
+
+function scheduleRebuild() {
+    if (rebuildQueued) return;
+    rebuildQueued = true;
+    requestAnimationFrame(() => {
+        rebuildQueued = false;
+        for (const m of models) if (m.dirty && m.build) m.build();
+    });
+}
+
+async function activate(id) {
+    if (panel) { panel.setBusy(true); panel.setError(''); }
+    try {
+        const def = await registry.load(id);
+        const { models: next, environment } = await registry.instantiate(def);
+
+        viewer.clearModels();
+        models = next;
+        for (const m of models) viewer.addModel(m);
+        activeId = id;
+
+        if (environment.theme) {
+            const dark = environment.theme === 'dark';
+            viewer.setTheme(dark);
+            if (panel) panel.setTheme(dark);
+        }
+        if (panel) { panel.setModel(models[0]); panel.setActive(id); }
+        return models;
+    } catch (err) {
+        console.error('[registry]', err);
+        if (panel) panel.setError(err.message || String(err));
+        throw err;
+    } finally {
+        if (panel) panel.setBusy(false);
+    }
+}
+
+const prefersDark = document.documentElement.classList.contains('dark');
+viewer.setTheme(prefersDark);
+
+// Without a server the manifest cannot be fetched; the registry then serves
+// its built-in definition so the viewer still comes up.
+let manifestError = '';
+await registry.loadManifest().catch(err => {
+    manifestError = err.message;
+    console.warn('[registry] manifest not loaded, using the built-in model:', err);
+});
+
+const firstEntry = registry.list[0];
+await activate(firstEntry.id);
+
+panel = createPanel({
+    body: panelBody,
+    model: models[0],
+    catalog: registry.list,
+    activeId,
+    themeIsDark: viewer.isDark,
+    onSelect: id => activate(id),
+    onParamsChange: partial => {
+        const target = panel ? panel.model : models[0];
+        if (!target) return;
+        target.setParams(partial);
+        scheduleRebuild();
+    },
+    onThemeChange: isDark => {
+        viewer.setTheme(isDark);
+        if (panel) panel.setTheme(isDark);
+    }
+});
+
+if (manifestError) {
+    panel.setError(`models/manifest.json could not be loaded (${manifestError}). `
+        + 'Serve this folder over HTTP to load model presets.');
+}
+
+let minimized = false;
+document.getElementById('btn-minimize').addEventListener('click', () => {
+    minimized = !minimized;
+    panelBody.classList.toggle('collapsed', minimized);
+    document.getElementById('icon-collapse').style.display = minimized ? 'none' : 'block';
+    document.getElementById('icon-expand').style.display = minimized ? 'block' : 'none';
+});
+
+viewer.start();
+
+window.O2 = {
+    viewer, panel, registry, activate, scheduleRebuild,
+    get models() { return models; },
+    get activeId() { return activeId; }
+};
+    </script>
+</body>
+</html>

@@ -90,6 +90,18 @@
             document.documentElement.classList.add('dark');
         }
     </script>
+    <script>
+        // External ES modules cannot be loaded from file:// or content:// (no
+        // CORS), so when the page is opened directly from a file manager, hand
+        // off to the single-file build instead of failing on js/app.js.
+        (function () {
+            if (/^https?:$/.test(location.protocol)) return;
+            if (/TILT\.standalone\.html$/.test(location.pathname)) return;
+            try {
+                location.replace(new URL('TILT.standalone.html', location.href).href);
+            } catch (e) { /* the boot overlay reports the module failure */ }
+        })();
+    </script>
 </head>
 <body class="bg-gray-100 transition-colors duration-300">
 
