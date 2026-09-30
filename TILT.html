@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>O2-TILT Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: {} }
+        }
+    </script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+        
+        .ui-panel {
+            position: absolute; top: 1rem; left: 1rem; z-index: 10;
+            width: 320px; border-radius: 0.75rem;
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            max-width: calc(100vw - 2rem);
+        }
+        .dark .ui-panel { box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+        .panel-body { 
+            padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
+            max-height: min(600px, calc(100vh - 7rem)); overflow-y: auto; overflow-x: hidden; 
+        }
+        .panel-body.collapsed { 
+            max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
+            overflow: hidden;
+        }
+        
+        .btn-minimize {
+            width: 28px; height: 28px; border-radius: 6px; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; margin: 8px 0; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-runnable-track { 
+            width: 100%; height: 6px; cursor: pointer; border-radius: 3px; 
+            background: #cbd5e1; 
+        }
+        .dark input[type=range]::-webkit-slider-runnable-track { background: #52525b; }
+        
+        input[type=range]::-webkit-slider-thumb { 
+            height: 16px; width: 16px; border-radius: 50%; background: #0284c7; 
+            cursor: pointer; -webkit-appearance: none; margin-top: -5px; 
+            box-shadow: 0 0 6px rgba(2,132,199,0.5);
+            transition: transform 0.1s;
+        }
+        .dark input[type=range]::-webkit-slider-thumb { background: #38bdf8; }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
+        
+        .custom-checkbox { width: 1.25rem; height: 1.25rem; cursor: pointer; accent-color: #0ea5e9; }
+
+        #boot {
+            position: fixed; inset: 0; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+            background: #f3f4f6; color: #4b5563;
+            font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+            transition: opacity 0.4s ease;
+        }
+        .dark #boot { background: #18181b; color: #a1a1aa; }
+        #boot.hidden { opacity: 0; pointer-events: none; }
+        .boot-spinner {
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 3px solid #cbd5e1; border-top-color: #0284c7;
+            animation: bootspin 0.8s linear infinite;
+        }
+        .dark .boot-spinner { border-color: #3f3f46; border-top-color: #38bdf8; }
+        #boot.failed .boot-spinner { animation: none; border-top-color: #ef4444; }
+        @keyframes bootspin { to { transform: rotate(360deg); } }
+    </style>
+    
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script>
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
+</head>
+<body class="bg-gray-100 transition-colors duration-300">
+
+    <div id="boot">
+        <div class="boot-spinner"></div>
+        <p id="boot-msg">Loading viewer</p>
+    </div>
+    <script>
+        (function () {
+            function fail(msg) {
+                if (window.__bootFail) clearTimeout(window.__bootFail);
+                var b = document.getElementById('boot');
+                var m = document.getElementById('boot-msg');
+                if (m) m.textContent = msg;
+                if (b) b.classList.add('failed');
+            }
+            window.__bootFail = setTimeout(function () {
+                fail('Could not load Three.js - check your connection');
+            }, 12000);
+
+            // Local modules only load over http:// - catch it instead of
+            // leaving the spinner up forever.
+            window.addEventListener('error', function (e) {
+                var src = (e.target && (e.target.src || e.target.href)) || '';
+                if (e.target && e.target !== window && (src || e.message)) {
+                    fail(e.message || 'Failed to load ' + src);
+                }
+            }, true);
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e.reason;
+                fail((r && r.message) || 'Failed to start the viewer');
+            });
+        })();
+    </script>
+
+    <div class="ui-panel bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-gray-200 dark:border-zinc-700" id="ui-panel">
+        <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-zinc-700">
+            <div>
+                <h1 class="text-base font-bold text-sky-600 dark:text-sky-400 tracking-wide leading-tight" id="model-name">Model</h1>
+                <p class="text-[10px] text-gray-500 dark:text-zinc-400 uppercase tracking-widest leading-tight" id="model-sub">&nbsp;</p>
+            </div>
+            <button class="btn-minimize bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border border-gray-300 dark:border-zinc-600" id="btn-minimize" aria-label="Toggle UI">
+                <svg id="icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path></svg>
+                <svg id="icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+        </div>
+
+        <div class="panel-body text-gray-800 dark:text-zinc-200" id="panel-body"></div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module" src="./js/app.js"></script>
+</body>
+</html>
