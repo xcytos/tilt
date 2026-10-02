@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>TILT</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./home/home.css">
+    <script>
+        // Theme before first paint, and shared with the editor through the
+        // same key so the two pages never disagree about dark mode.
+        (function () {
+            var saved = null;
+            try { saved = localStorage.getItem('o2tilt-theme'); } catch (e) { /* private mode */ }
+            var dark = saved ? saved === 'dark'
+                : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (dark) document.documentElement.classList.add('dark');
+        })();
+    </script>
+    <script>
+        // Live reload, same contract as TILT.html: tools/serve.mjs pushes an
+        // event whenever js/, models/, home/ or either shell changes.
+        (function () {
+            if (!/^https?:$/.test(location.protocol)) return;
+            try {
+                var es = new EventSource('/__events');
+                es.onmessage = function (e) {
+                    if (e.data === 'reload') location.reload();
+                };
+                es.onerror = function () { if (es.readyState === 2) es.close(); };
+            } catch (e) { /* served by something else - no reload */ }
+        })();
+    </script>
+</head>
+<body>
+
+<header class="app-bar">
+    <div class="bar">
+        <a class="wordmark" href="./">TILT</a>
+
+        <div class="search" id="search" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <input id="search-input" type="search" placeholder="Search projects" aria-label="Search projects" autocomplete="off">
+            <button class="icon-btn" id="search-close" type="button" aria-label="Close search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <div class="bar-actions" id="bar-actions">
+            <button class="icon-btn" id="btn-search" type="button" aria-label="Search projects">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            </button>
+            <button class="icon-btn" id="btn-theme" type="button" aria-label="Switch theme">
+                <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+                <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"></path></svg>
+            </button>
+            <button class="icon-btn" id="btn-import" type="button" aria-label="Import a project file">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <button class="hero" id="hero" type="button">
+        <span class="hero-plus" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+        </span>
+        <span class="hero-text">
+            <strong>New project</strong>
+            <small>A fresh curtain rig, ready to tune</small>
+        </span>
+        <span class="hero-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg>
+        </span>
+    </button>
+
+    <div class="toolbar" id="toolbar" hidden>
+        <div class="chips" id="chips">
+            <button class="chip is-on" type="button" data-order="recent">Recent</button>
+            <button class="chip" type="button" data-order="oldest">Oldest</button>
+            <button class="chip" type="button" data-order="name">Name</button>
+        </div>
+        <p class="count" id="count"></p>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="empty" id="empty" hidden>
+        <div class="empty-art" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"></rect><rect x="13" y="4" width="8" height="7" rx="1.5"></rect><rect x="3" y="13" width="8" height="7" rx="1.5"></rect><rect x="13" y="13" width="8" height="7" rx="1.5"></rect></svg>
+        </div>
+        <h2 id="empty-title">No projects yet</h2>
+        <p id="empty-text">Create your first one and it will show up here.</p>
+        <button class="btn btn-primary" id="empty-action" type="button">Create project</button>
+    </div>
+
+    <div class="notice" id="notice" hidden>
+        <h2>Projects live on the server</h2>
+        <p>This page needs to run over http so it can reach the local project
+            database. Start <code>bash serve.sh</code> and reload, or open the
+            single-file viewer with your last session.</p>
+        <a class="btn btn-primary" href="./TILT.standalone.html">Open the viewer</a>
+    </div>
+</main>
+
+<button class="fab" id="fab" type="button" aria-label="New project">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+</button>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="panel" id="panel" hidden role="dialog" aria-modal="true" aria-labelledby="panel-title"></div>
+
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="file" accept="application/json,.json" hidden>
+
+<script src="./home/home.js"></script>
+</body>
+</html>

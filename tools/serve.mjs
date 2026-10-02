@@ -11,10 +11,10 @@ const PORT = Number(process.env.PORT || 8080);
 const PROJECT_FILE = path.join(ROOT, 'project.json');
 const MAX_BODY = 128 * 1024;
 
-// Anything that feeds the bundle or the shell triggers a browser reload.
-// project.json and data/ are deliberately absent: saving a project must not
-// reload the page.
-const WATCHED = ['js', 'js/objects', 'models', 'TILT.html'];
+// Anything that feeds the bundle, the homepage or either shell triggers a
+// browser reload. project.json and data/ are deliberately absent: saving a
+// project must not reload the page.
+const WATCHED = ['js', 'js/objects', 'models', 'home', 'TILT.html', 'index.html'];
 
 // The database is state, not an asset. Neither it nor the repo's own
 // metadata may be downloaded through this server.
