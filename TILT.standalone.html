@@ -13,10 +13,10 @@
     </script>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; overflow: hidden; }
         
         .ui-panel {
-            position: absolute; top: calc(4.2rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
+            position: absolute; top: calc(3.4rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
             width: 320px; border-radius: 0.75rem;
             display: flex; flex-direction: column; overflow: hidden;
             transition: all 0.3s ease;
@@ -27,7 +27,8 @@
 
         .panel-body { 
             padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
-            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden; 
+            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden;
+            overscroll-behavior: contain; scrollbar-width: thin;
         }
         .panel-body.collapsed { 
             max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
@@ -38,8 +39,8 @@
         #topbar {
             position: fixed; top: 0; left: 0; right: 0; z-index: 30;
             display: flex; align-items: center; gap: 0.15rem;
-            padding: 0.35rem 0.45rem;
-            padding-top: calc(0.35rem + env(safe-area-inset-top));
+            padding: 0.15rem 0.35rem;
+            padding-top: calc(0.15rem + env(safe-area-inset-top));
             background: rgba(255,255,255,0.8);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid rgba(15,23,42,0.10);
@@ -77,8 +78,13 @@
         #save-status[data-state="note"] { color: #059669; }
         .dark #save-status { color: #a1a1aa; }
 
+        /* Fixed to the viewport, not to the bar: editor.js pins `top` to the
+           measured bottom of the bar each time it opens, and this is the
+           fallback for that (bar = 44px buttons + 2x0.15rem padding + 1px
+           border + notch inset). */
         #overflow {
-            position: absolute; top: calc(100% + 4px); right: 0.45rem; z-index: 31;
+            position: fixed; top: calc(49.8px + env(safe-area-inset-top) + 4px);
+            right: 0.45rem; z-index: 31;
             min-width: 196px; padding: 0.3rem; border-radius: 12px;
             background: #fff; border: 1px solid rgba(15,23,42,0.12);
             box-shadow: 0 14px 34px rgba(0,0,0,0.24);
@@ -128,10 +134,12 @@
         .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
         .sheet-actions .btn.primary:active { background: #0369a1; }
 
-        /* ---- phones: the control panel becomes a bottom sheet ----
+        /* ---- phones: the controls become a compact bottom sheet ----
            A 320px card pinned top-left is unusable on a 375px screen and it
            sits exactly where a thumb wants to be, so below 640px the same
-           markup docks to the bottom and leaves the canvas above it. */
+           markup docks to the bottom. app.js measures it and shrinks the
+           canvas to whatever is left, so opening the controls minifies the
+           view instead of covering it. */
         @media (max-width: 640px) {
             .ui-panel {
                 top: auto; bottom: 0; left: 0; right: 0;
@@ -141,10 +149,39 @@
                 box-shadow: 0 -12px 32px rgba(0,0,0,0.22);
             }
             .dark .ui-panel { box-shadow: 0 -12px 32px rgba(0,0,0,0.55); }
-            .panel-body { max-height: min(52vh, calc(100vh - 9rem)); }
+
+            /* grab handle, the way every sheet on a phone has one */
+            .ui-panel::before {
+                content: ''; flex: none;
+                width: 42px; height: 4px; border-radius: 999px;
+                background: rgba(100,116,139,0.5);
+                margin: 7px auto 0;
+            }
+
+            /* compact header */
+            .ui-panel > .flex { min-height: 44px; padding: 0.45rem 0.6rem; }
+            .ui-panel > .flex h1 { font-size: 14px; }
+
+            /* compact controls: tighter rhythm, shorter fields, same markup */
+            .panel-body {
+                padding: 0.65rem 0.75rem 0.85rem;
+                max-height: min(48vh, calc(100vh - 8rem));
+            }
+            .panel-body .mb-1 { margin-bottom: 0.15rem; }
+            .panel-body .mb-2 { margin-bottom: 0.35rem; }
+            .panel-body .mb-3 { margin-bottom: 0.5rem; }
+            .panel-body .mt-1 { margin-top: 0.25rem; }
+            .panel-body .pt-1 { padding-top: 0.25rem; }
+            .panel-body .pt-3 { padding-top: 0.5rem; }
+            .panel-body .gap-2 { gap: 0.45rem; }
+            .panel-body .gap-4 { gap: 0.65rem; }
+            .panel-body .text-xs { font-size: 11px; }
+            .panel-body .text-sm { font-size: 12.5px; }
+            .panel-body .flex-1 { min-height: 38px; }
+            .panel-body select { min-height: 38px; }
+            .panel-body .ml-auto { min-height: 36px; padding: 0 0.7rem; }
+            .panel-body input[type=range] { margin: 9px 0; }
             .panel-body.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; }
-            /* A collapsed sheet must not leave a dead strip over the canvas. */
-            .ui-panel .flex { min-height: 44px; }
         }
 
         /* ---- fingers: everything tappable gets a 44px target ---- */
@@ -266,8 +303,13 @@
         <button type="button" class="tb-btn" id="btn-overflow" aria-label="Project menu" aria-haspopup="menu" aria-expanded="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>
         </button>
-        <div id="overflow" role="menu" hidden></div>
     </header>
+    <!-- The menu is deliberately NOT a child of #topbar: that bar carries a
+         backdrop-filter, which per spec makes it a containing block for its
+         positioned descendants, and the popup then resolves against the bar
+         instead of the viewport. Living on <body> it can only ever be fixed
+         to the screen. -->
+    <div id="overflow" role="menu" hidden></div>
     <script>
         (function () {
             function fail(msg) {
@@ -1347,7 +1389,8 @@ class Viewer {
             throw err;
         }
         this.renderer = renderer;
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        this.resize();
+        this._framedAspect = this.camera.aspect;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1397,17 +1440,24 @@ class Viewer {
         floor.receiveShadow = true;
         this.scene.add(floor);
 
+        // The canvas fills its container, not the window: on a phone the
+        // control sheet takes the bottom of the screen and the render target
+        // has to follow it. Window events still drive the reframe, since only
+        // a real window change should re-aim the camera.
         this._onResize = () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-            // Ignore the URL bar showing/hiding; reframe on real aspect changes
-            if (Math.abs(this.camera.aspect - this._framedAspect) > this._framedAspect * 0.3) {
-                this._framedAspect = this.camera.aspect;
+            const aspect = this.resize();
+            if (Math.abs(aspect - this._framedAspect) > this._framedAspect * 0.3) {
+                this._framedAspect = aspect;
                 this.frameScene();
             }
         };
         window.addEventListener('resize', this._onResize);
+
+        this._watchBox = null;
+        if (typeof ResizeObserver === 'function') {
+            this._watchBox = new ResizeObserver(() => this.resize());
+            this._watchBox.observe(container);
+        }
 
         this._raf = 0;
         this._tick = () => {
@@ -1462,6 +1512,19 @@ class Viewer {
         this.mainLight.intensity = t.key;
 
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
+    }
+
+    // Match the camera and the drawing buffer to whatever box the canvas
+    // currently occupies. Never reframes: the sheet opening and closing must
+    // not throw the camera back to its default aim.
+    resize() {
+        const w = this.container.clientWidth || window.innerWidth;
+        const h = this.container.clientHeight || window.innerHeight;
+        if (!w || !h) return this.camera.aspect;
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+        return this.camera.aspect;
     }
 
     // World bounds of a set of models, before any overlay offset is applied.
@@ -1571,6 +1634,7 @@ class Viewer {
     dispose() {
         this.stop();
         window.removeEventListener('resize', this._onResize);
+        if (this._watchBox) this._watchBox.disconnect();
         this.clearModels();
         this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         [this.matFloor].forEach(m => m.dispose());
@@ -2023,8 +2087,15 @@ function createEditor(opts) {
     const statusEl = document.getElementById('save-status');
     const menuEl = document.getElementById('overflow');
 
-    // An older shell without the bar must not break the editor.
+    // An older shell without the bar must not break the editor - but the
+    // silent fallback is worth a shout in the console, because a missing id
+    // here means the ⋮ button has no listener at all.
     if (!bar || !back || !more || !titleBtn || !nameEl || !statusEl || !menuEl) {
+        const missing = { topbar: bar, 'btn-back': back, 'btn-overflow': more,
+            'project-title': titleBtn, 'project-name': nameEl,
+            'save-status': statusEl, overflow: menuEl };
+        console.error('[editor] bar controls missing from the shell:',
+            Object.keys(missing).filter(k => !missing[k]).join(', '));
         return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
     }
 
@@ -2102,6 +2173,10 @@ function createEditor(opts) {
             btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
             menuEl.appendChild(btn);
         }
+        // The popup is fixed to the screen, so pin it to the bar's real
+        // bottom rather than trusting a CSS guess at the bar's height.
+        const barBottom = bar.getBoundingClientRect().bottom;
+        if (barBottom) menuEl.style.top = `${Math.round(barBottom + 4)}px`;
         menuEl.hidden = false;
         menuOpen = true;
         more.setAttribute('aria-expanded', 'true');
@@ -2227,6 +2302,7 @@ function createEditor(opts) {
 // ---- js/app.js ----
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
+const panelEl = document.getElementById('ui-panel');
 const overHttp = /^https?:$/.test(location.protocol);
 
 let viewer;
@@ -2325,6 +2401,20 @@ function scheduleSave() {
         saveTimer = 0;
         void commit();
     }, 500);
+}
+
+// On a phone the controls dock to the bottom, so the view gives up exactly
+// the space the sheet is using - open it and the canvas shrinks above it,
+// collapse it and the canvas grows back. Measuring the sheet rather than
+// guessing a vh keeps the two boxes flush while it animates, and on a
+// desktop the panel simply overlays the scene as before.
+function syncSheet() {
+    if (!panelEl || !container) return;
+    const phone = window.matchMedia('(max-width: 640px)').matches;
+    const sheet = phone ? Math.round(panelEl.getBoundingClientRect().height) : 0;
+    container.style.height = sheet > 0
+        ? `${Math.max(0, window.innerHeight - sheet)}px`
+        : '';
 }
 
 // Display order always follows the manifest, not the order ticks were clicked.
@@ -2631,6 +2721,14 @@ panel = createPanel({
     },
     onReset: guard(() => resetProject())
 });
+
+// The sheet changes height whenever the panel repaints or collapses: keep the
+// canvas in step, and the viewer's own observer re-fits the drawing buffer.
+if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => syncSheet()).observe(panelEl);
+}
+window.addEventListener('resize', syncSheet);
+syncSheet();
 
 if (startupError) {
     panel.setError(startupError);

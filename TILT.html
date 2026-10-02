@@ -13,10 +13,10 @@
     </script>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; overflow: hidden; }
         
         .ui-panel {
-            position: absolute; top: calc(4.2rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
+            position: absolute; top: calc(3.4rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
             width: 320px; border-radius: 0.75rem;
             display: flex; flex-direction: column; overflow: hidden;
             transition: all 0.3s ease;
@@ -27,7 +27,8 @@
 
         .panel-body { 
             padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
-            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden; 
+            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden;
+            overscroll-behavior: contain; scrollbar-width: thin;
         }
         .panel-body.collapsed { 
             max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
@@ -38,8 +39,8 @@
         #topbar {
             position: fixed; top: 0; left: 0; right: 0; z-index: 30;
             display: flex; align-items: center; gap: 0.15rem;
-            padding: 0.35rem 0.45rem;
-            padding-top: calc(0.35rem + env(safe-area-inset-top));
+            padding: 0.15rem 0.35rem;
+            padding-top: calc(0.15rem + env(safe-area-inset-top));
             background: rgba(255,255,255,0.8);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid rgba(15,23,42,0.10);
@@ -77,8 +78,13 @@
         #save-status[data-state="note"] { color: #059669; }
         .dark #save-status { color: #a1a1aa; }
 
+        /* Fixed to the viewport, not to the bar: editor.js pins `top` to the
+           measured bottom of the bar each time it opens, and this is the
+           fallback for that (bar = 44px buttons + 2x0.15rem padding + 1px
+           border + notch inset). */
         #overflow {
-            position: absolute; top: calc(100% + 4px); right: 0.45rem; z-index: 31;
+            position: fixed; top: calc(49.8px + env(safe-area-inset-top) + 4px);
+            right: 0.45rem; z-index: 31;
             min-width: 196px; padding: 0.3rem; border-radius: 12px;
             background: #fff; border: 1px solid rgba(15,23,42,0.12);
             box-shadow: 0 14px 34px rgba(0,0,0,0.24);
@@ -128,10 +134,12 @@
         .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
         .sheet-actions .btn.primary:active { background: #0369a1; }
 
-        /* ---- phones: the control panel becomes a bottom sheet ----
+        /* ---- phones: the controls become a compact bottom sheet ----
            A 320px card pinned top-left is unusable on a 375px screen and it
            sits exactly where a thumb wants to be, so below 640px the same
-           markup docks to the bottom and leaves the canvas above it. */
+           markup docks to the bottom. app.js measures it and shrinks the
+           canvas to whatever is left, so opening the controls minifies the
+           view instead of covering it. */
         @media (max-width: 640px) {
             .ui-panel {
                 top: auto; bottom: 0; left: 0; right: 0;
@@ -141,10 +149,39 @@
                 box-shadow: 0 -12px 32px rgba(0,0,0,0.22);
             }
             .dark .ui-panel { box-shadow: 0 -12px 32px rgba(0,0,0,0.55); }
-            .panel-body { max-height: min(52vh, calc(100vh - 9rem)); }
+
+            /* grab handle, the way every sheet on a phone has one */
+            .ui-panel::before {
+                content: ''; flex: none;
+                width: 42px; height: 4px; border-radius: 999px;
+                background: rgba(100,116,139,0.5);
+                margin: 7px auto 0;
+            }
+
+            /* compact header */
+            .ui-panel > .flex { min-height: 44px; padding: 0.45rem 0.6rem; }
+            .ui-panel > .flex h1 { font-size: 14px; }
+
+            /* compact controls: tighter rhythm, shorter fields, same markup */
+            .panel-body {
+                padding: 0.65rem 0.75rem 0.85rem;
+                max-height: min(48vh, calc(100vh - 8rem));
+            }
+            .panel-body .mb-1 { margin-bottom: 0.15rem; }
+            .panel-body .mb-2 { margin-bottom: 0.35rem; }
+            .panel-body .mb-3 { margin-bottom: 0.5rem; }
+            .panel-body .mt-1 { margin-top: 0.25rem; }
+            .panel-body .pt-1 { padding-top: 0.25rem; }
+            .panel-body .pt-3 { padding-top: 0.5rem; }
+            .panel-body .gap-2 { gap: 0.45rem; }
+            .panel-body .gap-4 { gap: 0.65rem; }
+            .panel-body .text-xs { font-size: 11px; }
+            .panel-body .text-sm { font-size: 12.5px; }
+            .panel-body .flex-1 { min-height: 38px; }
+            .panel-body select { min-height: 38px; }
+            .panel-body .ml-auto { min-height: 36px; padding: 0 0.7rem; }
+            .panel-body input[type=range] { margin: 9px 0; }
             .panel-body.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; }
-            /* A collapsed sheet must not leave a dead strip over the canvas. */
-            .ui-panel .flex { min-height: 44px; }
         }
 
         /* ---- fingers: everything tappable gets a 44px target ---- */
@@ -266,8 +303,13 @@
         <button type="button" class="tb-btn" id="btn-overflow" aria-label="Project menu" aria-haspopup="menu" aria-expanded="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>
         </button>
-        <div id="overflow" role="menu" hidden></div>
     </header>
+    <!-- The menu is deliberately NOT a child of #topbar: that bar carries a
+         backdrop-filter, which per spec makes it a containing block for its
+         positioned descendants, and the popup then resolves against the bar
+         instead of the viewport. Living on <body> it can only ever be fixed
+         to the screen. -->
+    <div id="overflow" role="menu" hidden></div>
     <script>
         (function () {
             function fail(msg) {

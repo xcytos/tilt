@@ -11,6 +11,7 @@ import {
 
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
+const panelEl = document.getElementById('ui-panel');
 const overHttp = /^https?:$/.test(location.protocol);
 
 let viewer;
@@ -109,6 +110,20 @@ function scheduleSave() {
         saveTimer = 0;
         void commit();
     }, 500);
+}
+
+// On a phone the controls dock to the bottom, so the view gives up exactly
+// the space the sheet is using - open it and the canvas shrinks above it,
+// collapse it and the canvas grows back. Measuring the sheet rather than
+// guessing a vh keeps the two boxes flush while it animates, and on a
+// desktop the panel simply overlays the scene as before.
+function syncSheet() {
+    if (!panelEl || !container) return;
+    const phone = window.matchMedia('(max-width: 640px)').matches;
+    const sheet = phone ? Math.round(panelEl.getBoundingClientRect().height) : 0;
+    container.style.height = sheet > 0
+        ? `${Math.max(0, window.innerHeight - sheet)}px`
+        : '';
 }
 
 // Display order always follows the manifest, not the order ticks were clicked.
@@ -415,6 +430,14 @@ panel = createPanel({
     },
     onReset: guard(() => resetProject())
 });
+
+// The sheet changes height whenever the panel repaints or collapses: keep the
+// canvas in step, and the viewer's own observer re-fits the drawing buffer.
+if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => syncSheet()).observe(panelEl);
+}
+window.addEventListener('resize', syncSheet);
+syncSheet();
 
 if (startupError) {
     panel.setError(startupError);

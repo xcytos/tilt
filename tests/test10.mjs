@@ -135,9 +135,21 @@ check('the bar clears the notch', /#topbar \{[^}]*env\(safe-area-inset-top\)/.te
 check('the bar buttons are 44px tap targets',
   /\.tb-btn \{[^}]*min-height: 44px/.test(shell) && /#project-title \{[^}]*min-height: 44px/.test(shell));
 check('the control panel moves below the bar',
-  /\.ui-panel \{[^}]*top: calc\(4\.2rem \+ env\(safe-area-inset-top\)\)/.test(shell));
+  /\.ui-panel \{[^}]*top: calc\([\d.]+rem \+ env\(safe-area-inset-top\)\)/.test(shell));
 check('the menu and the name sheet are styled without a CDN import',
   /#overflow \{/.test(shell) && /#sheet \{/.test(shell));
+// The bar carries a backdrop-filter, which per spec makes it a containing
+// block for positioned descendants - a popup inside it resolves against the
+// bar instead of the viewport and lands where nobody can see it.
+check('the popup sits beside the bar, not inside it',
+  shell.indexOf('id="overflow"') > shell.indexOf('</header>'));
+check('...and is pinned to the screen',
+  /#overflow \{[^}]*position: fixed;/.test(shell)
+  && /#overflow \{[^}]*env\(safe-area-inset-top\)/.test(shell));
+check('...at the bar\'s measured bottom, every time it opens',
+  /getBoundingClientRect\(\)\.bottom/.test(editorSrc));
+check('a missing control is reported instead of silently dropped',
+  /bar controls missing from the shell/.test(editorSrc));
 
 console.log('\neditor: what the app does with a project');
 check('the app creates the bar', /import \{ createEditor \} from '\.\/editor\.js'/.test(appSrc)
@@ -197,6 +209,22 @@ check('a restored view is written straight through, without damping',
   && /this\.controls\.target, state\.target/.test(viewerSrc)
   && /this\.controls\.update\(\);/.test(viewerSrc));
 
+console.log('\neditor: the view gives up space for the sheet');
+check('the drawing buffer follows the canvas box, not the window',
+  /resize\(\) \{/.test(viewerSrc) && /clientWidth/.test(viewerSrc)
+  && /this\.renderer\.setSize\(w, h\)/.test(viewerSrc));
+check('...and the box is watched, so it re-fits as the sheet moves',
+  /new ResizeObserver\(\(\) => this\.resize\(\)\)/.test(viewerSrc)
+  && /_watchBox\.disconnect\(\)/.test(viewerSrc));
+check('the sheet height is measured instead of guessed',
+  /function syncSheet\(\)/.test(appSrc) && /innerHeight - sheet/.test(appSrc)
+  && /getElementById\('ui-panel'\)/.test(appSrc));
+check('the canvas follows every change of the sheet',
+  /new ResizeObserver\(\(\) => syncSheet\(\)\)/.test(appSrc)
+  && /addEventListener\('resize', syncSheet\)/.test(appSrc));
+check('the container clips the canvas it owns',
+  /#canvas-container \{[^}]*overflow: hidden/.test(shell));
+
 console.log('\neditor: it rides along in the bundle');
 const order = /export const ORDER = \[([^\]]*)\]/.exec(buildSrc);
 const orderList = order ? order[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [];
@@ -223,7 +251,10 @@ if (sheet) {
     /\.ui-panel \{[^}]*border-radius: 16px 16px 0 0;/.test(m));
   check('the sheet clears the home indicator', /env\(safe-area-inset-bottom\)/.test(m));
   check('the sheet cannot swallow the canvas',
-    /\.panel-body \{ max-height: min\(52vh,/.test(m));
+    /\.panel-body \{[^}]*max-height: min\([\d.]+vh,/.test(m));
+  check('...and it gives up exactly the space the sheet takes',
+    /\.ui-panel::before/.test(m) && /app\.js measures it/.test(shell)
+    && /\.panel-body \.flex-1 \{ min-height: 38px; \}/.test(m));
   check('the canvas keeps the top bar clear',
     /#topbar \{[^}]*position: fixed;/.test(shell));
 }

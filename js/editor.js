@@ -17,8 +17,15 @@ export function createEditor(opts) {
     const statusEl = document.getElementById('save-status');
     const menuEl = document.getElementById('overflow');
 
-    // An older shell without the bar must not break the editor.
+    // An older shell without the bar must not break the editor - but the
+    // silent fallback is worth a shout in the console, because a missing id
+    // here means the ⋮ button has no listener at all.
     if (!bar || !back || !more || !titleBtn || !nameEl || !statusEl || !menuEl) {
+        const missing = { topbar: bar, 'btn-back': back, 'btn-overflow': more,
+            'project-title': titleBtn, 'project-name': nameEl,
+            'save-status': statusEl, overflow: menuEl };
+        console.error('[editor] bar controls missing from the shell:',
+            Object.keys(missing).filter(k => !missing[k]).join(', '));
         return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
     }
 
@@ -96,6 +103,10 @@ export function createEditor(opts) {
             btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
             menuEl.appendChild(btn);
         }
+        // The popup is fixed to the screen, so pin it to the bar's real
+        // bottom rather than trusting a CSS guess at the bar's height.
+        const barBottom = bar.getBoundingClientRect().bottom;
+        if (barBottom) menuEl.style.top = `${Math.round(barBottom + 4)}px`;
         menuEl.hidden = false;
         menuOpen = true;
         more.setAttribute('aria-expanded', 'true');

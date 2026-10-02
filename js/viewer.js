@@ -113,7 +113,8 @@ export class Viewer {
             throw err;
         }
         this.renderer = renderer;
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        this.resize();
+        this._framedAspect = this.camera.aspect;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -163,17 +164,24 @@ export class Viewer {
         floor.receiveShadow = true;
         this.scene.add(floor);
 
+        // The canvas fills its container, not the window: on a phone the
+        // control sheet takes the bottom of the screen and the render target
+        // has to follow it. Window events still drive the reframe, since only
+        // a real window change should re-aim the camera.
         this._onResize = () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-            // Ignore the URL bar showing/hiding; reframe on real aspect changes
-            if (Math.abs(this.camera.aspect - this._framedAspect) > this._framedAspect * 0.3) {
-                this._framedAspect = this.camera.aspect;
+            const aspect = this.resize();
+            if (Math.abs(aspect - this._framedAspect) > this._framedAspect * 0.3) {
+                this._framedAspect = aspect;
                 this.frameScene();
             }
         };
         window.addEventListener('resize', this._onResize);
+
+        this._watchBox = null;
+        if (typeof ResizeObserver === 'function') {
+            this._watchBox = new ResizeObserver(() => this.resize());
+            this._watchBox.observe(container);
+        }
 
         this._raf = 0;
         this._tick = () => {
@@ -228,6 +236,19 @@ export class Viewer {
         this.mainLight.intensity = t.key;
 
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
+    }
+
+    // Match the camera and the drawing buffer to whatever box the canvas
+    // currently occupies. Never reframes: the sheet opening and closing must
+    // not throw the camera back to its default aim.
+    resize() {
+        const w = this.container.clientWidth || window.innerWidth;
+        const h = this.container.clientHeight || window.innerHeight;
+        if (!w || !h) return this.camera.aspect;
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+        return this.camera.aspect;
     }
 
     // World bounds of a set of models, before any overlay offset is applied.
@@ -337,6 +358,7 @@ export class Viewer {
     dispose() {
         this.stop();
         window.removeEventListener('resize', this._onResize);
+        if (this._watchBox) this._watchBox.disconnect();
         this.clearModels();
         this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         [this.matFloor].forEach(m => m.dispose());
