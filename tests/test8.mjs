@@ -278,7 +278,8 @@ check('app reads the project module',
 check('app keeps a per-preset store of saved values',
   /const savedPresets = \{\};/.test(app));
 check('app writes on a debounce, not on every drag', /function scheduleSave\(\)/.test(app)
-  && /setTimeout\(\(\) => \{/.test(app) && /saveProject\(\{/.test(app));
+  && /setTimeout\(\(\) => \{/.test(app) && /void commit\(\);/.test(app)
+  && /async function commit\(\)[\s\S]{0,400}saveProject\(/.test(app));
 check('boot restores the project before the first sync',
   /await loadProject\(\)/.test(app)
   && app.indexOf('await loadProject()') < app.indexOf('await syncScene()'));

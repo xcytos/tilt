@@ -1,11 +1,17 @@
 import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
+import { createEditor } from './editor.js';
 import { Registry } from './registry.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
-import { loadProject, saveProject, clearProject, applySaved } from './project.js';
+import {
+    loadProject, saveProject, clearProject, applySaved, projectToJSON,
+    projectId, loadNotice, flushProject, renameProject, createProject,
+    duplicateProject
+} from './project.js';
 
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
+const overHttp = /^https?:$/.test(location.protocol);
 
 let viewer;
 try {
@@ -33,19 +39,75 @@ let rebuildQueued = false;
 // project file on a debounce so dragging a slider does not hammer the disk.
 const savedPresets = {};
 let saveTimer = 0;
+let projectName = '';
+let dirty = false;
+let thumbTimer = 0;
+let editor = null;
+
+// Everything the project file holds, read at save time so the camera is the
+// one you are actually looking at.
+function buildDoc() {
+    const view = viewer.getCameraState();
+    view.theme = viewer.isDark ? 'dark' : 'light';
+    return {
+        version: 2,
+        name: projectName,
+        mode,
+        activeId,
+        view,
+        mounted: orderIds(),
+        overlayIds: overlayIds.slice(),
+        presets: savedPresets
+    };
+}
+
+async function commit() {
+    dirty = false;
+    const ok = await saveProject(buildDoc());
+    if (editor) editor.setStatus(ok || !overHttp ? 'saved' : 'offline');
+    scheduleThumb();
+}
+
+function saveNow() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    return commit();
+}
+
+// The list needs a picture, but a live re-render on every slider drag would
+// be waste: upload once the user stops touching things.
+function scheduleThumb() {
+    if (!projectId() || !overHttp) return;
+    if (thumbTimer) clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(() => {
+        thumbTimer = 0;
+        void uploadThumb();
+    }, 5000);
+}
+
+async function uploadThumb() {
+    try {
+        const thumb = viewer.captureThumbnail();
+        const res = await fetch(`./api/projects/${projectId()}/thumb`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thumb })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (err) {
+        console.warn('[thumb]', err);
+    }
+}
 
 function scheduleSave() {
+    dirty = true;
+    if (editor) editor.setStatus('saving');
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
         saveTimer = 0;
-        saveProject({
-            version: 1,
-            mode,
-            activeId,
-            mounted: orderIds(),
-            overlayIds: overlayIds.slice(),
-            presets: savedPresets
-        }).catch(() => { /* offline: the localStorage mirror already has it */ });
+        void commit();
     }, 500);
 }
 
@@ -196,13 +258,19 @@ async function toggleOverlay(id, on) {
     return syncScene();
 }
 
-// Forget the project: wipe the file and the mirror, drop every saved control
-// value, and re-mount the default preset from its schema defaults.
+// Forget the project: reset the document to its defaults, drop every saved
+// control value, and re-mount the default preset from its schema defaults.
+// The name and the URL stay put - you are still in the same project.
 async function resetProject() {
     if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = 0;
     }
+    if (thumbTimer) {
+        clearTimeout(thumbTimer);
+        thumbTimer = 0;
+    }
+    dirty = false;
     for (const id of Object.keys(savedPresets)) delete savedPresets[id];
 
     mode = 'single';
@@ -217,6 +285,8 @@ async function resetProject() {
     }
 
     await clearProject();
+    if (editor) editor.setStatus('saved');
+    scheduleThumb();
     return syncScene(true);
 }
 
@@ -247,36 +317,56 @@ let startupError = '';
 mode = 'single';
 activeId = firstEntry.id;
 
-// Bring back last session: which presets were on stage and every control value
-// they were left at. Anything that is no longer in the catalogue is dropped.
+// Bring back last session: which presets were on stage, every control value
+// they were left at, and where the camera was. Anything that is no longer in
+// the catalogue is dropped.
 const knownIds = new Set(registry.list.map(e => e.id));
+let savedDoc = null;
 try {
-    const project = await loadProject();
-    if (project) {
-        for (const [id, values] of Object.entries(project.presets)) {
-            if (knownIds.has(id)) savedPresets[id] = values;
-        }
+    savedDoc = await loadProject();
+} catch (err) {
+    console.warn('[project] could not restore the project:', err);
+}
 
-        const picked = (project.overlayIds.length ? project.overlayIds : project.mounted)
-            .filter(id => knownIds.has(id));
-        if (project.mode === 'overlay' && picked.length) {
-            mode = 'overlay';
-            overlayIds = picked;
-            activeId = project.activeId && knownIds.has(project.activeId)
-                ? project.activeId
-                : picked[0];
-        } else if (project.mounted.length || project.activeId) {
-            const wanted = project.activeId && knownIds.has(project.activeId)
-                ? project.activeId
-                : project.mounted.find(id => knownIds.has(id));
-            if (wanted) {
-                mode = 'single';
-                activeId = wanted;
-            }
+let projectNotice = '';
+const loadState = loadNotice();
+if (loadState === 'missing') {
+    projectNotice = 'That project is no longer in the list, so you are editing '
+        + 'the local session instead. Use Save as project to keep it.';
+} else if (loadState === 'offline') {
+    projectNotice = 'That project could not be reached. Changes stay on this '
+        + 'device until the server is back.';
+}
+
+if (savedDoc) {
+    projectName = savedDoc.name || '';
+    // Applied before syncScene so a preset's own environment.theme can still
+    // override it, which is the rule the panel documents.
+    if (savedDoc.view && savedDoc.view.theme) {
+        viewer.setTheme(savedDoc.view.theme === 'dark');
+    }
+
+    for (const [id, values] of Object.entries(savedDoc.presets)) {
+        if (knownIds.has(id)) savedPresets[id] = values;
+    }
+
+    const picked = (savedDoc.overlayIds.length ? savedDoc.overlayIds : savedDoc.mounted)
+        .filter(id => knownIds.has(id));
+    if (savedDoc.mode === 'overlay' && picked.length) {
+        mode = 'overlay';
+        overlayIds = picked;
+        activeId = savedDoc.activeId && knownIds.has(savedDoc.activeId)
+            ? savedDoc.activeId
+            : picked[0];
+    } else if (savedDoc.mounted.length || savedDoc.activeId) {
+        const wanted = savedDoc.activeId && knownIds.has(savedDoc.activeId)
+            ? savedDoc.activeId
+            : savedDoc.mounted.find(id => knownIds.has(id));
+        if (wanted) {
+            mode = 'single';
+            activeId = wanted;
         }
     }
-} catch (err) {
-    console.warn('[project] could not restore the project file:', err);
 }
 
 try {
@@ -285,6 +375,9 @@ try {
     startupError = (err && err.message) || String(err);
     console.error('[scene]', err);
 }
+
+// syncScene framed the scene; only now may a saved camera win over the frame.
+if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
 const firstGroup = groups()[0];
 
@@ -325,6 +418,8 @@ panel = createPanel({
 
 if (startupError) {
     panel.setError(startupError);
+} else if (projectNotice) {
+    panel.setError(projectNotice);
 } else if (manifestError) {
     const openedFromFile = !/^https?:$/.test(location.protocol);
     panel.setError(openedFromFile
@@ -333,6 +428,72 @@ if (startupError) {
         : `models/manifest.json could not be loaded (${manifestError}). `
             + 'Serve this folder over HTTP to load model presets.');
 }
+
+// ------------------------------------------------------------- the project
+function exportDoc() {
+    const json = projectToJSON(buildDoc());
+    const a = document.createElement('a');
+    if (projectId() && overHttp) {
+        a.href = `./api/projects/${projectId()}/export`;
+    } else {
+        const blob = new Blob([json], { type: 'application/json' });
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(projectName || 'project').replace(/[^\w-]+/g, '-').toLowerCase()}.tilt.json`;
+    }
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (a.download) setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// Turn the local session into a named project. The document rides along in
+// the create call, and the URL follows so the next load finds it.
+async function saveAsProject() {
+    const created = await createProject(projectName || 'Untitled project', buildDoc());
+    if (editor) editor.flash('Saved as "' + created.name + '"');
+    location.replace(`./TILT.html?p=${encodeURIComponent(created.id)}`);
+}
+
+editor = createEditor({
+    hasProject: !!projectId(),
+    name: projectName || 'Untitled project',
+    onHome: () => { location.href = './'; },
+    onSave: () => { void saveNow(); },
+    onRename: async next => {
+        if (projectId()) {
+            try {
+                const payload = await renameProject(next);
+                projectName = payload.name || next;
+            } catch (err) {
+                console.warn('[project] rename failed:', err);
+                if (editor) editor.setStatus('offline');
+                return false;
+            }
+        } else {
+            projectName = next;
+        }
+        if (editor) editor.setName(projectName);
+        scheduleSave();
+        return true;
+    },
+    onDuplicate: () => duplicateProject(),
+    onExport: () => exportDoc(),
+    onSaveAs: () => saveAsProject(),
+    onReset: () => resetProject()
+});
+
+// The last write before the tab goes away; nothing else will save after this.
+window.addEventListener('pagehide', () => {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    if (thumbTimer) {
+        clearTimeout(thumbTimer);
+        thumbTimer = 0;
+    }
+    if (dirty) flushProject(buildDoc());
+});
 
 let minimized = false;
 document.getElementById('btn-minimize').addEventListener('click', () => {
@@ -345,12 +506,14 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 viewer.start();
 
 window.O2 = {
-    viewer, panel, registry, activate, setMode, toggleOverlay, syncScene, scheduleRebuild,
-    resetProject,
+    viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
+    scheduleRebuild, resetProject, saveNow, buildDoc,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
-    get savedPresets() { return savedPresets; }
+    get savedPresets() { return savedPresets; },
+    get projectId() { return projectId(); },
+    get projectName() { return projectName; }
 };

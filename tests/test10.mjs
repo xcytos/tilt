@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DECOR = path.resolve(HERE, '..');
@@ -114,7 +114,99 @@ check('reduced motion is respected', /prefers-reduced-motion/.test(homeCss));
 check('the grid reflows from one column upwards', /minmax\(152px, 1fr\)/.test(homeCss));
 check('the action sheet rises from the bottom', /slide-up/.test(homeCss));
 
-// --------------------------------------------------------------- 5. server
+// --------------------------------------------------------------- 5. editor
+console.log('\neditor: the project bar in TILT.html');
+const shell = read('TILT.html');
+const appSrc = read('js/app.js');
+const projSrc = read('js/project.js');
+const editorSrc = read('js/editor.js');
+const viewerSrc = read('js/viewer.js');
+
+check('the shell is branded TILT', /<title>TILT<\/title>/.test(shell));
+for (const id of ['topbar', 'btn-back', 'project-title', 'project-name',
+                  'save-status', 'btn-overflow', 'overflow']) {
+  check(`control #${id} exists`, shell.includes(`id="${id}"`));
+}
+check('icon-only buttons in the bar are labelled',
+  shell.includes('id="btn-back" aria-label="Back to projects"')
+  && shell.includes('id="btn-overflow" aria-label="Project menu"')
+  && shell.includes('id="project-title" aria-label="Rename project"'));
+check('the bar clears the notch', /#topbar \{[^}]*env\(safe-area-inset-top\)/.test(shell));
+check('the bar buttons are 44px tap targets',
+  /\.tb-btn \{[^}]*min-height: 44px/.test(shell) && /#project-title \{[^}]*min-height: 44px/.test(shell));
+check('the control panel moves below the bar',
+  /\.ui-panel \{[^}]*top: calc\(4\.2rem \+ env\(safe-area-inset-top\)\)/.test(shell));
+check('the menu and the name sheet are styled without a CDN import',
+  /#overflow \{/.test(shell) && /#sheet \{/.test(shell));
+
+console.log('\neditor: what the app does with a project');
+check('the app creates the bar', /import \{ createEditor \} from '\.\/editor\.js'/.test(appSrc)
+  && /editor = createEditor\(\{/.test(appSrc));
+check('every save carries the camera and the theme',
+  /function buildDoc\(\)/.test(appSrc) && /view\.theme = viewer\.isDark/.test(appSrc)
+  && /viewer\.getCameraState\(\)/.test(appSrc));
+check('the saved camera is restored only after the first framing',
+  appSrc.indexOf('await syncScene()') < appSrc.indexOf('viewer.setCameraState'),
+  `${appSrc.indexOf('await syncScene()')} vs ${appSrc.indexOf('viewer.setCameraState')}`);
+check('leaving the page flushes the last change',
+  /addEventListener\('pagehide'/.test(appSrc) && /flushProject\(buildDoc\(\)\)/.test(appSrc));
+check('the thumbnail is uploaded after the scene settles',
+  /viewer\.captureThumbnail\(\)/.test(appSrc) && /\/thumb`/.test(appSrc)
+  && /}, 5000\);/.test(appSrc));
+check('renaming goes through the API when a project is open',
+  /renameProject\(next\)/.test(appSrc) && /createProject\(/.test(appSrc)
+  && /duplicateProject\(\)/.test(appSrc));
+
+console.log('\neditor: project.js picks a target from the URL');
+check('?p= is read once, from location.search', /new URLSearchParams\(location\.search\)/.test(projSrc)
+  && /^let target = readTarget\(\);/m.test(projSrc));
+check('a named project is saved with PATCH, not POST',
+  /method: target \? 'PATCH' : 'POST'/.test(projSrc));
+check('the escape hatch uses keepalive, because sendBeacon cannot PATCH',
+  /keepalive: true/.test(projSrc) && !/navigator\.sendBeacon\(/.test(projSrc));
+check('a 404 detaches the target instead of failing forever',
+  /res\.status === 404/.test(projSrc) && /target = null;/.test(projSrc));
+check('reset keeps a named project and clears its document',
+  /method: target \? 'PATCH' : 'DELETE'/.test(projSrc)
+  && /JSON\.stringify\(\{ doc: \{\} \}\)/.test(projSrc));
+
+console.log('\neditor: the bar itself');
+check('the menu is built from one list',
+  /const MENU = \[/.test(editorSrc) && /act: 'saveas'/.test(editorSrc)
+  && /act: 'duplicate'/.test(editorSrc) && /hasProject \?/.test(editorSrc));
+check('renaming opens a name sheet', /function promptName\(/.test(editorSrc)
+  && /setName\(trimmed\)/.test(editorSrc));
+check('actions report failure instead of throwing',
+  /catch \(err\)/.test(editorSrc) && /flash\('Could not reach the server'\)/.test(editorSrc));
+check('the bar degrades to no-ops if the shell is older',
+  /return \{ setName\(\) \{\}, setStatus\(\) \{\}, flash\(\) \{\}, promptName: async \(\) => null \};/
+    .test(editorSrc));
+
+console.log('\neditor: the viewer can save and restore a view');
+for (const method of ['getCameraState', 'setCameraState', 'captureThumbnail']) {
+  check(`${method} exists`, new RegExp(`\\b${method}\\(`).test(viewerSrc));
+}
+check('the thumbnail is drawn in the same tick as the render',
+  /renderer\.render\(this\.scene, this\.camera\);\s*\n\s*const source = this\.renderer\.domElement/
+    .test(viewerSrc)
+  && /drawImage\(source, 0, 0, w, h\)/.test(viewerSrc));
+check('a restored view is written straight through, without damping',
+  /setCameraState\(state\) \{/.test(viewerSrc)
+  && /this\.controls\.target, state\.target/.test(viewerSrc)
+  && /this\.controls\.update\(\);/.test(viewerSrc));
+
+console.log('\neditor: it rides along in the bundle');
+const order = /export const ORDER = \[([^\]]*)\]/.exec(buildSrc);
+const orderList = order ? order[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [];
+check('js/editor.js is bundled', orderList.includes('js/editor.js'), orderList.join(', '));
+check('...before the module that uses it',
+  orderList.indexOf('js/editor.js') < orderList.indexOf('js/app.js'));
+const standalone = read('TILT.standalone.html');
+check('the standalone build carries the bar too',
+  standalone.includes('id="topbar"') && standalone.includes('createEditor')
+  && /<title>TILT<\/title>/.test(standalone));
+
+// ---------------------------------------------------------------- 6. server
 console.log('\nhomepage: served at /');
 const WATCHED = /const WATCHED = \[([^\]]*)\]/.exec(serveSrc);
 const watched = WATCHED ? WATCHED[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [];
@@ -153,17 +245,33 @@ child.stdout.on('data', d => { bootLog += d; });
 child.stderr.on('data', d => { bootLog += d; });
 child.on('error', err => { bootLog += 'spawn: ' + err.message; });
 const BASE = `http://127.0.0.1:${port}`;
+const nativeFetch = globalThis.fetch;
+
+// The editor writes the shared session file when no project is open; leave
+// the tree exactly as it was found.
+const PROJECT_PATH = path.join(DECOR, 'project.json');
+const hadProject = fs.existsSync(PROJECT_PATH);
+const projectBackup = hadProject ? fs.readFileSync(PROJECT_PATH) : null;
 
 const t0 = Date.now();
 try {
   let up = false;
+  let lastErr = '';
   const deadline = Date.now() + 15000;
   while (!up && Date.now() < deadline) {
-    try { up = (await fetch(BASE + '/index.html')).ok; } catch { /* not yet */ }
+    try {
+      const r = await fetch(BASE + '/index.html');
+      lastErr = 'status ' + r.status;
+      up = r.ok;
+    } catch (err) {
+      lastErr = (err.cause && err.cause.code) || err.message;
+    }
     if (!up) await sleep(100);
   }
+  const heard = /listening on (\S+)/.exec(bootLog);
   check('the server comes up', up,
-    `${Date.now() - t0}ms, exit=${child.exitCode}, log=${JSON.stringify(bootLog.slice(-300))}`);
+    `${Date.now() - t0}ms, port=${port}, bound=${heard && heard[1]}, ` +
+    `last=${lastErr}, exit=${child.exitCode}`);
 
   if (up) {
     const root = await fetch(BASE + '/');
@@ -191,8 +299,102 @@ try {
     // The homepage is useless without an API; prove the two are wired.
     const list = await (await fetch(BASE + '/api/projects')).json();
     check('the homepage can list projects', Array.isArray(list.projects));
+
+    // ---------------------------------------------------- the editor's I/O
+    console.log('\neditor: js/project.js against that same API');
+    const created = await (await fetch(BASE + '/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Editor round trip',
+        doc: { mode: 'overlay', activeId: 'o2tilt-arc', overlayIds: ['o2tilt-arc'] }
+      })
+    })).json();
+    check('a project can be created for the editor', !!created.id, JSON.stringify(created));
+
+    const loadModule = async i => import(
+      pathToFileURL(path.join(DECOR, 'js', 'project.js')).href + '?i=' + i);
+
+    // The module fetches './api/projects/...' the way a browser does; Node
+    // only accepts absolute URLs, so resolve the relative ones for it.
+    const realFetch = globalThis.fetch;
+    const siteFetch = (url, init) => realFetch(
+      /^https?:/.test(String(url)) ? String(url) : new URL(String(url), BASE).href,
+      init);
+    globalThis.fetch = siteFetch;
+    // ...and there is no browser storage here, which is what the mirror
+    // checks for. Remove the accessor so nothing reads it and warns.
+    delete globalThis.localStorage;
+    globalThis.location = { protocol: 'http:', search: '?p=' + created.id };
+    const named = await loadModule(1);
+    check('?p= selects the project to open', named.projectId() === created.id,
+      String(named.projectId()));
+
+    const opened = await named.loadProject();
+    check('the editor boots into that project',
+      !!opened && opened.mode === 'overlay' && opened.activeId === 'o2tilt-arc'
+      && opened.name === 'Editor round trip',
+      JSON.stringify(opened && { mode: opened.mode, activeId: opened.activeId }));
+
+    const wrote = await named.saveProject({
+      version: 2, name: 'Editor round trip', mode: 'single',
+      activeId: 'o2tilt-classic', mounted: ['o2tilt-classic'], overlayIds: [],
+      presets: { 'o2tilt-classic': { gap: 3 } }
+    });
+    check('an autosave reaches the database', wrote === true, String(wrote));
+    const afterSave = await (await fetch(BASE + '/api/projects/' + created.id)).json();
+    check('...and the document really changed',
+      afterSave.doc.mode === 'single'
+      && afterSave.doc.presets['o2tilt-classic'].gap === 3,
+      JSON.stringify(afterSave.doc));
+    check('saving the document never renames the project',
+      afterSave.name === 'Editor round trip', afterSave.name);
+
+    const sent = [];
+    globalThis.fetch = (url, init) => {
+      sent.push([(init && init.method) || 'GET', !!(init && init.keepalive), String(url)]);
+      return Promise.resolve({ ok: true });
+    };
+    named.flushProject({ version: 2, mode: 'single', activeId: 'o2tilt-classic' });
+    globalThis.fetch = siteFetch;
+    check('the leaving write is a keepalive PATCH',
+      sent.length === 1 && sent[0][0] === 'PATCH' && sent[0][1] === true,
+      JSON.stringify(sent));
+
+    await named.clearProject();
+    const afterReset = await (await fetch(BASE + '/api/projects/' + created.id)).json();
+    check('a reset empties the document but keeps the project',
+      afterReset.doc.mode === 'single'
+      && !Object.keys(afterReset.doc.presets).length
+      && afterReset.name === 'Editor round trip',
+      JSON.stringify(afterReset.doc));
+
+    // A URL for a project that has since been deleted.
+    globalThis.location = { protocol: 'http:', search: '?p=gone404' };
+    const orphan = await loadModule(2);
+    const fallback = await orphan.loadProject();
+    check('a vanished project is reported, not silently reused',
+      orphan.loadNotice() === 'missing' && orphan.projectId() === null
+      && fallback !== undefined,
+      `${orphan.loadNotice()} / ${orphan.projectId()}`);
+    check('...and the editor detaches to the local session',
+      await orphan.saveProject({ version: 2, mode: 'single' }) === true);
+
+    // No project at all: the shared session file, as a file:// open uses it.
+    globalThis.location = { protocol: 'http:', search: '' };
+    const bare = await loadModule(3);
+    const session = await bare.loadProject();
+    check('without ?p= the module falls back to the session file',
+      bare.projectId() === null && bare.loadNotice() === ''
+      && (session === null || typeof session === 'object'),
+      `${bare.projectId()} / ${bare.loadNotice()}`);
   }
 } finally {
+  globalThis.fetch = nativeFetch;
+  delete globalThis.location;
+  delete globalThis.localStorage;
+  if (hadProject) fs.writeFileSync(PROJECT_PATH, projectBackup);
+  else if (fs.existsSync(PROJECT_PATH)) fs.unlinkSync(PROJECT_PATH);
   child.kill('SIGTERM');
   const exited = await Promise.race([
     new Promise(r => child.once('exit', () => r(true))),

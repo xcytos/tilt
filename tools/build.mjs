@@ -12,6 +12,7 @@ export const ORDER = [
     'js/objects/o2tilt.js',
     'js/viewer.js',
     'js/panel.js',
+    'js/editor.js',
     'js/app.js'
 ];
 

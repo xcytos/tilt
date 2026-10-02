@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>O2-TILT Viewer</title>
+    <title>TILT</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -16,7 +16,7 @@
         #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
         
         .ui-panel {
-            position: absolute; top: 1rem; left: 1rem; z-index: 10;
+            position: absolute; top: calc(4.2rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
             width: 320px; border-radius: 0.75rem;
             display: flex; flex-direction: column; overflow: hidden;
             transition: all 0.3s ease;
@@ -27,12 +27,106 @@
 
         .panel-body { 
             padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
-            max-height: min(600px, calc(100vh - 7rem)); overflow-y: auto; overflow-x: hidden; 
+            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden; 
         }
         .panel-body.collapsed { 
             max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
             overflow: hidden;
         }
+
+        /* ---- project bar: back, name, save status, overflow menu ---- */
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+            display: flex; align-items: center; gap: 0.15rem;
+            padding: 0.35rem 0.45rem;
+            padding-top: calc(0.35rem + env(safe-area-inset-top));
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(15,23,42,0.10);
+        }
+        .dark #topbar {
+            background: rgba(24,24,27,0.8);
+            border-bottom-color: rgba(255,255,255,0.10);
+        }
+        .tb-btn {
+            display: flex; align-items: center; justify-content: center;
+            min-width: 44px; min-height: 44px; padding: 0 0.6rem;
+            border: 0; border-radius: 10px; background: transparent;
+            color: #0369a1; cursor: pointer;
+        }
+        .dark .tb-btn { color: #38bdf8; }
+        .tb-btn:active { background: rgba(2,132,199,0.14); }
+        #project-title {
+            flex: 1 1 auto; min-width: 0; min-height: 44px;
+            display: flex; flex-direction: column; align-items: flex-start;
+            justify-content: center; gap: 1px;
+            padding: 0 0.35rem; border: 0; background: transparent;
+            text-align: left; cursor: pointer; font: inherit;
+        }
+        #project-name {
+            max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; font-size: 13px; font-weight: 700; color: #0f172a;
+        }
+        .dark #project-name { color: #f4f4f5; }
+        #save-status {
+            font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+            color: #64748b;
+        }
+        #save-status[data-state="saving"] { color: #0284c7; }
+        #save-status[data-state="offline"] { color: #dc2626; }
+        #save-status[data-state="note"] { color: #059669; }
+        .dark #save-status { color: #a1a1aa; }
+
+        #overflow {
+            position: absolute; top: calc(100% + 4px); right: 0.45rem; z-index: 31;
+            min-width: 196px; padding: 0.3rem; border-radius: 12px;
+            background: #fff; border: 1px solid rgba(15,23,42,0.12);
+            box-shadow: 0 14px 34px rgba(0,0,0,0.24);
+        }
+        .dark #overflow { background: #18181b; border-color: rgba(255,255,255,0.14); }
+        .menu-item {
+            display: block; width: 100%; min-height: 42px; padding: 0.55rem 0.7rem;
+            border: 0; border-radius: 8px; background: transparent; text-align: left;
+            font: inherit; font-size: 13px; color: #0f172a; cursor: pointer;
+        }
+        .dark .menu-item { color: #e4e4e7; }
+        .menu-item:active { background: rgba(2,132,199,0.16); }
+        .menu-item.is-danger { color: #dc2626; }
+        .dark .menu-item.is-danger { color: #f87171; }
+        .menu-sep { height: 1px; margin: 0.3rem 0.4rem; background: rgba(148,163,184,0.4); }
+
+        #sheet {
+            position: fixed; inset: 0; z-index: 40;
+            display: flex; align-items: center; justify-content: center;
+            padding: 1.25rem; background: rgba(15,23,42,0.5);
+        }
+        #sheet[hidden] { display: none; }
+        .sheet-card {
+            width: min(340px, 100%); padding: 1.1rem; border-radius: 14px;
+            background: #fff; box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+        }
+        .dark .sheet-card { background: #18181b; }
+        .sheet-card h2 {
+            margin: 0 0 0.75rem; font-size: 13px; font-weight: 700;
+            letter-spacing: 0.06em; text-transform: uppercase; color: #0f172a;
+        }
+        .dark .sheet-card h2 { color: #f4f4f5; }
+        #sheet-input {
+            width: 100%; box-sizing: border-box; padding: 0.65rem 0.7rem;
+            border: 1px solid #cbd5e1; border-radius: 9px; background: transparent;
+            font: inherit; font-size: 15px; color: #0f172a;
+        }
+        #sheet-input:focus { outline: 2px solid #0284c7; outline-offset: 1px; border-color: transparent; }
+        .dark #sheet-input { border-color: #3f3f46; color: #f4f4f5; }
+        .sheet-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+        .sheet-actions .btn {
+            min-height: 42px; padding: 0 1rem; border-radius: 9px;
+            border: 1px solid #cbd5e1; background: transparent; font: inherit;
+            font-size: 14px; color: #0f172a; cursor: pointer;
+        }
+        .dark .sheet-actions .btn { border-color: #3f3f46; color: #e4e4e7; }
+        .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
+        .sheet-actions .btn.primary:active { background: #0369a1; }
         
         .btn-minimize {
             width: 28px; height: 28px; border-radius: 6px; cursor: pointer; 
@@ -124,6 +218,20 @@
         <div class="boot-spinner"></div>
         <p id="boot-msg">Loading viewer</p>
     </div>
+
+    <header id="topbar">
+        <button type="button" class="tb-btn" id="btn-back" aria-label="Back to projects">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+        </button>
+        <button type="button" id="project-title" aria-label="Rename project">
+            <span id="project-name">Untitled project</span>
+            <span id="save-status" data-state="saved">Saved</span>
+        </button>
+        <button type="button" class="tb-btn" id="btn-overflow" aria-label="Project menu" aria-haspopup="menu" aria-expanded="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>
+        </button>
+        <div id="overflow" role="menu" hidden></div>
+    </header>
     <script>
         (function () {
             function fail(msg) {
@@ -184,10 +292,34 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
+const API = './api/projects';
+
+// A project opened from the homepage carries ?p=<id>. That id decides where
+// every save goes; without it the editor keeps working on the shared
+// project.json session, which is what a direct file:// open uses.
+function readTarget() {
+    try {
+        const id = new URLSearchParams(location.search).get('p');
+        return id && /^[\w-]{1,64}$/.test(id) ? id : null;
+    } catch {
+        return null;
+    }
+}
+
+let target = readTarget();
+let notice = '';
+
+function projectId() { return target; }
+
+// 'missing' - the URL points at a project that has since been deleted, so the
+// editor detached and is editing the local session instead.
+// 'offline' - the project could not be reached; saves will keep failing.
+function loadNotice() { return notice; }
 
 function served() {
     return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
 }
+
 
 function hasLocal() {
     return typeof localStorage !== 'undefined';
@@ -290,7 +422,38 @@ function readLocal() {
     }
 }
 
+// Named projects live behind the API; the shared session lives in
+// project.json with a localStorage mirror for a file:// open.
+async function fetchNamed(id) {
+    const res = await fetch(`${API}/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if (res.status === 404) {
+        // The row is gone: stop aiming saves at it rather than failing
+        // forever, and let the caller say so.
+        target = null;
+        notice = 'missing';
+        return null;
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
 async function loadProject() {
+    notice = '';
+    if (target && served()) {
+        try {
+            const payload = await fetchNamed(target);
+            const project = payload ? parseProject(payload.doc) : null;
+            if (project) {
+                project.name = cleanName(payload.name, project.name);
+                return project;
+            }
+            if (notice === 'missing') return readLocal();
+        } catch (err) {
+            console.warn('[project] could not load project ' + target, err);
+            notice = 'offline';
+            return readLocal();
+        }
+    }
     if (served()) {
         try {
             const res = await fetch(PROJECT_FILE, { cache: 'no-store' });
@@ -311,10 +474,10 @@ async function saveProject(project) {
 
     if (served()) {
         try {
-            const res = await fetch(PROJECT_FILE, {
-                method: 'POST',
+            const res = await fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+                method: target ? 'PATCH' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: json
+                body: target ? JSON.stringify({ doc: project }) : json
             });
             onDisk = res.ok;
         } catch {
@@ -327,13 +490,83 @@ async function saveProject(project) {
     return onDisk;
 }
 
+// The last write on the way out of the page. keepalive lets a PATCH outlive
+// the document - sendBeacon can only POST, which the API would answer with a
+// 405 for a named project.
+function flushProject(project) {
+    const json = projectToJSON(project);
+    if (hasLocal()) {
+        try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+    }
+    if (!served()) return false;
+    try {
+        fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+            method: target ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: target ? JSON.stringify({ doc: project }) : json,
+            keepalive: true
+        }).catch(() => { /* the page is closing */ });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// Forget the local session. A named project is kept - deleting it would break
+// the URL - and just has its document reset to the defaults.
 async function clearProject() {
     if (served()) {
-        try { await fetch(PROJECT_FILE, { method: 'DELETE' }); } catch { /* offline */ }
+        try {
+            await fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+                method: target ? 'PATCH' : 'DELETE',
+                headers: target ? { 'Content-Type': 'application/json' } : undefined,
+                body: target ? JSON.stringify({ doc: {} }) : undefined
+            });
+        } catch { /* offline */ }
     }
     if (hasLocal()) {
         try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     }
+}
+
+async function patchName(name) {
+    const res = await fetch(`${API}/${target}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
+async function renameProject(name) {
+    if (!target) return false;
+    const payload = await patchName(name);
+    notice = '';
+    return payload.name;
+}
+
+// Turn the local session into a real project: the whole document goes up in
+// the create call, so nothing is lost on the redirect back.
+async function createProject(name, doc) {
+    const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, doc })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
+async function duplicateProject(name) {
+    if (!target) throw new Error('no project open');
+    const res = await fetch(`${API}/${target}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(name ? { name } : {})
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
 }
 
 // ---- js/registry.js ----
@@ -1243,6 +1476,53 @@ class Viewer {
         frameCamera(this.camera, this.controls, bounds);
     }
 
+    // Where the camera was left, as plain arrays so the value survives JSON.
+    // Restored views must not fight damping, so setCameraState writes the
+    // controls directly rather than animating.
+    getCameraState() {
+        const p = this.camera.position;
+        const t = this.controls.target;
+        return {
+            position: [p.x, p.y, p.z],
+            target: [t.x, t.y, t.z]
+        };
+    }
+
+    setCameraState(state) {
+        if (!state) return false;
+        const set = (vec, values) => {
+            if (!Array.isArray(values) || values.length !== 3) return false;
+            if (!values.every(v => typeof v === 'number' && Number.isFinite(v))) return false;
+            vec.set(values[0], values[1], values[2]);
+            return true;
+        };
+        const moved = set(this.camera.position, state.position);
+        const aimed = set(this.controls.target, state.target);
+        if (moved || aimed) {
+            this.camera.updateProjectionMatrix();
+            this.controls.update();
+        }
+        return moved || aimed;
+    }
+
+    // A 480px JPEG of the current frame, for the project list. The renderer
+    // runs without preserveDrawingBuffer, so the canvas can only be read in
+    // the same tick as a render - render here, then draw immediately.
+    captureThumbnail(maxEdge = 480, quality = 0.72) {
+        this.renderer.render(this.scene, this.camera);
+        const source = this.renderer.domElement;
+        const edge = Math.max(source.width, source.height) || 1;
+        const scale = Math.min(1, maxEdge / edge);
+        const w = Math.max(1, Math.round(source.width * scale));
+        const h = Math.max(1, Math.round(source.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0, w, h);
+        return canvas.toDataURL('image/jpeg', quality);
+    }
+
     start() {
         if (!this._raf) this._tick();
     }
@@ -1687,9 +1967,231 @@ function createPanel(opts) {
     };
 }
 
+// ---- js/editor.js ----
+// The project chrome: the bar across the top of the editor with the back
+// button, the project name, the save status and the overflow menu. It owns
+// DOM only - every action is a callback, so app.js keeps the scene logic.
+
+function createEditor(opts) {
+    const {
+        hasProject = false,
+        name = '',
+        onHome, onSave, onRename, onDuplicate, onExport, onSaveAs, onReset
+    } = opts || {};
+
+    const bar = document.getElementById('topbar');
+    const back = document.getElementById('btn-back');
+    const more = document.getElementById('btn-overflow');
+    const titleBtn = document.getElementById('project-title');
+    const nameEl = document.getElementById('project-name');
+    const statusEl = document.getElementById('save-status');
+    const menuEl = document.getElementById('overflow');
+
+    // An older shell without the bar must not break the editor.
+    if (!bar || !back || !more || !titleBtn || !nameEl || !statusEl || !menuEl) {
+        return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
+    }
+
+    const STATUS_TEXT = { saving: 'Saving…', saved: 'Saved', offline: 'Offline' };
+
+    let currentName = name || 'Untitled project';
+    let state = 'saved';
+    let flashTimer = 0;
+    let menuOpen = false;
+    let sheetHost = null;
+
+    nameEl.textContent = currentName;
+    statusEl.textContent = STATUS_TEXT[state];
+
+    function setStatus(next) {
+        if (!STATUS_TEXT[next]) return;
+        state = next;
+        clearTimeout(flashTimer);
+        statusEl.dataset.state = next;
+        statusEl.textContent = STATUS_TEXT[next];
+    }
+
+    // A short-lived message in the status line - used for confirmations that
+    // have nowhere else to go, like "Duplicated".
+    function flash(text) {
+        clearTimeout(flashTimer);
+        statusEl.dataset.state = 'note';
+        statusEl.textContent = text;
+        flashTimer = setTimeout(() => {
+            statusEl.dataset.state = state;
+            statusEl.textContent = STATUS_TEXT[state];
+        }, 2600);
+    }
+
+    function setName(next) {
+        currentName = (next && String(next).trim()) || currentName;
+        nameEl.textContent = currentName;
+    }
+
+    // ------------------------------------------------------------ the menu
+    const MENU = [
+        { act: 'save', label: 'Save now' },
+        { act: 'rename', label: 'Rename' },
+        hasProject ? { act: 'duplicate', label: 'Duplicate' } : null,
+        { act: 'export', label: 'Export file' },
+        !hasProject ? { act: 'saveas', label: 'Save as project' } : null,
+        { sep: true },
+        { act: 'reset', label: 'Reset to defaults', danger: true },
+        { act: 'home', label: 'All projects' }
+    ];
+
+    function closeMenu() {
+        if (!menuOpen) return;
+        menuOpen = false;
+        menuEl.hidden = true;
+        menuEl.textContent = '';
+        more.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMenu() {
+        if (menuOpen) return closeMenu();
+        menuEl.textContent = '';
+        for (const item of MENU) {
+            if (!item) continue;
+            if (item.sep) {
+                const sep = document.createElement('div');
+                sep.className = 'menu-sep';
+                menuEl.appendChild(sep);
+                continue;
+            }
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'menu-item' + (item.danger ? ' is-danger' : '');
+            btn.textContent = item.label;
+            btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
+            menuEl.appendChild(btn);
+        }
+        menuEl.hidden = false;
+        menuOpen = true;
+        more.setAttribute('aria-expanded', 'true');
+    }
+
+    // ------------------------------------------------------- the name sheet
+    function promptName(current) {
+        return new Promise(resolve => {
+            const scrim = document.createElement('div');
+            scrim.id = 'sheet';
+            const card = document.createElement('div');
+            card.className = 'sheet-card';
+
+            const heading = document.createElement('h2');
+            heading.textContent = 'Rename project';
+            card.appendChild(heading);
+
+            const input = document.createElement('input');
+            input.id = 'sheet-input';
+            input.type = 'text';
+            input.maxLength = 80;
+            input.placeholder = 'Project name';
+            input.value = current || '';
+            input.setAttribute('aria-label', 'Project name');
+            card.appendChild(input);
+
+            const actions = document.createElement('div');
+            actions.className = 'sheet-actions';
+            const make = (label, primary) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = primary ? 'btn primary' : 'btn';
+                b.textContent = label;
+                actions.appendChild(b);
+                return b;
+            };
+            const cancel = make('Cancel', false);
+            const ok = make('Rename', true);
+            card.appendChild(actions);
+            scrim.appendChild(card);
+
+            let done = false;
+            const finish = value => {
+                if (done) return;
+                done = true;
+                document.removeEventListener('keydown', onKey, true);
+                scrim.remove();
+                sheetHost = null;
+                resolve(value);
+            };
+            const onKey = e => {
+                if (e.key === 'Escape') { e.stopPropagation(); finish(null); }
+            };
+
+            cancel.addEventListener('click', () => finish(null));
+            ok.addEventListener('click', () => finish(input.value));
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); finish(input.value); }
+            });
+            scrim.addEventListener('click', e => { if (e.target === scrim) finish(null); });
+
+            document.addEventListener('keydown', onKey, true);
+            document.body.appendChild(scrim);
+            sheetHost = scrim;
+            input.focus();
+            input.select();
+        });
+    }
+
+    // ------------------------------------------------------------- actions
+    async function run(act) {
+        try {
+            if (act === 'home' || act === 'back') return void (onHome && onHome());
+            if (act === 'save') return void (onSave && onSave());
+            if (act === 'export') return void (onExport && onExport());
+            if (act === 'reset') return void (onReset && onReset());
+
+            if (act === 'rename') {
+                const next = await promptName(currentName);
+                if (next === null || !onRename) return;
+                const trimmed = next.trim();
+                if (!trimmed || trimmed === currentName) return;
+                const saved = await onRename(trimmed);
+                if (saved !== false) setName(trimmed);
+                return;
+            }
+
+            if (act === 'duplicate' && onDuplicate) {
+                const copy = await onDuplicate();
+                if (copy && copy.name) flash('Copied to "' + copy.name + '"');
+                return;
+            }
+
+            if (act === 'saveas' && onSaveAs) {
+                flash('Saving…');
+                await onSaveAs();
+                return;
+            }
+        } catch (err) {
+            console.error('[editor]', err);
+            flash('Could not reach the server');
+        }
+    }
+
+    back.addEventListener('click', () => { closeMenu(); onHome && onHome(); });
+    more.addEventListener('click', e => { e.stopPropagation(); openMenu(); });
+    titleBtn.addEventListener('click', e => { e.stopPropagation(); closeMenu(); void run('rename'); });
+
+    document.addEventListener('click', e => {
+        if (!menuOpen) return;
+        if (menuEl.contains(e.target) || more.contains(e.target)) return;
+        closeMenu();
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && menuOpen && !sheetHost) closeMenu();
+    });
+
+    setStatus('saved');
+
+    return { setName, setStatus, flash, promptName };
+}
+
 // ---- js/app.js ----
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
+const overHttp = /^https?:$/.test(location.protocol);
 
 let viewer;
 try {
@@ -1717,19 +2219,75 @@ let rebuildQueued = false;
 // project file on a debounce so dragging a slider does not hammer the disk.
 const savedPresets = {};
 let saveTimer = 0;
+let projectName = '';
+let dirty = false;
+let thumbTimer = 0;
+let editor = null;
+
+// Everything the project file holds, read at save time so the camera is the
+// one you are actually looking at.
+function buildDoc() {
+    const view = viewer.getCameraState();
+    view.theme = viewer.isDark ? 'dark' : 'light';
+    return {
+        version: 2,
+        name: projectName,
+        mode,
+        activeId,
+        view,
+        mounted: orderIds(),
+        overlayIds: overlayIds.slice(),
+        presets: savedPresets
+    };
+}
+
+async function commit() {
+    dirty = false;
+    const ok = await saveProject(buildDoc());
+    if (editor) editor.setStatus(ok || !overHttp ? 'saved' : 'offline');
+    scheduleThumb();
+}
+
+function saveNow() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    return commit();
+}
+
+// The list needs a picture, but a live re-render on every slider drag would
+// be waste: upload once the user stops touching things.
+function scheduleThumb() {
+    if (!projectId() || !overHttp) return;
+    if (thumbTimer) clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(() => {
+        thumbTimer = 0;
+        void uploadThumb();
+    }, 5000);
+}
+
+async function uploadThumb() {
+    try {
+        const thumb = viewer.captureThumbnail();
+        const res = await fetch(`./api/projects/${projectId()}/thumb`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thumb })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (err) {
+        console.warn('[thumb]', err);
+    }
+}
 
 function scheduleSave() {
+    dirty = true;
+    if (editor) editor.setStatus('saving');
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
         saveTimer = 0;
-        saveProject({
-            version: 1,
-            mode,
-            activeId,
-            mounted: orderIds(),
-            overlayIds: overlayIds.slice(),
-            presets: savedPresets
-        }).catch(() => { /* offline: the localStorage mirror already has it */ });
+        void commit();
     }, 500);
 }
 
@@ -1880,13 +2438,19 @@ async function toggleOverlay(id, on) {
     return syncScene();
 }
 
-// Forget the project: wipe the file and the mirror, drop every saved control
-// value, and re-mount the default preset from its schema defaults.
+// Forget the project: reset the document to its defaults, drop every saved
+// control value, and re-mount the default preset from its schema defaults.
+// The name and the URL stay put - you are still in the same project.
 async function resetProject() {
     if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = 0;
     }
+    if (thumbTimer) {
+        clearTimeout(thumbTimer);
+        thumbTimer = 0;
+    }
+    dirty = false;
     for (const id of Object.keys(savedPresets)) delete savedPresets[id];
 
     mode = 'single';
@@ -1901,6 +2465,8 @@ async function resetProject() {
     }
 
     await clearProject();
+    if (editor) editor.setStatus('saved');
+    scheduleThumb();
     return syncScene(true);
 }
 
@@ -1931,36 +2497,56 @@ let startupError = '';
 mode = 'single';
 activeId = firstEntry.id;
 
-// Bring back last session: which presets were on stage and every control value
-// they were left at. Anything that is no longer in the catalogue is dropped.
+// Bring back last session: which presets were on stage, every control value
+// they were left at, and where the camera was. Anything that is no longer in
+// the catalogue is dropped.
 const knownIds = new Set(registry.list.map(e => e.id));
+let savedDoc = null;
 try {
-    const project = await loadProject();
-    if (project) {
-        for (const [id, values] of Object.entries(project.presets)) {
-            if (knownIds.has(id)) savedPresets[id] = values;
-        }
+    savedDoc = await loadProject();
+} catch (err) {
+    console.warn('[project] could not restore the project:', err);
+}
 
-        const picked = (project.overlayIds.length ? project.overlayIds : project.mounted)
-            .filter(id => knownIds.has(id));
-        if (project.mode === 'overlay' && picked.length) {
-            mode = 'overlay';
-            overlayIds = picked;
-            activeId = project.activeId && knownIds.has(project.activeId)
-                ? project.activeId
-                : picked[0];
-        } else if (project.mounted.length || project.activeId) {
-            const wanted = project.activeId && knownIds.has(project.activeId)
-                ? project.activeId
-                : project.mounted.find(id => knownIds.has(id));
-            if (wanted) {
-                mode = 'single';
-                activeId = wanted;
-            }
+let projectNotice = '';
+const loadState = loadNotice();
+if (loadState === 'missing') {
+    projectNotice = 'That project is no longer in the list, so you are editing '
+        + 'the local session instead. Use Save as project to keep it.';
+} else if (loadState === 'offline') {
+    projectNotice = 'That project could not be reached. Changes stay on this '
+        + 'device until the server is back.';
+}
+
+if (savedDoc) {
+    projectName = savedDoc.name || '';
+    // Applied before syncScene so a preset's own environment.theme can still
+    // override it, which is the rule the panel documents.
+    if (savedDoc.view && savedDoc.view.theme) {
+        viewer.setTheme(savedDoc.view.theme === 'dark');
+    }
+
+    for (const [id, values] of Object.entries(savedDoc.presets)) {
+        if (knownIds.has(id)) savedPresets[id] = values;
+    }
+
+    const picked = (savedDoc.overlayIds.length ? savedDoc.overlayIds : savedDoc.mounted)
+        .filter(id => knownIds.has(id));
+    if (savedDoc.mode === 'overlay' && picked.length) {
+        mode = 'overlay';
+        overlayIds = picked;
+        activeId = savedDoc.activeId && knownIds.has(savedDoc.activeId)
+            ? savedDoc.activeId
+            : picked[0];
+    } else if (savedDoc.mounted.length || savedDoc.activeId) {
+        const wanted = savedDoc.activeId && knownIds.has(savedDoc.activeId)
+            ? savedDoc.activeId
+            : savedDoc.mounted.find(id => knownIds.has(id));
+        if (wanted) {
+            mode = 'single';
+            activeId = wanted;
         }
     }
-} catch (err) {
-    console.warn('[project] could not restore the project file:', err);
 }
 
 try {
@@ -1969,6 +2555,9 @@ try {
     startupError = (err && err.message) || String(err);
     console.error('[scene]', err);
 }
+
+// syncScene framed the scene; only now may a saved camera win over the frame.
+if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
 const firstGroup = groups()[0];
 
@@ -2009,6 +2598,8 @@ panel = createPanel({
 
 if (startupError) {
     panel.setError(startupError);
+} else if (projectNotice) {
+    panel.setError(projectNotice);
 } else if (manifestError) {
     const openedFromFile = !/^https?:$/.test(location.protocol);
     panel.setError(openedFromFile
@@ -2017,6 +2608,72 @@ if (startupError) {
         : `models/manifest.json could not be loaded (${manifestError}). `
             + 'Serve this folder over HTTP to load model presets.');
 }
+
+// ------------------------------------------------------------- the project
+function exportDoc() {
+    const json = projectToJSON(buildDoc());
+    const a = document.createElement('a');
+    if (projectId() && overHttp) {
+        a.href = `./api/projects/${projectId()}/export`;
+    } else {
+        const blob = new Blob([json], { type: 'application/json' });
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(projectName || 'project').replace(/[^\w-]+/g, '-').toLowerCase()}.tilt.json`;
+    }
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (a.download) setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// Turn the local session into a named project. The document rides along in
+// the create call, and the URL follows so the next load finds it.
+async function saveAsProject() {
+    const created = await createProject(projectName || 'Untitled project', buildDoc());
+    if (editor) editor.flash('Saved as "' + created.name + '"');
+    location.replace(`./TILT.html?p=${encodeURIComponent(created.id)}`);
+}
+
+editor = createEditor({
+    hasProject: !!projectId(),
+    name: projectName || 'Untitled project',
+    onHome: () => { location.href = './'; },
+    onSave: () => { void saveNow(); },
+    onRename: async next => {
+        if (projectId()) {
+            try {
+                const payload = await renameProject(next);
+                projectName = payload.name || next;
+            } catch (err) {
+                console.warn('[project] rename failed:', err);
+                if (editor) editor.setStatus('offline');
+                return false;
+            }
+        } else {
+            projectName = next;
+        }
+        if (editor) editor.setName(projectName);
+        scheduleSave();
+        return true;
+    },
+    onDuplicate: () => duplicateProject(),
+    onExport: () => exportDoc(),
+    onSaveAs: () => saveAsProject(),
+    onReset: () => resetProject()
+});
+
+// The last write before the tab goes away; nothing else will save after this.
+window.addEventListener('pagehide', () => {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    if (thumbTimer) {
+        clearTimeout(thumbTimer);
+        thumbTimer = 0;
+    }
+    if (dirty) flushProject(buildDoc());
+});
 
 let minimized = false;
 document.getElementById('btn-minimize').addEventListener('click', () => {
@@ -2029,14 +2686,16 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 viewer.start();
 
 window.O2 = {
-    viewer, panel, registry, activate, setMode, toggleOverlay, syncScene, scheduleRebuild,
-    resetProject,
+    viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
+    scheduleRebuild, resetProject, saveNow, buildDoc,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
-    get savedPresets() { return savedPresets; }
+    get savedPresets() { return savedPresets; },
+    get projectId() { return projectId(); },
+    get projectName() { return projectName; }
 };
     </script>
 </body>

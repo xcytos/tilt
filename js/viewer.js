@@ -278,6 +278,53 @@ export class Viewer {
         frameCamera(this.camera, this.controls, bounds);
     }
 
+    // Where the camera was left, as plain arrays so the value survives JSON.
+    // Restored views must not fight damping, so setCameraState writes the
+    // controls directly rather than animating.
+    getCameraState() {
+        const p = this.camera.position;
+        const t = this.controls.target;
+        return {
+            position: [p.x, p.y, p.z],
+            target: [t.x, t.y, t.z]
+        };
+    }
+
+    setCameraState(state) {
+        if (!state) return false;
+        const set = (vec, values) => {
+            if (!Array.isArray(values) || values.length !== 3) return false;
+            if (!values.every(v => typeof v === 'number' && Number.isFinite(v))) return false;
+            vec.set(values[0], values[1], values[2]);
+            return true;
+        };
+        const moved = set(this.camera.position, state.position);
+        const aimed = set(this.controls.target, state.target);
+        if (moved || aimed) {
+            this.camera.updateProjectionMatrix();
+            this.controls.update();
+        }
+        return moved || aimed;
+    }
+
+    // A 480px JPEG of the current frame, for the project list. The renderer
+    // runs without preserveDrawingBuffer, so the canvas can only be read in
+    // the same tick as a render - render here, then draw immediately.
+    captureThumbnail(maxEdge = 480, quality = 0.72) {
+        this.renderer.render(this.scene, this.camera);
+        const source = this.renderer.domElement;
+        const edge = Math.max(source.width, source.height) || 1;
+        const scale = Math.min(1, maxEdge / edge);
+        const w = Math.max(1, Math.round(source.width * scale));
+        const h = Math.max(1, Math.round(source.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0, w, h);
+        return canvas.toDataURL('image/jpeg', quality);
+    }
+
     start() {
         if (!this._raf) this._tick();
     }

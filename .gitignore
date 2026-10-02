@@ -1,3 +1,4 @@
 tests/vendor/
 tests/.tmp/
 data/
+project.json

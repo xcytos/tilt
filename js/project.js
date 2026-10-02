@@ -7,10 +7,34 @@
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
+const API = './api/projects';
+
+// A project opened from the homepage carries ?p=<id>. That id decides where
+// every save goes; without it the editor keeps working on the shared
+// project.json session, which is what a direct file:// open uses.
+function readTarget() {
+    try {
+        const id = new URLSearchParams(location.search).get('p');
+        return id && /^[\w-]{1,64}$/.test(id) ? id : null;
+    } catch {
+        return null;
+    }
+}
+
+let target = readTarget();
+let notice = '';
+
+export function projectId() { return target; }
+
+// 'missing' - the URL points at a project that has since been deleted, so the
+// editor detached and is editing the local session instead.
+// 'offline' - the project could not be reached; saves will keep failing.
+export function loadNotice() { return notice; }
 
 function served() {
     return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
 }
+
 
 function hasLocal() {
     return typeof localStorage !== 'undefined';
@@ -113,7 +137,38 @@ function readLocal() {
     }
 }
 
+// Named projects live behind the API; the shared session lives in
+// project.json with a localStorage mirror for a file:// open.
+async function fetchNamed(id) {
+    const res = await fetch(`${API}/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if (res.status === 404) {
+        // The row is gone: stop aiming saves at it rather than failing
+        // forever, and let the caller say so.
+        target = null;
+        notice = 'missing';
+        return null;
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
 export async function loadProject() {
+    notice = '';
+    if (target && served()) {
+        try {
+            const payload = await fetchNamed(target);
+            const project = payload ? parseProject(payload.doc) : null;
+            if (project) {
+                project.name = cleanName(payload.name, project.name);
+                return project;
+            }
+            if (notice === 'missing') return readLocal();
+        } catch (err) {
+            console.warn('[project] could not load project ' + target, err);
+            notice = 'offline';
+            return readLocal();
+        }
+    }
     if (served()) {
         try {
             const res = await fetch(PROJECT_FILE, { cache: 'no-store' });
@@ -134,10 +189,10 @@ export async function saveProject(project) {
 
     if (served()) {
         try {
-            const res = await fetch(PROJECT_FILE, {
-                method: 'POST',
+            const res = await fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+                method: target ? 'PATCH' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: json
+                body: target ? JSON.stringify({ doc: project }) : json
             });
             onDisk = res.ok;
         } catch {
@@ -150,11 +205,82 @@ export async function saveProject(project) {
     return onDisk;
 }
 
+// The last write on the way out of the page. keepalive lets a PATCH outlive
+// the document - sendBeacon can only POST, which the API would answer with a
+// 405 for a named project.
+export function flushProject(project) {
+    const json = projectToJSON(project);
+    if (hasLocal()) {
+        try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+    }
+    if (!served()) return false;
+    try {
+        fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+            method: target ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: target ? JSON.stringify({ doc: project }) : json,
+            keepalive: true
+        }).catch(() => { /* the page is closing */ });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// Forget the local session. A named project is kept - deleting it would break
+// the URL - and just has its document reset to the defaults.
 export async function clearProject() {
     if (served()) {
-        try { await fetch(PROJECT_FILE, { method: 'DELETE' }); } catch { /* offline */ }
+        try {
+            await fetch(target ? `${API}/${target}` : PROJECT_FILE, {
+                method: target ? 'PATCH' : 'DELETE',
+                headers: target ? { 'Content-Type': 'application/json' } : undefined,
+                body: target ? JSON.stringify({ doc: {} }) : undefined
+            });
+        } catch { /* offline */ }
     }
     if (hasLocal()) {
         try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     }
 }
+
+async function patchName(name) {
+    const res = await fetch(`${API}/${target}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
+export async function renameProject(name) {
+    if (!target) return false;
+    const payload = await patchName(name);
+    notice = '';
+    return payload.name;
+}
+
+// Turn the local session into a real project: the whole document goes up in
+// the create call, so nothing is lost on the redirect back.
+export async function createProject(name, doc) {
+    const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, doc })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
+export async function duplicateProject(name) {
+    if (!target) throw new Error('no project open');
+    const res = await fetch(`${API}/${target}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(name ? { name } : {})
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+

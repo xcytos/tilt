@@ -224,7 +224,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 server.listen(PORT, HOST, () => {
-    console.log(`O2-TILT viewer serving ${ROOT}`);
+    console.log(`TILT viewer serving ${ROOT}`);
     console.log(`  http://localhost:${PORT}/`);
     console.log(`  http://localhost:${PORT}/TILT.html`);
     console.log(`  http://localhost:${PORT}/TILT.standalone.html`);
