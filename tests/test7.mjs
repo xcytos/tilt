@@ -147,7 +147,7 @@ check('app tracks a display mode', /\blet mode = 'single';/.test(app));
 check('app tracks which presets are wanted', /let overlayIds = \[\];/.test(app));
 check('app tracks what is actually mounted', /const mounted = new Map\(\);/.test(app));
 check('app spaces models through viewer.layoutGroups', /viewer\.layoutGroups\(/.test(app));
-const syncSrc = /async function syncScene\(\) \{[\s\S]*?\n\}/.exec(app);
+const syncSrc = /async function syncScene\([^)]*\) \{[\s\S]*?\n\}/.exec(app);
 check('scene sync lays out, then frames once',
       !!syncSrc && /layoutGroups\([\s\S]*?\);\s*\n\s*viewer\.frameScene\(\);/.test(syncSrc));
 check('panel callbacks are guarded against rejection',

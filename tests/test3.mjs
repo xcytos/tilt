@@ -51,7 +51,8 @@ console.log('\nBase assembly: plate / collar / pole fit');
   check('plate rests on the floor (ymin = 0)', Math.abs(pb.min.y) < 1e-9, `ymin=${pb.min.y}`);
   check('plate is inside the frame ring (r < 0.68)', Math.max(Math.abs(pb.max.x), Math.abs(pb.min.x)) < 0.68);
   check('collar sits flush on the plate', Math.abs(cb.min.y - pb.max.y) < 1e-6, `${cb.min.y} vs ${pb.max.y}`);
-  check('collar encloses the pole (r 0.14 > POLE_RADIUS 0.08)', 0.14 > 0.08);
+  check('collar encloses the square pole (r 0.14 > half-diagonal 0.113)',
+        0.14 > Math.hypot(0.08, 0.08));
   check('pole axis inside collar footprint', Math.hypot(0, 0) < 0.14);
 }
 

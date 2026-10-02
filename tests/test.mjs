@@ -57,7 +57,7 @@ for (const ui of [{ gap: 3, pan: 0, pitch: 0, decline: 0 },
 }
 
 console.log('\n2. Decline is independent of pitch (pure vertical slope)');
-const poleIdx = [0, 100, 200, 300];
+const poleIdx = [0, 150, 300]; // 3 stands land at t = 0, 0.5, 1
 let pitchBad = 0;
 for (const pitch of [0, 5, 13, 20]) {
   Object.assign(UI, { gap: 3, pan: 0, pitch, decline: 60 });

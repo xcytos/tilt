@@ -8,21 +8,35 @@ const POLE_MAX_HEIGHT = 8.0;
 const RAIL_LENGTH = 12.0;
 const WAVE_AMP = 1.0;
 const RAIL_RADIUS = 0.12;
-const POLE_RADIUS = 0.08;
 const FABRIC_RES_X = 300;
 const FABRIC_RES_Y = 8;
-const POLE_COUNT = 4;
+const POLE_COUNT = 3;
 const MAX_DROP = 5.0;
 const PLEAT_FREQ = 30;
 const PLEAT_DEPTH = 0.12;
 const ANCHOR_RAIL_SAMPLES = 24;
+
+// A stand is telescoping: a fixed sleeve standing out of the floor, with a
+// slimmer inner tube running out of its open top and on up to the rail.
+const POLE_SECTION = 0.16;      // outer tube across flats, in feet
+const MM_PER_FOOT = 304.8;
+const NEST_CLEARANCE = 0.002;   // gap between inner tube and sleeve bore, feet
+const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 
 export const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 6,   step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: 0, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 20,  step: 1,   value: 0,  unit: '°' },
     decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
-    fabric:  { label: 'Curtains',          type: 'toggle', value: false }
+    fabric:  { label: 'Curtains',          type: 'toggle', value: false },
+
+    poleShape: { label: 'Square Poles',    type: 'toggle', value: true, advanced: true },
+    poleInner: { label: 'Inner Wall',      type: 'range', min: 0.8, max: 3, step: 0.1,
+                 value: 1,   unit: ' mm', advanced: true },
+    poleOuter: { label: 'Outer Wall',      type: 'range', min: 1,   max: 4, step: 0.1,
+                 value: 1.5, unit: ' mm', advanced: true },
+    sleeve:    { label: 'Sleeve Height',   type: 'range', min: 3, max: 10, step: 0.1,
+                 value: 5,   unit: ' ft', advanced: true }
 };
 
 const MODEL_THEME = {
@@ -77,6 +91,38 @@ export function createBaseFrame(bMat) {
         group.add(holder);
     }
     return group;
+}
+
+// Cross-section of a real tube: a square (or round) ring extruded along Y
+// over a unit height, so scaling Y sets the length while the wall thickness
+// stays in X/Z. Solid-looking but genuinely hollow - the wall number in the
+// Advanced settings is a real dimension.
+function tubeGeometry(square, section, wall) {
+    const outer = section / 2;
+    const inner = Math.max(outer * 0.15, outer - wall);
+    let shape, hole;
+
+    if (square) {
+        shape = new THREE.Shape();
+        shape.moveTo(-outer, -outer).lineTo(outer, -outer)
+             .lineTo(outer, outer).lineTo(-outer, outer).closePath();
+        hole = new THREE.Path();
+        // Opposite winding so the ring triangulates as a hole.
+        hole.moveTo(-inner, -inner).lineTo(-inner, inner)
+             .lineTo(inner, inner).lineTo(inner, -inner).closePath();
+    } else {
+        shape = new THREE.Shape();
+        shape.absarc(0, 0, outer, 0, Math.PI * 2, false);
+        hole = new THREE.Path();
+        hole.absarc(0, 0, inner, 0, Math.PI * 2, true);
+    }
+    shape.holes.push(hole);
+
+    const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: 1, bevelEnabled: false, steps: 1, curveSegments: square ? 1 : 24
+    });
+    geo.rotateX(-Math.PI / 2);
+    return geo;
 }
 
 export function getStructuralPoints(state, isRight, segments) {
@@ -185,15 +231,54 @@ export function createO2TiltModel(initial = {}) {
 
     const polesL = [], polesR = [], basesL = [], basesR = [];
     for (let i = 0; i < POLE_COUNT; i++) {
-        for (const [pArr, bArr] of [[polesL, basesL], [polesR, basesR]]) {
-            const pole = new THREE.Mesh(
-                new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, 1, 16), matPole);
-            pole.geometry.translate(0, 0.5, 0);
-            pole.castShadow = true;
+        for (const [pArr, bArr, tag] of [
+            [polesL, basesL, 'L'], [polesR, basesR, 'R']
+        ]) {
+            const stand = new THREE.Group();
+            stand.name = `stand-${tag}-${i}`;
+
+            const sleeve = new THREE.Mesh(new THREE.BufferGeometry(), matPole);
+            const inner = new THREE.Mesh(new THREE.BufferGeometry(), matPole);
+            sleeve.name = 'stand-sleeve';
+            inner.name = 'stand-inner';
+            sleeve.castShadow = inner.castShadow = true;
+            inner.visible = false;
+            stand.add(sleeve, inner);
+
             const base = createBaseFrame(matBase);
-            root.add(pole, base);
-            pArr.push(pole);
+            base.name = 'stand-base';
+            root.add(stand, base);
+
+            pArr.push({ group: stand, sleeve, inner, height: 0 });
             bArr.push(base);
+        }
+    }
+
+    // One shared geometry per part; rebuilt only when the advanced tube
+    // settings actually change, not on every slider tick.
+    let sleeveGeo = null, innerGeo = null, tubeKey = '';
+
+    function ensureTubeGeometry() {
+        const wallOut = state.poleOuter / MM_PER_FOOT;
+        const wallIn = state.poleInner / MM_PER_FOOT;
+        const key = `${state.poleShape ? 'square' : 'round'}|${wallOut.toFixed(5)}|${wallIn.toFixed(5)}`;
+        if (key === tubeKey) return;
+        tubeKey = key;
+
+        // The inner tube has to nest inside the sleeve bore with room to slide.
+        const bore = POLE_SECTION / 2 - wallOut;
+        const innerSection = Math.max(0.02, (bore - NEST_CLEARANCE) * 2);
+
+        if (sleeveGeo) sleeveGeo.dispose();
+        if (innerGeo) innerGeo.dispose();
+        sleeveGeo = tubeGeometry(state.poleShape, POLE_SECTION, wallOut);
+        innerGeo = tubeGeometry(state.poleShape, innerSection, wallIn);
+
+        for (const arr of [polesL, polesR]) {
+            for (const p of arr) {
+                p.sleeve.geometry = sleeveGeo;
+                p.inner.geometry = innerGeo;
+            }
         }
     }
 
@@ -210,21 +295,39 @@ export function createO2TiltModel(initial = {}) {
     function build() {
         const ptsL = getStructuralPoints(state, false, FABRIC_RES_X);
         const ptsR = getStructuralPoints(state, true, FABRIC_RES_X);
+        const panRad = state.pan * (Math.PI / 180);
+
+        ensureTubeGeometry();
 
         for (let i = 0; i < POLE_COUNT; i++) {
             const idx = Math.floor((i / (POLE_COUNT - 1)) * FABRIC_RES_X);
 
-            const pR = ptsR[idx];
-            polesR[i].position.set(pR.x, 0, pR.z);
-            polesR[i].scale.set(1, Math.max(0.1, pR.y), 1);
-            basesR[i].position.set(pR.x, 0, pR.z);
-            basesR[i].rotation.y = state.pan * (Math.PI / 180);
+            for (const [pts, stands, bases, turn] of [
+                [ptsR, polesR, basesR, 1],
+                [ptsL, polesL, basesL, -1]
+            ]) {
+                const p = pts[idx];
+                const railY = Math.max(0.05, p.y);
+                const stand = stands[i];
 
-            const pL = ptsL[idx];
-            polesL[i].position.set(pL.x, 0, pL.z);
-            polesL[i].scale.set(1, Math.max(0.1, pL.y), 1);
-            basesL[i].position.set(pL.x, 0, pL.z);
-            basesL[i].rotation.y = -state.pan * (Math.PI / 180);
+                // The sleeve is the pole's retracted length; the inner tube
+                // takes up the rest of the way to the rail, and neither is
+                // ever allowed to poke through it.
+                const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
+                const innerH = railY - sleeveH;
+
+                stand.group.position.set(p.x, 0, p.z);
+                stand.group.rotation.y = turn * panRad;
+                stand.sleeve.position.set(0, 0, 0);
+                stand.sleeve.scale.set(1, sleeveH, 1);
+                stand.inner.position.set(0, sleeveH, 0);
+                stand.inner.scale.set(1, Math.max(0.02, innerH), 1);
+                stand.inner.visible = innerH > INNER_HIDE;
+                stand.height = railY;
+
+                bases[i].position.set(p.x, 0, p.z);
+                bases[i].rotation.y = turn * panRad;
+            }
         }
 
         release(railR); release(railL); railR = railL = null;
@@ -277,11 +380,13 @@ export function createO2TiltModel(initial = {}) {
 
         for (const [tag, pArr, bArr] of [['L', polesL, basesL], ['R', polesR, basesR]]) {
             for (let i = 0; i < pArr.length; i++) {
+                const stand = pArr[i];
                 anchors.push({
                     id: `pole-${tag}-${i}`,
                     kind: 'pole',
                     side: tag,
-                    position: new THREE.Vector3(pArr[i].position.x, pArr[i].scale.y, pArr[i].position.z),
+                    position: new THREE.Vector3(
+                        stand.group.position.x, stand.height, stand.group.position.z),
                     tangent: new THREE.Vector3(0, 1, 0),
                     normal: new THREE.Vector3(1, 0, 0)
                 });
@@ -314,8 +419,11 @@ export function createO2TiltModel(initial = {}) {
         railL = railR = fabricL = fabricR = null;
         root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         root.clear();
+        sleeveGeo = innerGeo = null;
+        tubeKey = '';
         [matRail, matPole, matBase, matFabric].forEach(m => m.dispose());
         anchors = [];
+        anchorsStale = true;
     }
 
     const model = {

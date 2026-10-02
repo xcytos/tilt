@@ -102,6 +102,21 @@
             } catch (e) { /* the boot overlay reports the module failure */ }
         })();
     </script>
+    <script>
+        // Live reload: tools/serve.mjs pushes an SSE event whenever js/, models/
+        // or this shell change. Only runs over http; from a file this returns
+        // immediately and the page just needs a manual refresh.
+        (function () {
+            if (!/^https?:$/.test(location.protocol)) return;
+            try {
+                var es = new EventSource('/__events');
+                es.onmessage = function (e) {
+                    if (e.data === 'reload') location.reload();
+                };
+                es.onerror = function () { if (es.readyState === 2) es.close(); };
+            } catch (e) { /* served by something else - no reload */ }
+        })();
+    </script>
 </head>
 <body class="bg-gray-100 transition-colors duration-300">
 

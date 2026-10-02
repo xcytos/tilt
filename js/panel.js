@@ -95,7 +95,7 @@ function modeButtonCls(active) {
 export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange, onReset,
         themeIsDark = false
     } = opts;
 
@@ -160,35 +160,72 @@ export function createPanel(opts) {
         }
 
         const rows = {};
-        const toggles = [];
+        const normalToggles = [];
+        const advancedRanges = [];
+        const advancedToggles = [];
+
+        // Renders one control and wires it to `emit`, so the schema stays the
+        // only source of truth for what the panel shows.
+        const addRange = (k, p) => {
+            const built = rangeBlock(`${key}-${k}`, p, schema.state[k]);
+            built.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                built.value.textContent = fmt(v, p.unit);
+                emit({ [k]: v }, targets);
+            });
+            rows[k] = built;
+            return built.wrap;
+        };
+        const addToggle = (k, p) => {
+            const built = toggleBlock(`${key}-${k}`, p, schema.state[k]);
+            built.input.addEventListener('change', e => {
+                emit({ [k]: e.target.checked }, targets);
+            });
+            rows[k] = built;
+            return built.wrap;
+        };
+
         if (schema && schema.params) {
             for (const [k, p] of Object.entries(schema.params)) {
-                const state = schema.state[k];
-                if (p.type === 'range') {
-                    const built = rangeBlock(`${key}-${k}`, p, state);
-                    built.input.addEventListener('input', e => {
-                        const v = parseFloat(e.target.value);
-                        built.value.textContent = fmt(v, p.unit);
-                        emit({ [k]: v }, targets);
-                    });
-                    rows[k] = built;
-                    inner.appendChild(built.wrap);
+                if (p.advanced) {
+                    (p.type === 'range' ? advancedRanges : advancedToggles)
+                        .push([k, p]);
+                } else if (p.type === 'range') {
+                    inner.appendChild(addRange(k, p));
                 } else if (p.type === 'toggle') {
-                    const built = toggleBlock(`${key}-${k}`, p, state);
-                    built.input.addEventListener('change', e => {
-                        emit({ [k]: e.target.checked }, targets);
-                    });
-                    rows[k] = built;
-                    toggles.push(built.wrap);
+                    normalToggles.push([k, p]);
                 }
             }
         }
 
-        if (toggles.length) {
+        if (normalToggles.length) {
             const row = document.createElement('div');
             row.className = 'flex flex-wrap gap-4 pt-1';
-            toggles.forEach(t => row.appendChild(t));
+            for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
             inner.appendChild(row);
+        }
+
+        // Everything the panel shows must come from the schema; "advanced" is
+        // just a flag on a param, not a separate hardcoded list.
+        if (advancedRanges.length || advancedToggles.length) {
+            const details = document.createElement('details');
+            details.className = 'mt-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            summary.textContent = 'Advanced';
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'px-2 pb-2';
+            for (const [k, p] of advancedRanges) bodyEl.appendChild(addRange(k, p));
+            if (advancedToggles.length) {
+                const row = document.createElement('div');
+                row.className = 'flex flex-wrap gap-4 pt-1';
+                for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
+                bodyEl.appendChild(row);
+            }
+            details.append(summary, bodyEl);
+            inner.appendChild(details);
         }
 
         const sec = { key, targets, rows, root };
@@ -267,10 +304,24 @@ export function createPanel(opts) {
 
     function themeFooter() {
         const footer = document.createElement('div');
-        footer.className = 'flex gap-4 pt-3 mt-1 border-t border-gray-200 dark:border-zinc-700';
+        footer.className = 'flex items-center gap-4 pt-3 mt-1 border-t '
+            + 'border-gray-200 dark:border-zinc-700';
         const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
         themeInput = theme.input;
         footer.appendChild(theme.wrap);
+
+        if (onReset) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Reset project';
+            btn.title = 'Forget every saved setting and start from the defaults';
+            btn.className = 'ml-auto text-[11px] px-2 py-1 rounded border '
+                + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+                + 'hover:text-red-600 hover:border-red-400 transition-colors';
+            btn.addEventListener('click', () => onReset());
+            live.buttons.push(btn);
+            footer.appendChild(btn);
+        }
         return footer;
     }
 

@@ -102,6 +102,21 @@
             } catch (e) { /* the boot overlay reports the module failure */ }
         })();
     </script>
+    <script>
+        // Live reload: tools/serve.mjs pushes an SSE event whenever js/, models/
+        // or this shell change. Only runs over http; from a file this returns
+        // immediately and the page just needs a manual refresh.
+        (function () {
+            if (!/^https?:$/.test(location.protocol)) return;
+            try {
+                var es = new EventSource('/__events');
+                es.onmessage = function (e) {
+                    if (e.data === 'reload') location.reload();
+                };
+                es.onerror = function () { if (es.readyState === 2) es.close(); };
+            } catch (e) { /* served by something else - no reload */ }
+        })();
+    </script>
 </head>
 <body class="bg-gray-100 transition-colors duration-300">
 
@@ -158,6 +173,142 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ---- js/project.js ----
+// The project file is the panel's memory: which display mode was on, which
+// presets were on stage, and every control value for every preset that has
+// been added. It lives on disk as project.json when served, with localStorage
+// as the mirror and the only store when the page is opened from a file.
+
+const PROJECT_FILE = 'project.json';
+const STORAGE_KEY = 'o2tilt-project.v1';
+
+function served() {
+    return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
+}
+
+function hasLocal() {
+    return typeof localStorage !== 'undefined';
+}
+
+// Pure: turns whatever came back from disk into a known shape, or null if it
+// is unusable. Never throws - a corrupt project just means "start fresh".
+function parseProject(raw) {
+    let data = raw;
+    if (typeof raw === 'string') {
+        try { data = JSON.parse(raw); } catch { return null; }
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+    const project = {
+        version: 1,
+        mode: data.mode === 'overlay' ? 'overlay' : 'single',
+        activeId: typeof data.activeId === 'string' ? data.activeId : null,
+        mounted: Array.isArray(data.mounted)
+            ? data.mounted.filter(id => typeof id === 'string' && id)
+            : [],
+        overlayIds: Array.isArray(data.overlayIds)
+            ? data.overlayIds.filter(id => typeof id === 'string' && id)
+            : [],
+        presets: {}
+    };
+
+    if (data.presets && typeof data.presets === 'object' && !Array.isArray(data.presets)) {
+        for (const [id, values] of Object.entries(data.presets)) {
+            if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+            const clean = {};
+            for (const [k, v] of Object.entries(values)) {
+                if (typeof v === 'number' && Number.isFinite(v)) clean[k] = v;
+                else if (typeof v === 'boolean') clean[k] = v;
+            }
+            if (Object.keys(clean).length) project.presets[id] = clean;
+        }
+    }
+    return project;
+}
+
+// Pure: writes a saved value into a model's state, but only when the schema
+// still has that key and the type still matches. A preset file edited by hand
+// can never poison the model.
+function applySaved(state, schema, saved) {
+    if (!saved || !schema) return false;
+    let changed = false;
+    for (const [k, v] of Object.entries(saved)) {
+        const p = schema[k];
+        if (!p) continue;
+        if (p.type === 'range') {
+            if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+            const clamped = Math.min(p.max, Math.max(p.min, v));
+            if (state[k] === clamped) continue;
+            state[k] = clamped;
+            changed = true;
+        } else if (p.type === 'toggle') {
+            if (typeof v !== 'boolean' || state[k] === v) continue;
+            state[k] = v;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+function projectToJSON(project) {
+    return JSON.stringify(project, null, 2);
+}
+
+function readLocal() {
+    if (!hasLocal()) return null;
+    try {
+        return parseProject(localStorage.getItem(STORAGE_KEY));
+    } catch {
+        return null;
+    }
+}
+
+async function loadProject() {
+    if (served()) {
+        try {
+            const res = await fetch(PROJECT_FILE, { cache: 'no-store' });
+            if (res.ok) {
+                const project = parseProject(await res.text());
+                if (project) return project;
+            }
+        } catch {
+            // fall through to the local mirror
+        }
+    }
+    return readLocal();
+}
+
+async function saveProject(project) {
+    const json = projectToJSON(project);
+    let onDisk = false;
+
+    if (served()) {
+        try {
+            const res = await fetch(PROJECT_FILE, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: json
+            });
+            onDisk = res.ok;
+        } catch {
+            onDisk = false;
+        }
+    }
+    if (hasLocal()) {
+        try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+    }
+    return onDisk;
+}
+
+async function clearProject() {
+    if (served()) {
+        try { await fetch(PROJECT_FILE, { method: 'DELETE' }); } catch { /* offline */ }
+    }
+    if (hasLocal()) {
+        try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    }
+}
 
 // ---- js/registry.js ----
 const MANIFEST_FILE = 'manifest.json';
@@ -352,21 +503,35 @@ const POLE_MAX_HEIGHT = 8.0;
 const RAIL_LENGTH = 12.0;
 const WAVE_AMP = 1.0;
 const RAIL_RADIUS = 0.12;
-const POLE_RADIUS = 0.08;
 const FABRIC_RES_X = 300;
 const FABRIC_RES_Y = 8;
-const POLE_COUNT = 4;
+const POLE_COUNT = 3;
 const MAX_DROP = 5.0;
 const PLEAT_FREQ = 30;
 const PLEAT_DEPTH = 0.12;
 const ANCHOR_RAIL_SAMPLES = 24;
+
+// A stand is telescoping: a fixed sleeve standing out of the floor, with a
+// slimmer inner tube running out of its open top and on up to the rail.
+const POLE_SECTION = 0.16;      // outer tube across flats, in feet
+const MM_PER_FOOT = 304.8;
+const NEST_CLEARANCE = 0.002;   // gap between inner tube and sleeve bore, feet
+const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 
 const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 6,   step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: 0, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 20,  step: 1,   value: 0,  unit: '°' },
     decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
-    fabric:  { label: 'Curtains',          type: 'toggle', value: false }
+    fabric:  { label: 'Curtains',          type: 'toggle', value: false },
+
+    poleShape: { label: 'Square Poles',    type: 'toggle', value: true, advanced: true },
+    poleInner: { label: 'Inner Wall',      type: 'range', min: 0.8, max: 3, step: 0.1,
+                 value: 1,   unit: ' mm', advanced: true },
+    poleOuter: { label: 'Outer Wall',      type: 'range', min: 1,   max: 4, step: 0.1,
+                 value: 1.5, unit: ' mm', advanced: true },
+    sleeve:    { label: 'Sleeve Height',   type: 'range', min: 3, max: 10, step: 0.1,
+                 value: 5,   unit: ' ft', advanced: true }
 };
 
 const MODEL_THEME = {
@@ -421,6 +586,38 @@ function createBaseFrame(bMat) {
         group.add(holder);
     }
     return group;
+}
+
+// Cross-section of a real tube: a square (or round) ring extruded along Y
+// over a unit height, so scaling Y sets the length while the wall thickness
+// stays in X/Z. Solid-looking but genuinely hollow - the wall number in the
+// Advanced settings is a real dimension.
+function tubeGeometry(square, section, wall) {
+    const outer = section / 2;
+    const inner = Math.max(outer * 0.15, outer - wall);
+    let shape, hole;
+
+    if (square) {
+        shape = new THREE.Shape();
+        shape.moveTo(-outer, -outer).lineTo(outer, -outer)
+             .lineTo(outer, outer).lineTo(-outer, outer).closePath();
+        hole = new THREE.Path();
+        // Opposite winding so the ring triangulates as a hole.
+        hole.moveTo(-inner, -inner).lineTo(-inner, inner)
+             .lineTo(inner, inner).lineTo(inner, -inner).closePath();
+    } else {
+        shape = new THREE.Shape();
+        shape.absarc(0, 0, outer, 0, Math.PI * 2, false);
+        hole = new THREE.Path();
+        hole.absarc(0, 0, inner, 0, Math.PI * 2, true);
+    }
+    shape.holes.push(hole);
+
+    const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: 1, bevelEnabled: false, steps: 1, curveSegments: square ? 1 : 24
+    });
+    geo.rotateX(-Math.PI / 2);
+    return geo;
 }
 
 function getStructuralPoints(state, isRight, segments) {
@@ -529,15 +726,54 @@ function createO2TiltModel(initial = {}) {
 
     const polesL = [], polesR = [], basesL = [], basesR = [];
     for (let i = 0; i < POLE_COUNT; i++) {
-        for (const [pArr, bArr] of [[polesL, basesL], [polesR, basesR]]) {
-            const pole = new THREE.Mesh(
-                new THREE.CylinderGeometry(POLE_RADIUS, POLE_RADIUS, 1, 16), matPole);
-            pole.geometry.translate(0, 0.5, 0);
-            pole.castShadow = true;
+        for (const [pArr, bArr, tag] of [
+            [polesL, basesL, 'L'], [polesR, basesR, 'R']
+        ]) {
+            const stand = new THREE.Group();
+            stand.name = `stand-${tag}-${i}`;
+
+            const sleeve = new THREE.Mesh(new THREE.BufferGeometry(), matPole);
+            const inner = new THREE.Mesh(new THREE.BufferGeometry(), matPole);
+            sleeve.name = 'stand-sleeve';
+            inner.name = 'stand-inner';
+            sleeve.castShadow = inner.castShadow = true;
+            inner.visible = false;
+            stand.add(sleeve, inner);
+
             const base = createBaseFrame(matBase);
-            root.add(pole, base);
-            pArr.push(pole);
+            base.name = 'stand-base';
+            root.add(stand, base);
+
+            pArr.push({ group: stand, sleeve, inner, height: 0 });
             bArr.push(base);
+        }
+    }
+
+    // One shared geometry per part; rebuilt only when the advanced tube
+    // settings actually change, not on every slider tick.
+    let sleeveGeo = null, innerGeo = null, tubeKey = '';
+
+    function ensureTubeGeometry() {
+        const wallOut = state.poleOuter / MM_PER_FOOT;
+        const wallIn = state.poleInner / MM_PER_FOOT;
+        const key = `${state.poleShape ? 'square' : 'round'}|${wallOut.toFixed(5)}|${wallIn.toFixed(5)}`;
+        if (key === tubeKey) return;
+        tubeKey = key;
+
+        // The inner tube has to nest inside the sleeve bore with room to slide.
+        const bore = POLE_SECTION / 2 - wallOut;
+        const innerSection = Math.max(0.02, (bore - NEST_CLEARANCE) * 2);
+
+        if (sleeveGeo) sleeveGeo.dispose();
+        if (innerGeo) innerGeo.dispose();
+        sleeveGeo = tubeGeometry(state.poleShape, POLE_SECTION, wallOut);
+        innerGeo = tubeGeometry(state.poleShape, innerSection, wallIn);
+
+        for (const arr of [polesL, polesR]) {
+            for (const p of arr) {
+                p.sleeve.geometry = sleeveGeo;
+                p.inner.geometry = innerGeo;
+            }
         }
     }
 
@@ -554,21 +790,39 @@ function createO2TiltModel(initial = {}) {
     function build() {
         const ptsL = getStructuralPoints(state, false, FABRIC_RES_X);
         const ptsR = getStructuralPoints(state, true, FABRIC_RES_X);
+        const panRad = state.pan * (Math.PI / 180);
+
+        ensureTubeGeometry();
 
         for (let i = 0; i < POLE_COUNT; i++) {
             const idx = Math.floor((i / (POLE_COUNT - 1)) * FABRIC_RES_X);
 
-            const pR = ptsR[idx];
-            polesR[i].position.set(pR.x, 0, pR.z);
-            polesR[i].scale.set(1, Math.max(0.1, pR.y), 1);
-            basesR[i].position.set(pR.x, 0, pR.z);
-            basesR[i].rotation.y = state.pan * (Math.PI / 180);
+            for (const [pts, stands, bases, turn] of [
+                [ptsR, polesR, basesR, 1],
+                [ptsL, polesL, basesL, -1]
+            ]) {
+                const p = pts[idx];
+                const railY = Math.max(0.05, p.y);
+                const stand = stands[i];
 
-            const pL = ptsL[idx];
-            polesL[i].position.set(pL.x, 0, pL.z);
-            polesL[i].scale.set(1, Math.max(0.1, pL.y), 1);
-            basesL[i].position.set(pL.x, 0, pL.z);
-            basesL[i].rotation.y = -state.pan * (Math.PI / 180);
+                // The sleeve is the pole's retracted length; the inner tube
+                // takes up the rest of the way to the rail, and neither is
+                // ever allowed to poke through it.
+                const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
+                const innerH = railY - sleeveH;
+
+                stand.group.position.set(p.x, 0, p.z);
+                stand.group.rotation.y = turn * panRad;
+                stand.sleeve.position.set(0, 0, 0);
+                stand.sleeve.scale.set(1, sleeveH, 1);
+                stand.inner.position.set(0, sleeveH, 0);
+                stand.inner.scale.set(1, Math.max(0.02, innerH), 1);
+                stand.inner.visible = innerH > INNER_HIDE;
+                stand.height = railY;
+
+                bases[i].position.set(p.x, 0, p.z);
+                bases[i].rotation.y = turn * panRad;
+            }
         }
 
         release(railR); release(railL); railR = railL = null;
@@ -621,11 +875,13 @@ function createO2TiltModel(initial = {}) {
 
         for (const [tag, pArr, bArr] of [['L', polesL, basesL], ['R', polesR, basesR]]) {
             for (let i = 0; i < pArr.length; i++) {
+                const stand = pArr[i];
                 anchors.push({
                     id: `pole-${tag}-${i}`,
                     kind: 'pole',
                     side: tag,
-                    position: new THREE.Vector3(pArr[i].position.x, pArr[i].scale.y, pArr[i].position.z),
+                    position: new THREE.Vector3(
+                        stand.group.position.x, stand.height, stand.group.position.z),
                     tangent: new THREE.Vector3(0, 1, 0),
                     normal: new THREE.Vector3(1, 0, 0)
                 });
@@ -658,8 +914,11 @@ function createO2TiltModel(initial = {}) {
         railL = railR = fabricL = fabricR = null;
         root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         root.clear();
+        sleeveGeo = innerGeo = null;
+        tubeKey = '';
         [matRail, matPole, matBase, matFabric].forEach(m => m.dispose());
         anchors = [];
+        anchorsStale = true;
     }
 
     const model = {
@@ -1078,7 +1337,7 @@ function modeButtonCls(active) {
 function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange, onReset,
         themeIsDark = false
     } = opts;
 
@@ -1143,35 +1402,72 @@ function createPanel(opts) {
         }
 
         const rows = {};
-        const toggles = [];
+        const normalToggles = [];
+        const advancedRanges = [];
+        const advancedToggles = [];
+
+        // Renders one control and wires it to `emit`, so the schema stays the
+        // only source of truth for what the panel shows.
+        const addRange = (k, p) => {
+            const built = rangeBlock(`${key}-${k}`, p, schema.state[k]);
+            built.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                built.value.textContent = fmt(v, p.unit);
+                emit({ [k]: v }, targets);
+            });
+            rows[k] = built;
+            return built.wrap;
+        };
+        const addToggle = (k, p) => {
+            const built = toggleBlock(`${key}-${k}`, p, schema.state[k]);
+            built.input.addEventListener('change', e => {
+                emit({ [k]: e.target.checked }, targets);
+            });
+            rows[k] = built;
+            return built.wrap;
+        };
+
         if (schema && schema.params) {
             for (const [k, p] of Object.entries(schema.params)) {
-                const state = schema.state[k];
-                if (p.type === 'range') {
-                    const built = rangeBlock(`${key}-${k}`, p, state);
-                    built.input.addEventListener('input', e => {
-                        const v = parseFloat(e.target.value);
-                        built.value.textContent = fmt(v, p.unit);
-                        emit({ [k]: v }, targets);
-                    });
-                    rows[k] = built;
-                    inner.appendChild(built.wrap);
+                if (p.advanced) {
+                    (p.type === 'range' ? advancedRanges : advancedToggles)
+                        .push([k, p]);
+                } else if (p.type === 'range') {
+                    inner.appendChild(addRange(k, p));
                 } else if (p.type === 'toggle') {
-                    const built = toggleBlock(`${key}-${k}`, p, state);
-                    built.input.addEventListener('change', e => {
-                        emit({ [k]: e.target.checked }, targets);
-                    });
-                    rows[k] = built;
-                    toggles.push(built.wrap);
+                    normalToggles.push([k, p]);
                 }
             }
         }
 
-        if (toggles.length) {
+        if (normalToggles.length) {
             const row = document.createElement('div');
             row.className = 'flex flex-wrap gap-4 pt-1';
-            toggles.forEach(t => row.appendChild(t));
+            for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
             inner.appendChild(row);
+        }
+
+        // Everything the panel shows must come from the schema; "advanced" is
+        // just a flag on a param, not a separate hardcoded list.
+        if (advancedRanges.length || advancedToggles.length) {
+            const details = document.createElement('details');
+            details.className = 'mt-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            summary.textContent = 'Advanced';
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'px-2 pb-2';
+            for (const [k, p] of advancedRanges) bodyEl.appendChild(addRange(k, p));
+            if (advancedToggles.length) {
+                const row = document.createElement('div');
+                row.className = 'flex flex-wrap gap-4 pt-1';
+                for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
+                bodyEl.appendChild(row);
+            }
+            details.append(summary, bodyEl);
+            inner.appendChild(details);
         }
 
         const sec = { key, targets, rows, root };
@@ -1250,10 +1546,24 @@ function createPanel(opts) {
 
     function themeFooter() {
         const footer = document.createElement('div');
-        footer.className = 'flex gap-4 pt-3 mt-1 border-t border-gray-200 dark:border-zinc-700';
+        footer.className = 'flex items-center gap-4 pt-3 mt-1 border-t '
+            + 'border-gray-200 dark:border-zinc-700';
         const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
         themeInput = theme.input;
         footer.appendChild(theme.wrap);
+
+        if (onReset) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Reset project';
+            btn.title = 'Forget every saved setting and start from the defaults';
+            btn.className = 'ml-auto text-[11px] px-2 py-1 rounded border '
+                + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+                + 'hover:text-red-600 hover:border-red-400 transition-colors';
+            btn.addEventListener('click', () => onReset());
+            live.buttons.push(btn);
+            footer.appendChild(btn);
+        }
         return footer;
     }
 
@@ -1376,6 +1686,27 @@ let lastPrimary = null;
 let panel = null;
 let rebuildQueued = false;
 
+// Control values, per preset, kept for every element that has ever been on
+// stage - unmounting one does not throw its settings away. Written to the
+// project file on a debounce so dragging a slider does not hammer the disk.
+const savedPresets = {};
+let saveTimer = 0;
+
+function scheduleSave() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+        saveTimer = 0;
+        saveProject({
+            version: 1,
+            mode,
+            activeId,
+            mounted: orderIds(),
+            overlayIds: overlayIds.slice(),
+            presets: savedPresets
+        }).catch(() => { /* offline: the localStorage mirror already has it */ });
+    }, 500);
+}
+
 // Display order always follows the manifest, not the order ticks were clicked.
 function orderIds() {
     if (mode === 'single') return activeId ? [activeId] : [];
@@ -1423,8 +1754,9 @@ async function applyPrimaryTheme() {
 }
 
 // Reconcile the scene with `orderIds()`: drop what no longer belongs, mount
-// what is missing, re-space, then refresh the panel.
-async function syncScene() {
+// what is missing, re-space, then refresh the panel. `forcePanel` repaints the
+// controls even when nothing structural changed (used after a project reset).
+async function syncScene(forcePanel = false) {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
         const want = orderIds();
@@ -1441,7 +1773,12 @@ async function syncScene() {
             try {
                 const def = await registry.load(id);
                 const { models } = await registry.instantiate(def);
-                for (const m of models) viewer.addModel(m);
+                for (const m of models) {
+                    // Every element comes back with the settings it was left with.
+                    applySaved(m.state, m.params, savedPresets[id]);
+                    m.build();
+                    viewer.addModel(m);
+                }
                 mounted.set(id, models);
             } catch (err) {
                 console.error('[registry]', err);
@@ -1472,7 +1809,7 @@ async function syncScene() {
                 groups: gs,
                 activeId,
                 model: gs[0] ? gs[0].models[0] : null
-            });
+            }, forcePanel);
             panel.sync();
         }
 
@@ -1489,6 +1826,7 @@ async function syncScene() {
 async function activate(id) {
     mode = 'single';
     activeId = id;
+    scheduleSave();
     return syncScene();
 }
 
@@ -1502,6 +1840,7 @@ async function setMode(next) {
     if (mode === 'single' && !overlayIds.includes(activeId) && overlayIds.length) {
         activeId = overlayIds[0];
     }
+    scheduleSave();
     return syncScene();
 }
 
@@ -1511,7 +1850,32 @@ async function toggleOverlay(id, on) {
     } else {
         overlayIds = overlayIds.filter(x => x !== id);
     }
+    scheduleSave();
     return syncScene();
+}
+
+// Forget the project: wipe the file and the mirror, drop every saved control
+// value, and re-mount the default preset from its schema defaults.
+async function resetProject() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    for (const id of Object.keys(savedPresets)) delete savedPresets[id];
+
+    mode = 'single';
+    activeId = registry.list[0].id;
+    overlayIds = [];
+
+    // Unmount everything so syncScene rebuilds from defaults rather than
+    // reusing models that still carry the old tweaks in their state.
+    for (const [id, models] of [...mounted]) {
+        for (const m of models) viewer.removeModel(m);
+        mounted.delete(id);
+    }
+
+    await clearProject();
+    return syncScene(true);
 }
 
 // Panel callbacks fire unguarded promises; a rejected one must not reach
@@ -1540,6 +1904,39 @@ const firstEntry = registry.list[0];
 let startupError = '';
 mode = 'single';
 activeId = firstEntry.id;
+
+// Bring back last session: which presets were on stage and every control value
+// they were left at. Anything that is no longer in the catalogue is dropped.
+const knownIds = new Set(registry.list.map(e => e.id));
+try {
+    const project = await loadProject();
+    if (project) {
+        for (const [id, values] of Object.entries(project.presets)) {
+            if (knownIds.has(id)) savedPresets[id] = values;
+        }
+
+        const picked = (project.overlayIds.length ? project.overlayIds : project.mounted)
+            .filter(id => knownIds.has(id));
+        if (project.mode === 'overlay' && picked.length) {
+            mode = 'overlay';
+            overlayIds = picked;
+            activeId = project.activeId && knownIds.has(project.activeId)
+                ? project.activeId
+                : picked[0];
+        } else if (project.mounted.length || project.activeId) {
+            const wanted = project.activeId && knownIds.has(project.activeId)
+                ? project.activeId
+                : project.mounted.find(id => knownIds.has(id));
+            if (wanted) {
+                mode = 'single';
+                activeId = wanted;
+            }
+        }
+    }
+} catch (err) {
+    console.warn('[project] could not restore the project file:', err);
+}
+
 try {
     await syncScene();
 } catch (err) {
@@ -1570,14 +1967,18 @@ panel = createPanel({
             for (const [k, v] of Object.entries(partial)) {
                 if (m.params[k]) known[k] = v;
             }
-            if (Object.keys(known).length) m.setParams(known);
+            if (!Object.keys(known).length) continue;
+            m.setParams(known);
+            savedPresets[m.id] = Object.assign({}, savedPresets[m.id], known);
         }
+        scheduleSave();
         scheduleRebuild();
     },
     onThemeChange: isDark => {
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
-    }
+    },
+    onReset: guard(() => resetProject())
 });
 
 if (startupError) {
@@ -1603,11 +2004,13 @@ viewer.start();
 
 window.O2 = {
     viewer, panel, registry, activate, setMode, toggleOverlay, syncScene, scheduleRebuild,
+    resetProject,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
-    get overlayIds() { return overlayIds.slice(); }
+    get overlayIds() { return overlayIds.slice(); },
+    get savedPresets() { return savedPresets; }
 };
     </script>
 </body>

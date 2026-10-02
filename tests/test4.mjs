@@ -121,6 +121,109 @@ check('anchors are cached until rebuild', (() => {
 check('setTheme() does not throw for either mode', (() => {
   try { model.setTheme(true); model.setTheme(false); return true; } catch { return false; }
 })());
+
+console.log('\nStage 2: stands (3 per side, square, telescoping)');
+
+const expectedRail = (i, decline) => 8 - (i / 2) * (decline / 100) * 5;
+const stands = () => {
+  const out = [];
+  model.object3D.traverse(o => {
+    if (o.type === 'Group' && /^stand-[LR]-\d+$/.test(o.name)) out.push(o);
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+};
+const part = (g, name) => g.children.find(c => c.name === name);
+const standIndex = g => Number(g.name.slice(-1));
+
+{
+  const s = stands();
+  check('3 stands per side (6 total)', s.length === 6,
+        s.map(g => g.name).join(' '));
+  check('every stand is a sleeve plus an inner tube',
+        s.every(g => part(g, 'stand-sleeve') && part(g, 'stand-inner')));
+  check('stands are square tubes by default',
+        s.every(g => part(g, 'stand-sleeve').geometry.type === 'ExtrudeGeometry'));
+  check('stands stand on the floor',
+        s.every(g => g.position.y === 0 && part(g, 'stand-sleeve').position.y === 0));
+}
+
+// Default state: gap 5, decline 0, so every rail sits at the full 8 ft.
+{
+  const s = stands();
+  check('sleeve is the 5 ft retracted length by default',
+        s.every(g => Math.abs(part(g, 'stand-sleeve').scale.y - 5) < 1e-9),
+        s.map(g => part(g, 'stand-sleeve').scale.y).join(','));
+  check('inner tube takes up the rest of the way to the rail',
+        s.every(g => Math.abs(part(g, 'stand-inner').scale.y - 3) < 1e-9),
+        s.map(g => part(g, 'stand-inner').scale.y).join(','));
+  check('a stand never overshoots its rail',
+        s.every(g => Math.abs(part(g, 'stand-sleeve').scale.y
+                                + part(g, 'stand-inner').scale.y
+                                - expectedRail(standIndex(g), 0)) < 1e-9));
+}
+
+// decline = 100 drops the far end to 3 ft: below the sleeve, so no inner tube.
+{
+  model.setParams({ decline: 100 });
+  model.build();
+  const s = stands();
+  const worst = s.reduce((m, g) => Math.abs(
+    part(g, 'stand-sleeve').scale.y
+    + (part(g, 'stand-inner').visible ? part(g, 'stand-inner').scale.y : 0)
+    - expectedRail(standIndex(g), 100)), 0);
+  check('decline re-splits sleeve and inner per stand', worst < 1e-9, `err ${worst}`);
+
+  const far = s.filter(g => standIndex(g) === 2);
+  check('a rail below the sleeve hides the inner tube',
+        far.length === 2 && far.every(g => !part(g, 'stand-inner').visible));
+  const near = s.filter(g => standIndex(g) === 0);
+  check('a high rail still shows the inner tube',
+        near.length === 2 && near.every(g => part(g, 'stand-inner').visible));
+
+  model.setParams({ decline: 0 });
+  model.build();
+}
+
+console.log('\nStage 2: advanced stand settings');
+{
+  const advanced = Object.entries(model.params).filter(([, p]) => p.advanced);
+  check('shape and both wall thicknesses are exposed as advanced params',
+        ['poleShape', 'poleInner', 'poleOuter', 'sleeve']
+          .every(k => model.params[k] && model.params[k].advanced));
+  check('advanced params are still plain range/toggle controls',
+        advanced.every(([, p]) => p.type === 'range' || p.type === 'toggle'));
+  check('wall thicknesses are millimetres',
+        model.params.poleInner.unit === ' mm' && model.params.poleOuter.unit === ' mm');
+  check('defaults are 1.0 mm inner / 1.5 mm outer / 5 ft sleeve',
+        model.state.poleInner === 1 && model.state.poleOuter === 1.5
+        && model.state.sleeve === 5);
+
+  const before = stands()[0];
+  const squareGeo = part(before, 'stand-sleeve').geometry;
+  const squarePts = squareGeo.attributes.position.count;
+  model.setParams({ poleShape: false });
+  model.build();
+  const roundGeo = part(before, 'stand-sleeve').geometry;
+  check('one toggle swaps the stand to a round cross-section',
+        roundGeo !== squareGeo && roundGeo.attributes.position.count > squarePts,
+        `${squarePts} -> ${roundGeo.attributes.position.count} verts`);
+
+  model.setParams({ poleShape: true, poleOuter: 3 });
+  model.build();
+  check('a heavier outer wall rebuilds the tube geometry',
+        part(before, 'stand-sleeve').geometry !== roundGeo);
+  check('the inner tube still nests inside the sleeve bore', (() => {
+    const sleeve = part(before, 'stand-sleeve').geometry;
+    const inner = part(before, 'stand-inner').geometry;
+    const outerBox = new THREE.Box3().setFromBufferAttribute(sleeve.attributes.position);
+    const innerBox = new THREE.Box3().setFromBufferAttribute(inner.attributes.position);
+    return innerBox.max.x < outerBox.max.x - 1e-6 && innerBox.max.x > 0;
+  })());
+
+  model.setParams({ poleOuter: 1.5, poleInner: 1 });
+  model.build();
+}
+
 check('dispose() detaches everything', (() => {
   model.dispose();
   return model.object3D.children.length === 0;

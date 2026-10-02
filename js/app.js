@@ -2,6 +2,7 @@ import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
 import { Registry } from './registry.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
+import { loadProject, saveProject, clearProject, applySaved } from './project.js';
 
 const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
@@ -26,6 +27,27 @@ const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
 let rebuildQueued = false;
+
+// Control values, per preset, kept for every element that has ever been on
+// stage - unmounting one does not throw its settings away. Written to the
+// project file on a debounce so dragging a slider does not hammer the disk.
+const savedPresets = {};
+let saveTimer = 0;
+
+function scheduleSave() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+        saveTimer = 0;
+        saveProject({
+            version: 1,
+            mode,
+            activeId,
+            mounted: orderIds(),
+            overlayIds: overlayIds.slice(),
+            presets: savedPresets
+        }).catch(() => { /* offline: the localStorage mirror already has it */ });
+    }, 500);
+}
 
 // Display order always follows the manifest, not the order ticks were clicked.
 function orderIds() {
@@ -74,8 +96,9 @@ async function applyPrimaryTheme() {
 }
 
 // Reconcile the scene with `orderIds()`: drop what no longer belongs, mount
-// what is missing, re-space, then refresh the panel.
-async function syncScene() {
+// what is missing, re-space, then refresh the panel. `forcePanel` repaints the
+// controls even when nothing structural changed (used after a project reset).
+async function syncScene(forcePanel = false) {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
         const want = orderIds();
@@ -92,7 +115,12 @@ async function syncScene() {
             try {
                 const def = await registry.load(id);
                 const { models } = await registry.instantiate(def);
-                for (const m of models) viewer.addModel(m);
+                for (const m of models) {
+                    // Every element comes back with the settings it was left with.
+                    applySaved(m.state, m.params, savedPresets[id]);
+                    m.build();
+                    viewer.addModel(m);
+                }
                 mounted.set(id, models);
             } catch (err) {
                 console.error('[registry]', err);
@@ -123,7 +151,7 @@ async function syncScene() {
                 groups: gs,
                 activeId,
                 model: gs[0] ? gs[0].models[0] : null
-            });
+            }, forcePanel);
             panel.sync();
         }
 
@@ -140,6 +168,7 @@ async function syncScene() {
 async function activate(id) {
     mode = 'single';
     activeId = id;
+    scheduleSave();
     return syncScene();
 }
 
@@ -153,6 +182,7 @@ async function setMode(next) {
     if (mode === 'single' && !overlayIds.includes(activeId) && overlayIds.length) {
         activeId = overlayIds[0];
     }
+    scheduleSave();
     return syncScene();
 }
 
@@ -162,7 +192,32 @@ async function toggleOverlay(id, on) {
     } else {
         overlayIds = overlayIds.filter(x => x !== id);
     }
+    scheduleSave();
     return syncScene();
+}
+
+// Forget the project: wipe the file and the mirror, drop every saved control
+// value, and re-mount the default preset from its schema defaults.
+async function resetProject() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+    }
+    for (const id of Object.keys(savedPresets)) delete savedPresets[id];
+
+    mode = 'single';
+    activeId = registry.list[0].id;
+    overlayIds = [];
+
+    // Unmount everything so syncScene rebuilds from defaults rather than
+    // reusing models that still carry the old tweaks in their state.
+    for (const [id, models] of [...mounted]) {
+        for (const m of models) viewer.removeModel(m);
+        mounted.delete(id);
+    }
+
+    await clearProject();
+    return syncScene(true);
 }
 
 // Panel callbacks fire unguarded promises; a rejected one must not reach
@@ -191,6 +246,39 @@ const firstEntry = registry.list[0];
 let startupError = '';
 mode = 'single';
 activeId = firstEntry.id;
+
+// Bring back last session: which presets were on stage and every control value
+// they were left at. Anything that is no longer in the catalogue is dropped.
+const knownIds = new Set(registry.list.map(e => e.id));
+try {
+    const project = await loadProject();
+    if (project) {
+        for (const [id, values] of Object.entries(project.presets)) {
+            if (knownIds.has(id)) savedPresets[id] = values;
+        }
+
+        const picked = (project.overlayIds.length ? project.overlayIds : project.mounted)
+            .filter(id => knownIds.has(id));
+        if (project.mode === 'overlay' && picked.length) {
+            mode = 'overlay';
+            overlayIds = picked;
+            activeId = project.activeId && knownIds.has(project.activeId)
+                ? project.activeId
+                : picked[0];
+        } else if (project.mounted.length || project.activeId) {
+            const wanted = project.activeId && knownIds.has(project.activeId)
+                ? project.activeId
+                : project.mounted.find(id => knownIds.has(id));
+            if (wanted) {
+                mode = 'single';
+                activeId = wanted;
+            }
+        }
+    }
+} catch (err) {
+    console.warn('[project] could not restore the project file:', err);
+}
+
 try {
     await syncScene();
 } catch (err) {
@@ -221,14 +309,18 @@ panel = createPanel({
             for (const [k, v] of Object.entries(partial)) {
                 if (m.params[k]) known[k] = v;
             }
-            if (Object.keys(known).length) m.setParams(known);
+            if (!Object.keys(known).length) continue;
+            m.setParams(known);
+            savedPresets[m.id] = Object.assign({}, savedPresets[m.id], known);
         }
+        scheduleSave();
         scheduleRebuild();
     },
     onThemeChange: isDark => {
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
-    }
+    },
+    onReset: guard(() => resetProject())
 });
 
 if (startupError) {
@@ -254,9 +346,11 @@ viewer.start();
 
 window.O2 = {
     viewer, panel, registry, activate, setMode, toggleOverlay, syncScene, scheduleRebuild,
+    resetProject,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
-    get overlayIds() { return overlayIds.slice(); }
+    get overlayIds() { return overlayIds.slice(); },
+    get savedPresets() { return savedPresets; }
 };
