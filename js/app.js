@@ -477,7 +477,9 @@ editor = createEditor({
         return true;
     },
     onDuplicate: () => duplicateProject(),
-    onExport: () => exportDoc(),
+    // Save first: the API exports what the server holds, which would
+    // otherwise be the state from before the last edit.
+    onExport: async () => { await saveNow(); exportDoc(); },
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject()
 });

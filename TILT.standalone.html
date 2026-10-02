@@ -127,6 +127,42 @@
         .dark .sheet-actions .btn { border-color: #3f3f46; color: #e4e4e7; }
         .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
         .sheet-actions .btn.primary:active { background: #0369a1; }
+
+        /* ---- phones: the control panel becomes a bottom sheet ----
+           A 320px card pinned top-left is unusable on a 375px screen and it
+           sits exactly where a thumb wants to be, so below 640px the same
+           markup docks to the bottom and leaves the canvas above it. */
+        @media (max-width: 640px) {
+            .ui-panel {
+                top: auto; bottom: 0; left: 0; right: 0;
+                width: 100%; max-width: none;
+                border-radius: 16px 16px 0 0;
+                padding-bottom: env(safe-area-inset-bottom);
+                box-shadow: 0 -12px 32px rgba(0,0,0,0.22);
+            }
+            .dark .ui-panel { box-shadow: 0 -12px 32px rgba(0,0,0,0.55); }
+            .panel-body { max-height: min(52vh, calc(100vh - 9rem)); }
+            .panel-body.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; }
+            /* A collapsed sheet must not leave a dead strip over the canvas. */
+            .ui-panel .flex { min-height: 44px; }
+        }
+
+        /* ---- fingers: everything tappable gets a 44px target ---- */
+        @media (pointer: coarse) {
+            .btn-minimize { min-width: 44px; min-height: 44px; }
+            .custom-checkbox { width: 1.5rem; height: 1.5rem; }
+            input[type=range] { margin: 14px 0; }
+            input[type=range]::-webkit-slider-thumb {
+                height: 22px; width: 22px; margin-top: -8px;
+            }
+            input[type=range]::-moz-range-thumb { height: 22px; width: 22px; border: 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .ui-panel, .panel-body, #boot, #sheet, .sheet-card {
+                transition: none !important;
+            }
+        }
         
         .btn-minimize {
             width: 28px; height: 28px; border-radius: 6px; cursor: pointer; 
@@ -2657,7 +2693,9 @@ editor = createEditor({
         return true;
     },
     onDuplicate: () => duplicateProject(),
-    onExport: () => exportDoc(),
+    // Save first: the API exports what the server holds, which would
+    // otherwise be the state from before the last edit.
+    onExport: async () => { await saveNow(); exportDoc(); },
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject()
 });

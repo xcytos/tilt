@@ -156,6 +156,8 @@ check('the thumbnail is uploaded after the scene settles',
 check('renaming goes through the API when a project is open',
   /renameProject\(next\)/.test(appSrc) && /createProject\(/.test(appSrc)
   && /duplicateProject\(\)/.test(appSrc));
+check('exporting saves first, so the file matches the screen',
+  /onExport: async \(\) => \{ await saveNow\(\); exportDoc\(\); \}/.test(appSrc));
 
 console.log('\neditor: project.js picks a target from the URL');
 check('?p= is read once, from location.search', /new URLSearchParams\(location\.search\)/.test(projSrc)
@@ -206,7 +208,41 @@ check('the standalone build carries the bar too',
   standalone.includes('id="topbar"') && standalone.includes('createEditor')
   && /<title>TILT<\/title>/.test(standalone));
 
-// ---------------------------------------------------------------- 6. server
+// -------------------------------------------------------------- 6. mobile
+console.log('\nmobile: the editor on a phone');
+const media = shell.match(/@media[^{]+\{/g) || [];
+check('the shell has breakpoints at all', media.length >= 3, media.length + '');
+const sheet = /@media \(max-width: 640px\) \{([\s\S]*?)\n        \}/.exec(shell);
+check('there is a phone layout', !!sheet);
+if (sheet) {
+  const m = sheet[1];
+  check('the panel docks to the bottom', /\.ui-panel \{[^}]*top: auto; bottom: 0;/.test(m));
+  check('...and spans the full width',
+    /\.ui-panel \{[^}]*width: 100%; max-width: none;/.test(m));
+  check('...with a sheet-shaped top edge',
+    /\.ui-panel \{[^}]*border-radius: 16px 16px 0 0;/.test(m));
+  check('the sheet clears the home indicator', /env\(safe-area-inset-bottom\)/.test(m));
+  check('the sheet cannot swallow the canvas',
+    /\.panel-body \{ max-height: min\(52vh,/.test(m));
+  check('the canvas keeps the top bar clear',
+    /#topbar \{[^}]*position: fixed;/.test(shell));
+}
+const fingers = /@media \(pointer: coarse\) \{([\s\S]*?)\n        \}/.exec(shell);
+check('there is a touch layout', !!fingers);
+if (fingers) {
+  const f = fingers[1];
+  check('the collapse button reaches 44px', /min-height: 44px/.test(f));
+  check('checkboxes grow', /\.custom-checkbox \{[^}]*height: 1\.5rem/.test(f));
+  check('slider thumbs grow and stay centred on the track',
+    /::-webkit-slider-thumb \{\s*height: 22px; width: 22px; margin-top: -8px;/.test(f));
+}
+check('reduced motion is respected',
+  /@media \(prefers-reduced-motion: reduce\)/.test(shell));
+check('the bundled shell picks all of that up',
+  (standalone.match(/@media[^{]+\{/g) || []).length >= media.length,
+  `${(standalone.match(/@media[^{]+\{/g) || []).length} vs ${media.length}`);
+
+// ---------------------------------------------------------------- 7. server
 console.log('\nhomepage: served at /');
 const WATCHED = /const WATCHED = \[([^\]]*)\]/.exec(serveSrc);
 const watched = WATCHED ? WATCHED[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')) : [];
