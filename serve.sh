@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start / stop the static server for the O2-TILT viewer.
+# Start / stop the static server for the TILT project viewer.
 #   bash serve.sh            start in the background (default)
 #   bash serve.sh stop
 #   bash serve.sh restart
@@ -34,7 +34,7 @@ current_pid() {
     if pid_alive "$p"; then echo "$p"; fi
 }
 
-url() { echo "http://localhost:$PORT/TILT.html"; }
+url() { echo "http://localhost:$PORT/"; }
 
 start() {
     local p

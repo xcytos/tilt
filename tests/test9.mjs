@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +237,174 @@ corrupt.driver.get = () => ({ id: 'z', name: 'z', created_at: 1, updated_at: 1, 
 check('a corrupt stored document reads back as a fresh one',
   (() => { const p = corrupt.get('z'); return p.doc && p.doc.mode === 'single'; })());
 corrupt.close();
+
+// -------------------------------------------------------------- 10. the API
+console.log('\napi: HTTP surface');
+const API_DB = path.join(TMP, 'api-test.db');
+const sweepApi = () => {
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { fs.unlinkSync(API_DB + suffix); } catch { /* gone */ }
+  }
+};
+sweepApi();
+
+const freePort = () => new Promise((resolve, reject) => {
+  const s = net.createServer();
+  s.on('error', reject);
+  s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+});
+
+const apiPort = await freePort();
+const child = spawn(process.execPath, [path.join(DECOR, 'tools', 'serve.mjs')], {
+  env: { ...process.env, HOST: '127.0.0.1', PORT: String(apiPort), DB_PATH: API_DB },
+  stdio: ['ignore', 'pipe', 'pipe']
+});
+let apiLog = '';
+child.stdout.on('data', d => { apiLog += d; });
+child.stderr.on('data', d => { apiLog += d; });
+
+const API = `http://127.0.0.1:${apiPort}`;
+const call = (method, route, body) => fetch(API + route, body === undefined
+  ? { method }
+  : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+let apiUp = false;
+try {
+  const deadline = Date.now() + 8000;
+  while (!apiUp && Date.now() < deadline) {
+    try { apiUp = (await fetch(API + '/TILT.html')).ok; } catch { /* not yet */ }
+    if (!apiUp) await sleep(100);
+  }
+  check('the server boots with a private database path', apiUp,
+    apiLog.trim().split('\n').pop());
+
+  if (apiUp) {
+    let list = await (await call('GET', '/api/projects')).json();
+    check('an untouched database lists nothing',
+      Array.isArray(list.projects) && list.projects.length === 0, JSON.stringify(list));
+
+    const created = await call('POST', '/api/projects', { name: '  My   Project  ' });
+    check('POST creates with 201', created.status === 201, `${created.status}`);
+    const made = await created.json();
+    check('the name is normalised', made.name === 'My Project', made.name);
+    check('an id comes back', typeof made.id === 'string' && made.id.length > 8);
+    check('a new project reports no thumbnail', made.hasThumb === false);
+
+    list = await (await call('GET', '/api/projects')).json();
+    check('it now shows up in the list', list.projects.length === 1);
+    check('the list is summary only, no document', list.projects[0].doc === undefined);
+
+    let got = await call('GET', `/api/projects/${made.id}`);
+    check('GET returns 200', got.status === 200, `${got.status}`);
+    let full = await got.json();
+    check('the document rides along', full.doc && typeof full.doc === 'object');
+    check('the raw thumbnail does not ride along', full.thumb === undefined);
+    check('the document name matches the row', full.doc.name === 'My Project');
+
+    const renamed = await (await call('PATCH', `/api/projects/${made.id}`,
+      { name: 'Renamed over HTTP' })).json();
+    check('PATCH renames', renamed.name === 'Renamed over HTTP', renamed.name);
+    check('the document name follows', renamed.doc.name === 'Renamed over HTTP');
+
+    const documented = await (await call('PATCH', `/api/projects/${made.id}`,
+      { doc: { mode: 'overlay', activeId: 'o2tilt-arc', overlayIds: ['o2tilt-arc'] } })).json();
+    check('PATCH writes the document', documented.doc.mode === 'overlay'
+      && documented.doc.activeId === 'o2tilt-arc');
+    check('PATCH keeps the name', documented.name === 'Renamed over HTTP');
+
+    check('an empty PATCH is a 400', (await call('PATCH', `/api/projects/${made.id}`, {})).status === 400);
+    check('a bad document is a 400',
+      (await call('PATCH', `/api/projects/${made.id}`, { doc: 'nope' })).status === 400);
+    check('an unknown project is a 404',
+      (await call('GET', '/api/projects/nope')).status === 404);
+    check('an unknown project cannot be deleted',
+      (await call('DELETE', '/api/projects/nope')).status === 404);
+
+    const dup = await call('POST', `/api/projects/${made.id}/duplicate`);
+    check('duplicate answers 201', dup.status === 201, `${dup.status}`);
+    const duped = await dup.json();
+    check('the copy is named after the original', duped.name === 'Copy of Renamed over HTTP',
+      duped.name);
+
+    const exported = await call('GET', `/api/projects/${made.id}/export`);
+    check('export answers 200', exported.status === 200, `${exported.status}`);
+    check('export is a download',
+      String(exported.headers.get('content-disposition')).includes('.tilt.json'),
+      String(exported.headers.get('content-disposition')));
+    const exportedDoc = JSON.parse(await exported.text());
+    check('the exported file is a project document',
+      exportedDoc.mode === 'overlay' && exportedDoc.name === 'Renamed over HTTP');
+
+    const imported = await call('POST', '/api/projects/import', exportedDoc);
+    check('import accepts a bare document', imported.status === 201, `${imported.status}`);
+    const importedRow = await imported.json();
+    check('the import carries the document across',
+      (await (await call('GET', `/api/projects/${importedRow.id}`)).json()).doc.mode === 'overlay');
+
+    const wrapped = await call('POST', '/api/projects/import',
+      { name: 'From a wrapper', doc: { mode: 'single' } });
+    check('import also accepts {name, doc}', wrapped.status === 201, `${wrapped.status}`);
+    check('...and prefers the wrapper name', (await wrapped.json()).name === 'From a wrapper');
+
+    const JPEG = 'data:image/jpeg;base64,' + Buffer.from('fake-image-bytes').toString('base64');
+    check('a thumbnail can be stored', (await call('PUT', `/api/projects/${made.id}/thumb`,
+      { thumb: JPEG })).status === 204);
+    const thumbRes = await call('GET', `/api/projects/${made.id}/thumb`);
+    check('the thumbnail is served as an image',
+      thumbRes.status === 200 && String(thumbRes.headers.get('content-type')) === 'image/jpeg',
+      `${thumbRes.status} ${thumbRes.headers.get('content-type')}`);
+    check('...with the original bytes',
+      Buffer.from(await thumbRes.arrayBuffer()).toString() === 'fake-image-bytes');
+    check('the project now reports hasThumb',
+      (await (await call('GET', `/api/projects/${made.id}`)).json()).hasThumb === true);
+    check('a thumbnail can be cleared', (await call('DELETE',
+      `/api/projects/${made.id}/thumb`)).status === 204);
+    check('...and is then a 404',
+      (await call('GET', `/api/projects/${made.id}/thumb`)).status === 404);
+    check('a bad thumbnail is a 400', (await call('PUT', `/api/projects/${made.id}/thumb`,
+      { thumb: 'not-an-image' })).status === 400);
+
+    const ordered = await (await call('GET', '/api/projects?order=name')).json();
+    check('ordering survives the query string',
+      ordered.projects.length === 4
+        && ordered.projects[0].name === 'Copy of Renamed over HTTP',
+      ordered.projects.map(p => p.name).join(' | '));
+
+    check('OPTIONS is answered', (await call('OPTIONS', '/api/projects')).status === 204);
+    const wrong = await call('POST', `/api/projects/${made.id}`);
+    check('an unsupported method is a 405 with Allow', wrong.status === 405
+      && !!wrong.headers.get('allow'), `${wrong.status} allow=${wrong.headers.get('allow')}`);
+    check('an unknown endpoint is a 404', (await call('GET', '/api/projects/x/y/z')).status === 404);
+    check('an unknown namespace is a 404', (await call('GET', '/api/nope')).status === 404);
+    check('garbage is a 400, not a crash', (await fetch(API + '/api/projects', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{'
+    })).status === 400);
+
+    const huge = await call('POST', '/api/projects', { name: 'x', doc: 'y'.repeat(600 * 1024) });
+    check('an oversized API body is a 413', huge.status === 413, `${huge.status}`);
+
+    check('the database directory is not downloadable',
+      (await call('GET', '/data/o2tilt.db')).status === 403);
+    check('a stray .db anywhere is not downloadable',
+      (await call('GET', '/tests/.tmp/api-test.db')).status === 403);
+    check('the sqlite wal is not downloadable',
+      (await call('GET', '/tests/.tmp/api-test.db-wal')).status === 403);
+
+    const deleted = await call('DELETE', `/api/projects/${importedRow.id}`);
+    check('DELETE answers 204', deleted.status === 204, `${deleted.status}`);
+    check('the project is gone', (await call('GET', `/api/projects/${importedRow.id}`)).status === 404);
+
+    const direct = openStore(API_DB);
+    check('the rows are really on disk', direct.count() === 3, `${direct.count()}`);
+    check('the surviving document kept its content',
+      direct.get(made.id).doc.mode === 'overlay');
+    direct.close();
+  }
+} finally {
+  child.kill('SIGTERM');
+  await Promise.race([new Promise(r => child.once('exit', r)), sleep(2000)]);
+  sweepApi();
+}
 
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
 process.exit(fails ? 1 : 0);

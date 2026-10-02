@@ -2,6 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { openStore, defaultDbPath } from './store.mjs';
+import { createApi } from './api.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = process.env.HOST || '0.0.0.0';
@@ -10,8 +12,15 @@ const PROJECT_FILE = path.join(ROOT, 'project.json');
 const MAX_BODY = 128 * 1024;
 
 // Anything that feeds the bundle or the shell triggers a browser reload.
-// project.json is deliberately absent: saving it must not reload the page.
+// project.json and data/ are deliberately absent: saving a project must not
+// reload the page.
 const WATCHED = ['js', 'js/objects', 'models', 'TILT.html'];
+
+// The database is state, not an asset. Neither it nor the repo's own
+// metadata may be downloaded through this server.
+const PRIVATE_DIR = /(^|\/)(data|\.git)(\/|$)/;
+const PRIVATE_EXT = /\.(db|db-wal|db-shm|sqlite|sqlite3|log|pid)$/i;
+const isPrivate = p => PRIVATE_DIR.test(p) || PRIVATE_EXT.test(p);
 
 const MIME = {
     '.html': 'text/html; charset=utf-8',
@@ -119,12 +128,29 @@ function handleProjectDelete(res) {
 }
 
 // -------------------------------------------------------------------- server
+// One store for the process; the API is a thin closure over it.
+const store = openStore();
+const api = createApi(store);
+
 const server = http.createServer((req, res) => {
+    let url;
     let pathname;
     try {
-        pathname = decodeURIComponent(new URL(req.url, `http://${req.headers.host}`).pathname);
+        url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        pathname = decodeURIComponent(url.pathname);
     } catch {
         res.writeHead(400).end('Bad request');
+        return;
+    }
+
+    if (pathname.startsWith('/api/')) {
+        Promise.resolve(api(req, res, pathname, url)).catch(err => {
+            console.error('[api]', err);
+            if (!res.headersSent) {
+                res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' })
+                   .end('{"error":"internal error"}');
+            }
+        });
         return;
     }
 
@@ -136,6 +162,11 @@ const server = http.createServer((req, res) => {
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' }).end('405');
+        return;
+    }
+
+    if (isPrivate(pathname)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('403');
         return;
     }
 
@@ -183,11 +214,22 @@ server.on('error', err => {
     process.exit(1);
 });
 
+// Closing on SIGTERM keeps the WAL checkpointed, so `serve.sh stop` never
+// leaves a half-written database behind.
+function shutdown() {
+    try { store.close(); } catch { /* already closed */ }
+    process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 server.listen(PORT, HOST, () => {
     console.log(`O2-TILT viewer serving ${ROOT}`);
+    console.log(`  http://localhost:${PORT}/`);
     console.log(`  http://localhost:${PORT}/TILT.html`);
     console.log(`  http://localhost:${PORT}/TILT.standalone.html`);
     console.log(`  live reload on: ${WATCHED.join(', ')}`);
     console.log(`  project file: ${path.relative(ROOT, PROJECT_FILE)}`);
+    console.log(`  database: ${path.relative(ROOT, defaultDbPath())}`);
     console.log(`listening on ${HOST}:${server.address().port}`);
 });
