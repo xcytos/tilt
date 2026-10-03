@@ -26,6 +26,10 @@ export function createEditor(opts) {
             'save-status': statusEl, overflow: menuEl };
         console.error('[editor] bar controls missing from the shell:',
             Object.keys(missing).filter(k => !missing[k]).join(', '));
+        if (typeof window !== 'undefined') {
+            window.__tiltWired = 'stub: missing '
+                + Object.keys(missing).filter(k => !missing[k]).join(', ');
+        }
         return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
     }
 
@@ -225,6 +229,10 @@ export function createEditor(opts) {
     });
 
     setStatus('saved');
+
+    // Only now that every listener is on: the self-check reads this as
+    // "the bar answers", and an early flag would claim it before it is true.
+    if (typeof window !== 'undefined') window.__tiltWired = true;
 
     return { setName, setStatus, flash, promptName };
 }

@@ -186,6 +186,7 @@ export async function loadProject() {
 export async function saveProject(project) {
     const json = projectToJSON(project);
     let onDisk = false;
+    let status = 0;
 
     if (served()) {
         try {
@@ -195,12 +196,18 @@ export async function saveProject(project) {
                 body: target ? JSON.stringify({ doc: project }) : json
             });
             onDisk = res.ok;
+            status = res.status;
         } catch {
             onDisk = false;
+            status = -1;
         }
     }
     if (hasLocal()) {
         try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+    }
+    if (typeof window !== 'undefined') {
+        window.__tiltSave = { at: Date.now(), ok: onDisk, status, target };
+        if (typeof window.__tiltDiag === 'function') window.__tiltDiag();
     }
     return onDisk;
 }

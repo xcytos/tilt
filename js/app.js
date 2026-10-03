@@ -14,6 +14,12 @@ const panelBody = document.getElementById('panel-body');
 const panelEl = document.getElementById('ui-panel');
 const overHttp = /^https?:$/.test(location.protocol);
 
+// Where the module has got to, read by the self-check in the shell. A stall
+// anywhere in the top-level awaits otherwise looks identical to "the buttons
+// do nothing".
+const stage = s => { window.__tiltStage = s; };
+stage('app.js');
+
 let viewer;
 try {
     viewer = new Viewer(container);
@@ -63,10 +69,16 @@ function buildDoc() {
 }
 
 async function commit() {
+    // Clear first, so an edit made while the request is in flight is not
+    // mistaken for one that has already gone out - then put it back if the
+    // write did not land, because the leaving flush is keyed off `dirty` and
+    // would otherwise skip the only retry this project ever gets.
     dirty = false;
     const ok = await saveProject(buildDoc());
+    if (!ok) dirty = true;
     if (editor) editor.setStatus(ok || !overHttp ? 'saved' : 'offline');
     scheduleThumb();
+    return ok;
 }
 
 function saveNow() {
@@ -322,10 +334,12 @@ viewer.setTheme(prefersDark);
 // Without a server the manifest cannot be fetched; the registry then serves
 // its built-in definition so the viewer still comes up.
 let manifestError = '';
+stage('manifest');
 await registry.loadManifest().catch(err => {
     manifestError = err.message;
     console.warn('[registry] manifest not loaded, using the built-in model:', err);
 });
+stage('manifest done');
 
 const firstEntry = registry.list[0];
 let startupError = '';
@@ -342,6 +356,7 @@ try {
 } catch (err) {
     console.warn('[project] could not restore the project:', err);
 }
+stage('project loaded');
 
 let projectNotice = '';
 const loadState = loadNotice();
@@ -390,6 +405,7 @@ try {
     startupError = (err && err.message) || String(err);
     console.error('[scene]', err);
 }
+stage('scene');
 
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
@@ -430,6 +446,7 @@ panel = createPanel({
     },
     onReset: guard(() => resetProject())
 });
+stage('panel');
 
 // The sheet changes height whenever the panel repaints or collapses: keep the
 // canvas in step, and the viewer's own observer re-fits the drawing buffer.
@@ -506,6 +523,7 @@ editor = createEditor({
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject()
 });
+stage('editor');
 
 // The last write before the tab goes away; nothing else will save after this.
 window.addEventListener('pagehide', () => {
@@ -529,6 +547,7 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 });
 
 viewer.start();
+stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
@@ -540,5 +559,6 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
-    get projectName() { return projectName; }
+    get projectName() { return projectName; },
+    get dirty() { return dirty; }
 };

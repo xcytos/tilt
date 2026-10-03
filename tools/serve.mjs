@@ -59,13 +59,18 @@ function scheduleReload() {
     reloadTimer = setTimeout(broadcast, 150);
 }
 
-for (const rel of WATCHED) {
-    try {
-        const w = fs.watch(path.join(ROOT, rel), () => scheduleReload());
-        if (typeof w.unref === 'function') w.unref();
-        watchers.push(w);
-    } catch (err) {
-        console.warn(`cannot watch ${rel}: ${err.message}`);
+// Watched only once the socket is listening: on a FUSE mount (this lives on
+// /storage/emulated) the inotify handshakes take long enough to push a spawn
+// past a test's boot deadline, and none of them are needed to accept a request.
+function startWatching() {
+    for (const rel of WATCHED) {
+        try {
+            const w = fs.watch(path.join(ROOT, rel), () => scheduleReload());
+            if (typeof w.unref === 'function') w.unref();
+            watchers.push(w);
+        } catch (err) {
+            console.warn(`cannot watch ${rel}: ${err.message}`);
+        }
     }
 }
 
@@ -178,11 +183,29 @@ const server = http.createServer((req, res) => {
     }
 
     let file = target;
+    let stat;
     try {
         if (fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
+        stat = fs.statSync(file);
     } catch {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
            .end(`404 Not Found: ${pathname}`);
+        return;
+    }
+
+    const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+    const cache = {
+        // The bundle and the source modules must never go stale in the cache.
+        // no-store is what actually guarantees it: no-validator no-cache was
+        // leaving the browser free to replay an old copy of js/*.js, which
+        // made the shell and its scripts disagree about what had loaded.
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        ETag: etag,
+        'Last-Modified': stat.mtime.toUTCString(),
+        'Access-Control-Allow-Origin': '*'
+    };
+    if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, cache).end();
         return;
     }
 
@@ -198,9 +221,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
         'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
         'Content-Length': body.length,
-        // The bundle and the source modules must never go stale in the cache.
-        'Cache-Control': 'no-cache, must-revalidate',
-        'Access-Control-Allow-Origin': '*'
+        ...cache
     });
     res.end(req.method === 'HEAD' ? undefined : body);
 });
@@ -232,4 +253,5 @@ server.listen(PORT, HOST, () => {
     console.log(`  project file: ${path.relative(ROOT, PROJECT_FILE)}`);
     console.log(`  database: ${path.relative(ROOT, defaultDbPath())}`);
     console.log(`listening on ${HOST}:${server.address().port}`);
+    startWatching();
 });

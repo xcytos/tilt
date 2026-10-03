@@ -181,6 +181,13 @@ try {
       mod.status === 200 && String(mod.headers.get('content-type')).includes('javascript'));
     check('marks assets no-cache',
       String(mod.headers.get('cache-control')).includes('no-cache'));
+    check('assets are never stored, or the browser replays stale modules',
+      String(mod.headers.get('cache-control')).includes('no-store') && !!mod.headers.get('etag'),
+      `cache-control=${mod.headers.get('cache-control')} etag=${mod.headers.get('etag')}`);
+    const revalidate = await fetch(BASE + '/js/app.js',
+      { headers: { 'If-None-Match': mod.headers.get('etag') } });
+    check('an unchanged asset answers 304', revalidate.status === 304,
+      `got ${revalidate.status}`);
     const missing = await fetch(BASE + '/definitely-not-here.html');
     check('a missing file is a 404', missing.status === 404);
     const escape = await rawRequest(port, 'GET', '/x%2f..%2f..%2fetc/passwd');
@@ -280,6 +287,11 @@ check('app keeps a per-preset store of saved values',
 check('app writes on a debounce, not on every drag', /function scheduleSave\(\)/.test(app)
   && /setTimeout\(\(\) => \{/.test(app) && /void commit\(\);/.test(app)
   && /async function commit\(\)[\s\S]{0,400}saveProject\(/.test(app));
+// Clearing `dirty` before the PATCH is known to have landed leaves the
+// leaving flush with nothing to retry, which is how a project silently
+// kept its old display type and controls.
+check('a failed write keeps the project dirty for the leaving flush',
+  /async function commit\(\)\s*\{[\s\S]{0,600}?if \(!ok\) dirty = true;/.test(app));
 check('boot restores the project before the first sync',
   /await loadProject\(\)/.test(app)
   && app.indexOf('await loadProject()') < app.indexOf('await syncScene()'));

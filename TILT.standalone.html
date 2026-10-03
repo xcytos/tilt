@@ -90,6 +90,14 @@
             box-shadow: 0 14px 34px rgba(0,0,0,0.24);
         }
         .dark #overflow { background: #18181b; border-color: rgba(255,255,255,0.14); }
+        #diag {
+            position: fixed; top: calc(52px + env(safe-area-inset-top)); right: 0.5rem;
+            z-index: 120; max-width: min(520px, 72vw); margin: 0; padding: 0.45rem 0.55rem;
+            border-radius: 8px; background: rgba(127,29,29,0.94); color: #fff;
+            font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+            white-space: pre-wrap; word-break: break-word; pointer-events: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+        }
         .menu-item {
             display: block; width: 100%; min-height: 42px; padding: 0.55rem 0.7rem;
             border: 0; border-radius: 8px; background: transparent; text-align: left;
@@ -312,13 +320,43 @@
     <div id="overflow" role="menu" hidden></div>
     <script>
         (function () {
+            var errs = [];
+            window.__tiltErr = errs;
+            window.__tiltStage = 'html';
+            function note(msg) {
+                if (benign(String(msg))) return;
+                if (msg && errs.length < 8 && errs.indexOf(String(msg)) < 0) errs.push(String(msg));
+            }
+            // Fired on every window resize by the sheet observer; not ours.
+            function benign(msg) {
+                return /ResizeObserver loop/.test(msg);
+            }
+
+            // The panel callbacks are wrapped in guard(), which reports to the
+            // console rather than to the page - so a swallowed exception would
+            // otherwise look exactly like "the button does nothing".
+            (function () {
+                var orig = console.error;
+                console.error = function () {
+                    try {
+                        note('[console] ' + Array.prototype.map.call(arguments, function (a) {
+                            return a && a.message ? a.message : String(a);
+                        }).join(' '));
+                        show();
+                    } catch (e) { /* never break the page */ }
+                    return orig.apply(console, arguments);
+                };
+            })();
             function fail(msg) {
+                note(msg);
                 if (window.__bootFail) clearTimeout(window.__bootFail);
                 var b = document.getElementById('boot');
                 var m = document.getElementById('boot-msg');
                 if (m) m.textContent = msg;
                 if (b) b.classList.add('failed');
+                show();
             }
+            window.__tiltFail = fail;
             window.__bootFail = setTimeout(function () {
                 fail('Could not load Three.js - check your connection');
             }, 12000);
@@ -329,13 +367,145 @@
                 var src = (e.target && (e.target.src || e.target.href)) || '';
                 if (e.target && e.target !== window && (src || e.message)) {
                     fail(e.message || 'Failed to load ' + src);
+                } else if (e.message) {
+                    note(e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+                    show();
                 }
             }, true);
             window.addEventListener('unhandledrejection', function (e) {
                 var r = e.reason;
                 fail((r && r.message) || 'Failed to start the viewer');
             });
+
+            // ---------------------------------------------------- self-check
+            function describe(el) {
+                if (!el) return 'nothing';
+                var s = el.tagName.toLowerCase();
+                if (el.id) return s + '#' + el.id;
+                if (typeof el.className === 'string' && el.className) {
+                    return s + '.' + el.className.split(/\s+/)[0];
+                }
+                return s;
+            }
+            function hitTest(id) {
+                var el = document.getElementById(id);
+                if (!el) return id + '=missing';
+                var r = el.getBoundingClientRect();
+                if (!r.width || !r.height) return id + '=no-size';
+                if (typeof document.elementFromPoint !== 'function') return id + '=noprobe';
+                var hit = null;
+                try {
+                    hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                } catch (e) { return id + '=probe failed'; }
+                if (hit === el || el.contains(hit)) return id + '=ok';
+                return id + '=covered by ' + describe(hit);
+            }
+            function probe() {
+                try { return probeInner(); }
+                catch (e) { return { bad: ['self-check threw: ' + (e && e.message)], lines: [] }; }
+            }
+            var clicked = false;
+            var menuProbe = '';
+            function probeInner() {
+                var bad = [];
+                var lines = [];
+                lines.push('stage=' + window.__tiltStage
+                    + ' O2=' + (window.O2 ? 'yes' : 'NO')
+                    + ' wired=' + (window.__tiltWired === true ? 'yes'
+                        : (window.__tiltWired || 'NO')));
+                if (!window.O2) bad.push('app.js did not finish (stage=' + window.__tiltStage + ')');
+                if (window.__tiltWired && window.__tiltWired !== true) {
+                    bad.push('top bar controls missing: ' + window.__tiltWired);
+                } else if (!window.__tiltWired) {
+                    bad.push('the top bar was never wired');
+                }
+
+                var boot = document.getElementById('boot');
+                lines.push('boot=' + (boot ? (boot.className || 'plain') : 'gone'));
+                if (window.O2 && boot && !boot.classList.contains('hidden')) {
+                    bad.push('the boot overlay still covers the screen');
+                }
+
+                var b1 = hitTest('btn-back');
+                var b2 = hitTest('btn-overflow');
+                lines.push(b1 + ' ' + b2);
+                if (!/btn-back=ok$/.test(b1)) bad.push(b1);
+                if (!/btn-overflow=ok$/.test(b2)) bad.push(b2);
+
+                var o2 = window.O2;
+                if (o2) {
+                    var saved = 'x';
+                    try { saved = Object.keys(o2.savedPresets).length; } catch (e) { saved = 'x'; }
+                    lines.push('mode=' + o2.mode + ' target=' + o2.projectId
+                        + ' dirty=' + o2.dirty + ' savedPresets=' + saved);
+                    try {
+                        var d = o2.buildDoc();
+                        lines.push('buildDoc=ok mode=' + d.mode + ' mounted=[' + d.mounted.join(',')
+                            + '] presets=' + Object.keys(d.presets || {}).length);
+                    } catch (e) {
+                        lines.push('buildDoc THREW: ' + (e && e.message));
+                        bad.push('buildDoc threw: ' + (e && e.message));
+                    }
+                }
+
+                var save = window.__tiltSave;
+                lines.push('save=' + (save
+                    ? (save.ok ? 'OK' : 'FAIL http' + save.status) + ' -> '
+                        + (save.target || 'shared session') + ' '
+                        + Math.round((Date.now() - save.at) / 1000) + 's ago'
+                    : 'not yet'));
+                if (save && !save.ok) {
+                    bad.push('the save failed: http ' + save.status
+                        + ' -> ' + (save.target || 'shared session'));
+                }
+
+                // Only once the bar is known to be wired, otherwise a probe
+                // that lands before app.js finishes would record "no listener"
+                // and never ask again.
+                if (!clicked && window.__tiltWired) {
+                    clicked = true;
+                    var more = document.getElementById('btn-overflow');
+                    var menu = document.getElementById('overflow');
+                    if (more && menu && menu.hidden) {
+                        more.click();
+                        menuProbe = !menu.hidden ? 'opens' : 'NO LISTENER';
+                        if (menuProbe === 'opens') more.click();
+                    }
+                }
+                if (menuProbe) {
+                    lines.push('click->menu=' + menuProbe);
+                    if (menuProbe !== 'opens') bad.push('the ⋮ button has no listener');
+                }
+
+                if (errs.length) {
+                    lines.push('err: ' + errs.slice(0, 3).join(' | '));
+                    bad.push(errs.slice(0, 3).join(' | '));
+                }
+                return { bad: bad, lines: lines };
+            }
+            // Only ever on screen when a check is failing: this is a fault
+            // report, not part of the interface.
+            function show() {
+                var r = probe();
+                var box = document.getElementById('diag');
+                if (!r.bad.length) {
+                    if (box) box.remove();
+                    return;
+                }
+                if (!box) {
+                    box = document.createElement('pre');
+                    box.id = 'diag';
+                    document.body.appendChild(box);
+                }
+                box.textContent = 'TILT self-check\n'
+                    + r.bad.map(function (s) { return '! ' + s; }).join('\n')
+                    + '\n\n' + r.lines.join('\n');
+            }
+            window.__tiltDiag = show;
+            setTimeout(show, 8000);
+            setInterval(show, 2000);
         })();
+
     </script>
 
     <div class="ui-panel bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-gray-200 dark:border-zinc-700" id="ui-panel">
@@ -549,6 +719,7 @@ async function loadProject() {
 async function saveProject(project) {
     const json = projectToJSON(project);
     let onDisk = false;
+    let status = 0;
 
     if (served()) {
         try {
@@ -558,12 +729,18 @@ async function saveProject(project) {
                 body: target ? JSON.stringify({ doc: project }) : json
             });
             onDisk = res.ok;
+            status = res.status;
         } catch {
             onDisk = false;
+            status = -1;
         }
     }
     if (hasLocal()) {
         try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+    }
+    if (typeof window !== 'undefined') {
+        window.__tiltSave = { at: Date.now(), ok: onDisk, status, target };
+        if (typeof window.__tiltDiag === 'function') window.__tiltDiag();
     }
     return onDisk;
 }
@@ -2096,6 +2273,10 @@ function createEditor(opts) {
             'save-status': statusEl, overflow: menuEl };
         console.error('[editor] bar controls missing from the shell:',
             Object.keys(missing).filter(k => !missing[k]).join(', '));
+        if (typeof window !== 'undefined') {
+            window.__tiltWired = 'stub: missing '
+                + Object.keys(missing).filter(k => !missing[k]).join(', ');
+        }
         return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
     }
 
@@ -2296,6 +2477,10 @@ function createEditor(opts) {
 
     setStatus('saved');
 
+    // Only now that every listener is on: the self-check reads this as
+    // "the bar answers", and an early flag would claim it before it is true.
+    if (typeof window !== 'undefined') window.__tiltWired = true;
+
     return { setName, setStatus, flash, promptName };
 }
 
@@ -2304,6 +2489,12 @@ const container = document.getElementById('canvas-container');
 const panelBody = document.getElementById('panel-body');
 const panelEl = document.getElementById('ui-panel');
 const overHttp = /^https?:$/.test(location.protocol);
+
+// Where the module has got to, read by the self-check in the shell. A stall
+// anywhere in the top-level awaits otherwise looks identical to "the buttons
+// do nothing".
+const stage = s => { window.__tiltStage = s; };
+stage('app.js');
 
 let viewer;
 try {
@@ -2354,10 +2545,16 @@ function buildDoc() {
 }
 
 async function commit() {
+    // Clear first, so an edit made while the request is in flight is not
+    // mistaken for one that has already gone out - then put it back if the
+    // write did not land, because the leaving flush is keyed off `dirty` and
+    // would otherwise skip the only retry this project ever gets.
     dirty = false;
     const ok = await saveProject(buildDoc());
+    if (!ok) dirty = true;
     if (editor) editor.setStatus(ok || !overHttp ? 'saved' : 'offline');
     scheduleThumb();
+    return ok;
 }
 
 function saveNow() {
@@ -2613,10 +2810,12 @@ viewer.setTheme(prefersDark);
 // Without a server the manifest cannot be fetched; the registry then serves
 // its built-in definition so the viewer still comes up.
 let manifestError = '';
+stage('manifest');
 await registry.loadManifest().catch(err => {
     manifestError = err.message;
     console.warn('[registry] manifest not loaded, using the built-in model:', err);
 });
+stage('manifest done');
 
 const firstEntry = registry.list[0];
 let startupError = '';
@@ -2633,6 +2832,7 @@ try {
 } catch (err) {
     console.warn('[project] could not restore the project:', err);
 }
+stage('project loaded');
 
 let projectNotice = '';
 const loadState = loadNotice();
@@ -2681,6 +2881,7 @@ try {
     startupError = (err && err.message) || String(err);
     console.error('[scene]', err);
 }
+stage('scene');
 
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
@@ -2721,6 +2922,7 @@ panel = createPanel({
     },
     onReset: guard(() => resetProject())
 });
+stage('panel');
 
 // The sheet changes height whenever the panel repaints or collapses: keep the
 // canvas in step, and the viewer's own observer re-fits the drawing buffer.
@@ -2797,6 +2999,7 @@ editor = createEditor({
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject()
 });
+stage('editor');
 
 // The last write before the tab goes away; nothing else will save after this.
 window.addEventListener('pagehide', () => {
@@ -2820,6 +3023,7 @@ document.getElementById('btn-minimize').addEventListener('click', () => {
 });
 
 viewer.start();
+stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
@@ -2831,7 +3035,8 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
-    get projectName() { return projectName; }
+    get projectName() { return projectName; },
+    get dirty() { return dirty; }
 };
     </script>
 </body>
