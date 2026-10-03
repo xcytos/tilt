@@ -23,6 +23,15 @@ const MM_PER_FOOT = 304.8;
 const NEST_CLEARANCE = 0.002;   // gap between inner tube and sleeve bore, feet
 const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 
+// The stand-to-rail joint is a sleeve coupler: the round rail pole passes
+// through a fatter coupling sleeve that the stand top rises into. Because
+// the sleeve is round, the rail can be rotated (pitched) and locked in
+// place - the tilt lives in this joint, like a set-screw EMT coupling on
+// a pipe-and-rail build.
+const JOINT_RADIUS = RAIL_RADIUS * 1.25;
+const JOINT_LEN = 0.55;
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
 export const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 6,   step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: 0, max: 90,  step: 1,   value: 0,  unit: '°' },
@@ -220,6 +229,7 @@ export function createO2TiltModel(initial = {}) {
     const matRail = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.6, roughness: 0.3 });
     const matPole = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, roughness: 0.4 });
     const matBase = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.7, roughness: 0.2 });
+    const matJoint = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.75, roughness: 0.3 });
     const matFabric = new THREE.MeshStandardMaterial({
         color: 0xffffff, roughness: 0.9, metalness: 0.1,
         side: THREE.DoubleSide, envMapIntensity: 0.15
@@ -286,6 +296,12 @@ export function createO2TiltModel(initial = {}) {
     let anchors = [];
     let anchorsStale = true;
 
+    // The coupling sleeves joining each stand top to the rail. They follow
+    // the rail's own tangent so the rail runs through them, and they are
+    // round so the rail can be pitched inside them.
+    const joints = [];
+    const jointGeo = new THREE.CylinderGeometry(JOINT_RADIUS, JOINT_RADIUS, JOINT_LEN, 16);
+
     function release(mesh) {
         if (!mesh) return;
         root.remove(mesh);
@@ -298,6 +314,9 @@ export function createO2TiltModel(initial = {}) {
         const panRad = state.pan * (Math.PI / 180);
 
         ensureTubeGeometry();
+
+        for (const j of joints) root.remove(j);
+        joints.length = 0;
 
         for (let i = 0; i < POLE_COUNT; i++) {
             const idx = Math.floor((i / (POLE_COUNT - 1)) * FABRIC_RES_X);
@@ -327,6 +346,18 @@ export function createO2TiltModel(initial = {}) {
 
                 bases[i].position.set(p.x, 0, p.z);
                 bases[i].rotation.y = turn * panRad;
+
+                // The coupling sleeve: a short fat tube seated on the stand
+                // top and running with the rail, so the rail can be pitched
+                // and locked inside it.
+                const jPrev = pts[Math.max(0, idx - 1)];
+                const jNext = pts[Math.min(pts.length - 1, idx + 1)];
+                const joint = new THREE.Mesh(jointGeo, matJoint);
+                joint.castShadow = true;
+                joint.position.copy(p);
+                joint.quaternion.setFromUnitVectors(Y_AXIS, jNext.clone().sub(jPrev).normalize());
+                root.add(joint);
+                joints.push(joint);
             }
         }
 
@@ -412,6 +443,7 @@ export function createO2TiltModel(initial = {}) {
         matRail.envMapIntensity = t.metalEnv;
         matPole.envMapIntensity = t.metalEnv;
         matBase.envMapIntensity = t.metalEnv;
+        matJoint.envMapIntensity = t.metalEnv;
     }
 
     function dispose() {
@@ -421,7 +453,7 @@ export function createO2TiltModel(initial = {}) {
         root.clear();
         sleeveGeo = innerGeo = null;
         tubeKey = '';
-        [matRail, matPole, matBase, matFabric].forEach(m => m.dispose());
+        [matRail, matPole, matBase, matFabric, matJoint].forEach(m => m.dispose());
         anchors = [];
         anchorsStale = true;
     }
