@@ -226,7 +226,7 @@ export function createO2TiltModel(initial = {}) {
     const root = new THREE.Group();
     root.name = MODEL_ID;
 
-    const matRail = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.6, roughness: 0.3 });
+    const matRail = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.28 });
     const matPole = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, roughness: 0.4 });
     const matBase = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.7, roughness: 0.2 });
     const matJoint = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.75, roughness: 0.3 });
