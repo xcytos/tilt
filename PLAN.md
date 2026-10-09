@@ -155,7 +155,7 @@ Plus a grab-handle bar; the existing minimize button becomes the sheet chevron.
 
 **New:** `index.html`, `home/home.js`, `home/home.css`, `tools/store.mjs`,
 `tools/sqlite-driver.mjs`, `tools/api.mjs`, `tests/test9.mjs`, `tests/test10.mjs`,
-`data/` (gitignored).
+`js/scenes.js`, `data/` (gitignored).
 
 **Changed:** `tools/serve.mjs`, `serve.sh`, `.gitignore`, `TILT.html`,
 `js/app.js`, `js/viewer.js`, `js/project.js`, `tests/test8.mjs` (only if unavoidable),
@@ -181,6 +181,14 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    camera state save/restore, thumbnail capture, back navigation.
 5. **Mobile + polish** — bottom-sheet CSS, 44px targets, grab handle, `test10.mjs`,
    `node tools/build.mjs`, full suite run.
+6. **Scenes** — `js/scenes.js` (`SCENES`, `SceneRig`) gives every set a world to stand
+   in: **Studio** (the grid void, unchanged), **White Room Stage** (the reference scene:
+   white walls, wall panels, sconces, raised stage with a red mat), **Ballroom Stage**
+   (carpet, pilasters, chandelier), **Garden at Night** (grass, gradient sky, fog, trees,
+   a sagging bulb string), **Sunset Terrace** (plank deck, sunset sky, parapet). The
+   project document gains `scene`, the panel a Scene picker, `viewer.setScene()` rebuilds
+   the rig and re-points the three fixed lights, background and fog. The models never
+   move: a raised stage drops the floor *below* y = 0 instead of lifting the frames.
 
 ---
 
@@ -206,6 +214,9 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    rebuild after every `js/` + `TILT.html` edit.
 6. Two windows (home + editor open) both PATCH → last write wins; the client always sends
    the whole doc, so there is no partial-merge bug.
+7. `js/project.js` must keep importing nothing: `tests/test8.mjs` imports it in plain
+   Node, where `three` does not resolve. It checks `scene` against a shape regex and
+   `app.js` checks it against the real `SCENES` list.
 
 ## Needs your confirmation
 

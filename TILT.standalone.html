@@ -530,6 +530,331 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+// ---- js/scenes.js ----
+// The rooms a set can be staged in. Every scene keeps the model's own ground
+// at y = 0 - frames are built to stand on it - so a raised stage is modelled
+// as a floor that drops *below* y = 0 rather than lifting the models up.
+// That way a scene swap never moves a frame, only the world around it.
+const SCENES = [
+    { id: 'studio', name: 'Studio' },
+    { id: 'white-stage', name: 'White Room Stage' },
+    { id: 'ballroom', name: 'Ballroom Stage' },
+    { id: 'garden-night', name: 'Garden at Night' },
+    { id: 'terrace', name: 'Sunset Terrace' }
+];
+
+const DEFAULT_SCENE = 'studio';
+
+function sceneName(id) {
+    const hit = SCENES.find(s => s.id === id);
+    return (hit || SCENES[0]).name;
+}
+
+function isScene(id) {
+    return SCENES.some(s => s.id === id);
+}
+
+// Feet. The stage is wide enough for the widest "all at once" row, and the
+// room wraps it so the camera never looks at empty sky from inside a wall.
+const STAGE_W = 60;
+const STAGE_D = 16;
+const STAGE_H = 1.2;
+const MAT_T = 0.08;
+const WALL_Z = 16;
+const WALL_X = 30;
+const WALL_H = 26;
+
+function sceneMat(color, extra) {
+    return new THREE.MeshStandardMaterial(
+        Object.assign({ color, roughness: 0.9, metalness: 0 }, extra || {}));
+}
+
+function sceneBox(group, w, h, d, mat, x, y, z) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x, y, z);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    return mesh;
+}
+
+function sceneGround(group, w, d, mat, y) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = y;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    return mesh;
+}
+
+// A flat wall standing on its edge; ry turns its face into the room.
+function sceneWall(group, w, h, mat, x, y, z, ry) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = ry;
+    group.add(mesh);
+    return mesh;
+}
+
+function sceneLamp(group, x, y, z, intensity, distance, color) {
+    const light = new THREE.PointLight(color, intensity, distance, 2);
+    light.position.set(x, y, z);
+    group.add(light);
+    return light;
+}
+
+function sceneBulb(group, x, y, z, color) {
+    const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.16, 8, 6),
+        new THREE.MeshStandardMaterial({
+            color: 0x2b2b2b, emissive: color, emissiveIntensity: 5, roughness: 0.4
+        }));
+    mesh.position.set(x, y, z);
+    group.add(mesh);
+    return mesh;
+}
+
+// Vertical gradient, stretched across the screen by scene.background. Used
+// for the skies; the flat scenes use a plain colour instead.
+function sceneSky(top, mid, bottom) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 256;
+    const g = canvas.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, top);
+    if (mid) grad.addColorStop(0.6, mid);
+    grad.addColorStop(1, bottom);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 4, 256);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+}
+
+function scenePlankTexture(base, line, repeat) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    g.fillStyle = base;
+    g.fillRect(0, 0, 128, 128);
+    g.strokeStyle = line;
+    g.lineWidth = 3;
+    for (const y of [1, 43, 86]) {
+        g.beginPath();
+        g.moveTo(0, y);
+        g.lineTo(128, y);
+        g.stroke();
+    }
+    for (const [x, y0, y1] of [[64, 1, 43], [24, 43, 86], [96, 86, 128]]) {
+        g.beginPath();
+        g.moveTo(x, y0);
+        g.lineTo(x, y1);
+        g.stroke();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeat, repeat);
+    return tex;
+}
+
+// Floor + three walls + a raised stage: the shell every indoor scene starts
+// from. The carpet's top face is y = 0, so frames stand on the red mat.
+function sceneRoom(group, floorColor, wallColor, skirtColor, carpetColor) {
+    sceneGround(group, 170, 120, sceneMat(floorColor, { roughness: 0.9 }), -STAGE_H);
+    const wall = sceneMat(wallColor, { roughness: 0.95 });
+    const midY = WALL_H / 2 - STAGE_H;
+    sceneWall(group, WALL_X * 2 + 6, WALL_H, wall, 0, midY, WALL_Z, Math.PI);
+    sceneWall(group, WALL_Z + 28, WALL_H, wall, -WALL_X, midY, -6, Math.PI / 2);
+    sceneWall(group, WALL_Z + 28, WALL_H, wall, WALL_X, midY, -6, -Math.PI / 2);
+    sceneBox(group, STAGE_W, STAGE_H - MAT_T, STAGE_D,
+        sceneMat(skirtColor, { roughness: 0.85 }),
+        0, -MAT_T - (STAGE_H - MAT_T) / 2, 0);
+    sceneBox(group, STAGE_W - 1.4, MAT_T, STAGE_D - 1.4,
+        sceneMat(carpetColor, { roughness: 0.96 }), 0, -MAT_T / 2, 0);
+    return wall;
+}
+
+function sceneUplights(group) {
+    sceneLamp(group, -7, 0.5, 2.5, 70, 34, 0xffd7a8);
+    sceneLamp(group, 7, 0.5, 2.5, 70, 34, 0xffd7a8);
+}
+
+function sceneSconce(group, x, y) {
+    sceneBox(group, 0.9, 1.8, 0.2,
+        sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 2, roughness: 0.5 }),
+        x, y, WALL_Z - 0.5);
+    sceneLamp(group, x, y, WALL_Z - 1.4, 55, 26, 0xffdcae);
+}
+
+function buildWhiteStage(group) {
+    sceneRoom(group, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
+    const trim = sceneMat(0xffffff, { roughness: 0.6 });
+    for (const x of [-18, -6, 6, 18]) sceneBox(group, 8, 11, 0.1, trim, x, 7.5, WALL_Z - 0.2);
+    sceneSconce(group, -13, 9);
+    sceneSconce(group, 13, 9);
+    sceneUplights(group);
+    return {
+        background: new THREE.Color(0xf4f2ee),
+        fog: null,
+        ambient: { color: 0xffffff, intensity: 0.7 },
+        key: { color: 0xffffff, intensity: 1.3 },
+        fill: { color: 0xfff1de, intensity: 0.45 }
+    };
+}
+
+function buildBallroom(group) {
+    sceneRoom(group, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+    for (const x of [-20, -8, 8, 20]) {
+        sceneBox(group, 1.6, 20, 0.5, sceneMat(0xf7f0e2), x, 10, WALL_Z - 0.4);
+    }
+    for (const x of [-14, -5, 5, 14]) sceneSconce(group, x, 8.5);
+
+    // Chandelier: ring, chain, core and a ring of bulbs, with one lamp to
+    // carry it onto the floor.
+    const gold = sceneMat(0xd9b45c, { metalness: 0.9, roughness: 0.3 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.18, 8, 40), gold);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(0, 15.5, 4);
+    group.add(ring);
+    const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 8, 6), gold);
+    chain.position.set(0, 19.6, 4);
+    group.add(chain);
+    const core = new THREE.Mesh(
+        new THREE.SphereGeometry(1.1, 16, 12),
+        sceneMat(0xfff4dd, { emissive: 0xffe3ae, emissiveIntensity: 6, roughness: 0.3 }));
+    core.position.set(0, 15, 4);
+    group.add(core);
+    for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        sceneBulb(group, Math.cos(a) * 3.2, 15.3, 4 + Math.sin(a) * 3.2, 0xffe3ae);
+    }
+    sceneLamp(group, 0, 15, 4, 420, 90, 0xffe3b8);
+    sceneUplights(group);
+
+    return {
+        background: new THREE.Color(0xefe6d6),
+        fog: null,
+        ambient: { color: 0xfff6ea, intensity: 0.65 },
+        key: { color: 0xfff2e0, intensity: 1.25 },
+        fill: { color: 0xffe9cf, intensity: 0.4 }
+    };
+}
+
+function sceneTree(group, x, z, scale) {
+    const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3 * scale, 0.45 * scale, 5 * scale, 8),
+        sceneMat(0x3a2c1d, { roughness: 1 }));
+    trunk.position.set(x, 2.5 * scale, z);
+    group.add(trunk);
+    for (const [y, r] of [[5.4 * scale, 3 * scale], [7.6 * scale, 2.1 * scale]]) {
+        const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1),
+            sceneMat(0x2b5530, { roughness: 1, flatShading: true }));
+        crown.position.set(x, y, z);
+        group.add(crown);
+    }
+}
+
+function buildGardenNight(group) {
+    sceneGround(group, 260, 200, sceneMat(0x466b34, { roughness: 1 }), 0);
+    for (const [x, z, s] of [
+        [-14, 12, 1.1], [14, 12, 1.2], [-22, 8, 0.9], [22, 8, 1],
+        [-30, 5, 1.3], [30, 5, 1.15], [-26, 16, 1], [26, 16, 0.95]
+    ]) sceneTree(group, x, z, s);
+
+    // A sagging string of bulbs between the trees.
+    for (let i = 0; i <= 8; i++) {
+        const t = i / 8;
+        sceneBulb(group, -24 + 48 * t, 10 - 2.4 * Math.sin(Math.PI * t), 10, 0xffd9a0);
+    }
+    sceneLamp(group, 0, 7.6, 10, 90, 46, 0xffd9a0);
+    sceneLamp(group, -8, 0.5, 3, 110, 40, 0xffc98a);
+    sceneLamp(group, 8, 0.5, 3, 110, 40, 0xffc98a);
+
+    return {
+        background: sceneSky('#040a1d', '#16264d', '#04070f'),
+        fog: { color: 0x0d1730, near: 60, far: 240 },
+        ambient: { color: 0x8ea2d8, intensity: 0.32 },
+        key: { color: 0xb9cbff, intensity: 0.55 },
+        fill: { color: 0x5f76c4, intensity: 0.18 }
+    };
+}
+
+function buildTerrace(group) {
+    const planks = scenePlankTexture('#8a6a49', '#6b4f34', 16);
+    const deck = sceneMat(0xffffff, { roughness: 0.8 });
+    deck.map = planks;
+    deck.userData.ownMap = true;
+    sceneGround(group, 260, 200, deck, 0);
+
+    sceneBox(group, 90, 3, 1, sceneMat(0xd9d2c7, { roughness: 0.9 }), 0, 1.5, 26);
+    for (const x of [-24, 24]) sceneBox(group, 6, 2.4, 3, sceneMat(0x6f6a60), x, 1.2, 20);
+    sceneUplights(group);
+
+    return {
+        background: sceneSky('#22305f', '#c96a3a', '#f7c884'),
+        fog: { color: 0xd98a5a, near: 70, far: 300 },
+        ambient: { color: 0xffe6d0, intensity: 0.5 },
+        key: { color: 0xffd9b0, intensity: 1.0 },
+        fill: { color: 0xff9e6b, intensity: 0.35 }
+    };
+}
+
+const SCENE_BUILDERS = {
+    'white-stage': buildWhiteStage,
+    'ballroom': buildBallroom,
+    'garden-night': buildGardenNight,
+    'terrace': buildTerrace
+};
+
+function disposeSceneTree(root) {
+    root.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (!o.material) return;
+        for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+            if (m.userData && m.userData.ownMap && m.map) m.map.dispose();
+            m.dispose();
+        }
+    });
+}
+
+// Owns everything that makes a scene a place: ground, walls, sky, the extra
+// lights. The viewer keeps its three fixed lights and its studio floor, and
+// only re-points them at whatever `settings` says.
+class SceneRig {
+    constructor() {
+        this.group = new THREE.Group();
+        this.settings = null;
+        this.id = DEFAULT_SCENE;
+    }
+
+    build(id) {
+        this.clear();
+        this.id = isScene(id) ? id : DEFAULT_SCENE;
+        const make = SCENE_BUILDERS[this.id];
+        this.settings = make ? make(this.group) : null;
+        return this.settings;
+    }
+
+    clear() {
+        // The sky texture is referenced by the scene background, not by a
+        // material, so nothing else would ever release it.
+        if (this.settings && this.settings.background && this.settings.background.isTexture) {
+            this.settings.background.dispose();
+        }
+        for (const child of [...this.group.children]) {
+            disposeSceneTree(child);
+            this.group.remove(child);
+        }
+        this.settings = null;
+    }
+
+    dispose() {
+        this.clear();
+        if (this.group.parent) this.group.parent.remove(this.group);
+    }
+}
+
 // ---- js/project.js ----
 // The project file is the panel's memory: which display mode was on, which
 // presets were on stage, every control value for every preset that has been
@@ -595,6 +920,11 @@ function cleanView(view) {
     return out.position || out.target || out.theme ? out : null;
 }
 
+// Checked against its shape here and against the real list in app.js, so
+// this module keeps importing nothing: the tests parse it in plain Node,
+// where a three.js import would not resolve.
+const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 function parseProject(raw) {
@@ -610,6 +940,7 @@ function parseProject(raw) {
         mode: data.mode === 'overlay' ? 'overlay' : 'single',
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
+        scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],
@@ -1584,7 +1915,9 @@ class Viewer {
         this._framedAspect = window.innerWidth / window.innerHeight;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(THEME.light.bg);
+        this._bgColor = new THREE.Color(THEME.light.bg);
+        this.scene.background = this._bgColor;
+        this.sceneId = null;
 
         this.camera = new THREE.PerspectiveCamera(
             45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -1647,7 +1980,15 @@ class Viewer {
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), this.matFloor);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
+        this.floor = floor;
         this.scene.add(floor);
+
+        // The world around the models: ground, walls, sky and the extra
+        // lights that make a room a room. The studio scene adds nothing and
+        // keeps the grid floor above as it always was.
+        this.rig = new SceneRig();
+        this.scene.add(this.rig.group);
+        this.setScene(DEFAULT_SCENE);
 
         // The canvas fills its container, not the window: on a phone the
         // control sheet takes the bottom of the screen and the render target
@@ -1711,16 +2052,56 @@ class Viewer {
 
     setTheme(isDark) {
         this.isDark = isDark;
-        const t = isDark ? THEME.dark : THEME.light;
-
         document.documentElement.classList.toggle('dark', isDark);
-        this.scene.background.setHex(t.bg);
-        this.matFloor.map = this.floorTex[isDark ? 'dark' : 'light'];
-        this.matFloor.envMapIntensity = t.floorEnv;
-        this.ambientLight.intensity = t.ambient;
-        this.mainLight.intensity = t.key;
-
+        this._setEnv();
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
+    }
+
+    // Swap the world the models stand in. Unknown ids fall back to the
+    // studio, so a hand-edited project can never leave an empty scene.
+    setScene(id) {
+        const next = isScene(id) ? id : DEFAULT_SCENE;
+        if (next === this.sceneId) return next;
+        this.sceneId = next;
+        this.rig.build(next);
+        this._setEnv();
+        return next;
+    }
+
+    // Point the fixed lights, floor and background at whatever the current
+    // scene asks for. Studio is driven by the light/dark toggle instead of a
+    // scene definition, which is exactly the behaviour it had before scenes
+    // existed.
+    _setEnv() {
+        const studio = this.sceneId === 'studio' || !this.rig.settings;
+        this.floor.visible = studio;
+
+        if (studio) {
+            const t = this.isDark ? THEME.dark : THEME.light;
+            this.scene.background = this._bgColor.setHex(t.bg);
+            this.scene.fog = null;
+            this.matFloor.map = this.floorTex[this.isDark ? 'dark' : 'light'];
+            this.matFloor.color.setHex(0xffffff);
+            this.matFloor.roughness = 1;
+            this.matFloor.envMapIntensity = t.floorEnv;
+            this.ambientLight.color.setHex(0xffffff);
+            this.ambientLight.intensity = t.ambient;
+            this.mainLight.color.setHex(0xffffff);
+            this.mainLight.intensity = t.key;
+            this.fillLight.color.setHex(0xffffff);
+            this.fillLight.intensity = 0.5;
+            return;
+        }
+
+        const s = this.rig.settings;
+        this.scene.background = s.background;
+        this.scene.fog = s.fog ? new THREE.Fog(s.fog.color, s.fog.near, s.fog.far) : null;
+        this.ambientLight.color.setHex(s.ambient.color);
+        this.ambientLight.intensity = s.ambient.intensity;
+        this.mainLight.color.setHex(s.key.color);
+        this.mainLight.intensity = s.key.intensity;
+        this.fillLight.color.setHex(s.fill.color);
+        this.fillLight.intensity = s.fill.intensity;
     }
 
     // Match the camera and the drawing buffer to whatever box the canvas
@@ -1845,6 +2226,7 @@ class Viewer {
         window.removeEventListener('resize', this._onResize);
         if (this._watchBox) this._watchBox.disconnect();
         this.clearModels();
+        this.rig.dispose();
         this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         [this.matFloor].forEach(m => m.dispose());
         this.renderer.dispose();
@@ -1952,8 +2334,9 @@ function modeButtonCls(active) {
 function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange, onReset,
-        themeIsDark = false
+        scenes = [], scene = null,
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        onSceneChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -1963,6 +2346,7 @@ function createPanel(opts) {
     let currentGroups = groups;
     let current = model;
     let activeId_ = activeId;
+    let currentScene = scene;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -2130,6 +2514,29 @@ function createPanel(opts) {
         return shell.wrap;
     }
 
+    // The room the set stands in. Kept next to the display controls rather
+    // than in the model sections: a scene belongs to the project, not to a
+    // preset.
+    function sceneBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Scene'));
+        const select = document.createElement('select');
+        select.id = 'param-scene';
+        select.className = FIELD_CLS;
+        for (const s of scenes) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            select.appendChild(opt);
+        }
+        select.value = currentScene || (scenes[0] && scenes[0].id) || '';
+        select.addEventListener('change', e => onSceneChange && onSceneChange(e.target.value));
+        live.selects.push(select);
+        wrap.appendChild(select);
+        return wrap;
+    }
+
     // Which presets are mounted. In overlay mode this is how models get in and
     // out of the scene; the accordions below only appear for what is mounted.
     function pickerBlock() {
@@ -2187,6 +2594,7 @@ function createPanel(opts) {
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
+            currentScene || '',
             (current && current.name) || ''
         ].join('|');
     }
@@ -2221,6 +2629,7 @@ function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (scenes.length > 1) host.appendChild(sceneBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -2245,6 +2654,7 @@ function createPanel(opts) {
             if (next.mode !== undefined) currentMode = next.mode;
             if (next.groups !== undefined) currentGroups = next.groups;
             if (next.activeId !== undefined) activeId_ = next.activeId;
+            if (next.scene !== undefined) currentScene = next.scene;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;
@@ -2544,6 +2954,7 @@ registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 let mode = 'single';
 let activeId = null;
 let overlayIds = [];
+let sceneId = DEFAULT_SCENE;
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -2569,6 +2980,7 @@ function buildDoc() {
         name: projectName,
         mode,
         activeId,
+        scene: sceneId,
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -2747,6 +3159,7 @@ async function syncScene(forcePanel = false) {
                 mode,
                 groups: gs,
                 activeId,
+                scene: sceneId,
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -2793,6 +3206,18 @@ async function toggleOverlay(id, on) {
     return syncScene();
 }
 
+// The room the set stands in. The viewer sanitises on its own, so a scene id
+// that has since been removed from the catalogue degrades to the studio
+// instead of blanking the viewport.
+function setScene(id) {
+    if (!isScene(id) || id === sceneId) return false;
+    sceneId = id;
+    viewer.setScene(id);
+    if (panel) panel.refresh({ scene: sceneId }, true);
+    scheduleSave();
+    return true;
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -2811,6 +3236,8 @@ async function resetProject() {
     mode = 'single';
     activeId = registry.list[0].id;
     overlayIds = [];
+    sceneId = DEFAULT_SCENE;
+    viewer.setScene(sceneId);
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -2883,6 +3310,7 @@ if (savedDoc) {
     if (savedDoc.view && savedDoc.view.theme) {
         viewer.setTheme(savedDoc.view.theme === 'dark');
     }
+    if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -2908,6 +3336,7 @@ if (savedDoc) {
 }
 
 try {
+    viewer.setScene(sceneId);
     await syncScene();
 } catch (err) {
     startupError = (err && err.message) || String(err);
@@ -2927,10 +3356,13 @@ panel = createPanel({
     mode,
     catalog: registry.list,
     activeId,
+    scenes: SCENES,
+    scene: sceneId,
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
+    onSceneChange: guard(id => setScene(id)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -3059,12 +3491,13 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
+    get scene() { return sceneId; },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
     get projectName() { return projectName; },

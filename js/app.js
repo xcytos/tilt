@@ -2,6 +2,7 @@ import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
 import { createEditor } from './editor.js';
 import { Registry } from './registry.js';
+import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import {
     loadProject, saveProject, clearProject, applySaved, projectToJSON,
@@ -36,6 +37,7 @@ registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 let mode = 'single';
 let activeId = null;
 let overlayIds = [];
+let sceneId = DEFAULT_SCENE;
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -61,6 +63,7 @@ function buildDoc() {
         name: projectName,
         mode,
         activeId,
+        scene: sceneId,
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -239,6 +242,7 @@ async function syncScene(forcePanel = false) {
                 mode,
                 groups: gs,
                 activeId,
+                scene: sceneId,
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -285,6 +289,18 @@ async function toggleOverlay(id, on) {
     return syncScene();
 }
 
+// The room the set stands in. The viewer sanitises on its own, so a scene id
+// that has since been removed from the catalogue degrades to the studio
+// instead of blanking the viewport.
+function setScene(id) {
+    if (!isScene(id) || id === sceneId) return false;
+    sceneId = id;
+    viewer.setScene(id);
+    if (panel) panel.refresh({ scene: sceneId }, true);
+    scheduleSave();
+    return true;
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -303,6 +319,8 @@ async function resetProject() {
     mode = 'single';
     activeId = registry.list[0].id;
     overlayIds = [];
+    sceneId = DEFAULT_SCENE;
+    viewer.setScene(sceneId);
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -375,6 +393,7 @@ if (savedDoc) {
     if (savedDoc.view && savedDoc.view.theme) {
         viewer.setTheme(savedDoc.view.theme === 'dark');
     }
+    if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -400,6 +419,7 @@ if (savedDoc) {
 }
 
 try {
+    viewer.setScene(sceneId);
     await syncScene();
 } catch (err) {
     startupError = (err && err.message) || String(err);
@@ -419,10 +439,13 @@ panel = createPanel({
     mode,
     catalog: registry.list,
     activeId,
+    scenes: SCENES,
+    scene: sceneId,
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
+    onSceneChange: guard(id => setScene(id)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -551,12 +574,13 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
+    get scene() { return sceneId; },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
     get projectName() { return projectName; },

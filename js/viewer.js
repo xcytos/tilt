@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { SceneRig, DEFAULT_SCENE, isScene } from './scenes.js';
 
 const FLOOR_SIZE = 200;
 const GRID_CELLS = 100;
@@ -99,7 +100,9 @@ export class Viewer {
         this._framedAspect = window.innerWidth / window.innerHeight;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(THEME.light.bg);
+        this._bgColor = new THREE.Color(THEME.light.bg);
+        this.scene.background = this._bgColor;
+        this.sceneId = null;
 
         this.camera = new THREE.PerspectiveCamera(
             45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -162,7 +165,15 @@ export class Viewer {
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), this.matFloor);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
+        this.floor = floor;
         this.scene.add(floor);
+
+        // The world around the models: ground, walls, sky and the extra
+        // lights that make a room a room. The studio scene adds nothing and
+        // keeps the grid floor above as it always was.
+        this.rig = new SceneRig();
+        this.scene.add(this.rig.group);
+        this.setScene(DEFAULT_SCENE);
 
         // The canvas fills its container, not the window: on a phone the
         // control sheet takes the bottom of the screen and the render target
@@ -226,16 +237,56 @@ export class Viewer {
 
     setTheme(isDark) {
         this.isDark = isDark;
-        const t = isDark ? THEME.dark : THEME.light;
-
         document.documentElement.classList.toggle('dark', isDark);
-        this.scene.background.setHex(t.bg);
-        this.matFloor.map = this.floorTex[isDark ? 'dark' : 'light'];
-        this.matFloor.envMapIntensity = t.floorEnv;
-        this.ambientLight.intensity = t.ambient;
-        this.mainLight.intensity = t.key;
-
+        this._setEnv();
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
+    }
+
+    // Swap the world the models stand in. Unknown ids fall back to the
+    // studio, so a hand-edited project can never leave an empty scene.
+    setScene(id) {
+        const next = isScene(id) ? id : DEFAULT_SCENE;
+        if (next === this.sceneId) return next;
+        this.sceneId = next;
+        this.rig.build(next);
+        this._setEnv();
+        return next;
+    }
+
+    // Point the fixed lights, floor and background at whatever the current
+    // scene asks for. Studio is driven by the light/dark toggle instead of a
+    // scene definition, which is exactly the behaviour it had before scenes
+    // existed.
+    _setEnv() {
+        const studio = this.sceneId === 'studio' || !this.rig.settings;
+        this.floor.visible = studio;
+
+        if (studio) {
+            const t = this.isDark ? THEME.dark : THEME.light;
+            this.scene.background = this._bgColor.setHex(t.bg);
+            this.scene.fog = null;
+            this.matFloor.map = this.floorTex[this.isDark ? 'dark' : 'light'];
+            this.matFloor.color.setHex(0xffffff);
+            this.matFloor.roughness = 1;
+            this.matFloor.envMapIntensity = t.floorEnv;
+            this.ambientLight.color.setHex(0xffffff);
+            this.ambientLight.intensity = t.ambient;
+            this.mainLight.color.setHex(0xffffff);
+            this.mainLight.intensity = t.key;
+            this.fillLight.color.setHex(0xffffff);
+            this.fillLight.intensity = 0.5;
+            return;
+        }
+
+        const s = this.rig.settings;
+        this.scene.background = s.background;
+        this.scene.fog = s.fog ? new THREE.Fog(s.fog.color, s.fog.near, s.fog.far) : null;
+        this.ambientLight.color.setHex(s.ambient.color);
+        this.ambientLight.intensity = s.ambient.intensity;
+        this.mainLight.color.setHex(s.key.color);
+        this.mainLight.intensity = s.key.intensity;
+        this.fillLight.color.setHex(s.fill.color);
+        this.fillLight.intensity = s.fill.intensity;
     }
 
     // Match the camera and the drawing buffer to whatever box the canvas
@@ -360,6 +411,7 @@ export class Viewer {
         window.removeEventListener('resize', this._onResize);
         if (this._watchBox) this._watchBox.disconnect();
         this.clearModels();
+        this.rig.dispose();
         this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         [this.matFloor].forEach(m => m.dispose());
         this.renderer.dispose();

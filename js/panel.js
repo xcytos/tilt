@@ -95,8 +95,9 @@ function modeButtonCls(active) {
 export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange, onReset,
-        themeIsDark = false
+        scenes = [], scene = null,
+        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        onSceneChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -106,6 +107,7 @@ export function createPanel(opts) {
     let currentGroups = groups;
     let current = model;
     let activeId_ = activeId;
+    let currentScene = scene;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -273,6 +275,29 @@ export function createPanel(opts) {
         return shell.wrap;
     }
 
+    // The room the set stands in. Kept next to the display controls rather
+    // than in the model sections: a scene belongs to the project, not to a
+    // preset.
+    function sceneBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Scene'));
+        const select = document.createElement('select');
+        select.id = 'param-scene';
+        select.className = FIELD_CLS;
+        for (const s of scenes) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            select.appendChild(opt);
+        }
+        select.value = currentScene || (scenes[0] && scenes[0].id) || '';
+        select.addEventListener('change', e => onSceneChange && onSceneChange(e.target.value));
+        live.selects.push(select);
+        wrap.appendChild(select);
+        return wrap;
+    }
+
     // Which presets are mounted. In overlay mode this is how models get in and
     // out of the scene; the accordions below only appear for what is mounted.
     function pickerBlock() {
@@ -330,6 +355,7 @@ export function createPanel(opts) {
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
+            currentScene || '',
             (current && current.name) || ''
         ].join('|');
     }
@@ -364,6 +390,7 @@ export function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (scenes.length > 1) host.appendChild(sceneBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -388,6 +415,7 @@ export function createPanel(opts) {
             if (next.mode !== undefined) currentMode = next.mode;
             if (next.groups !== undefined) currentGroups = next.groups;
             if (next.activeId !== undefined) activeId_ = next.activeId;
+            if (next.scene !== undefined) currentScene = next.scene;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;

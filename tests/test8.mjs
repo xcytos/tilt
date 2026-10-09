@@ -62,6 +62,17 @@ check('overlay mode survives a round trip through JSON', (() => {
     && p.mounted.length === 2 && p.presets['o2tilt-arc'].gap === 3.5;
 })());
 
+check('a scene choice survives a round trip through JSON', (() => {
+  const p = proj.parseProject(proj.projectToJSON({ scene: 'white-stage', name: 'S' }));
+  return p.scene === 'white-stage';
+})());
+check('an unknown or hostile scene id is dropped', (() => {
+  const junk = proj.parseProject(JSON.stringify({ scene: '../../etc/passwd' }));
+  const wrongType = proj.parseProject(JSON.stringify({ scene: 42 }));
+  const missing = proj.parseProject('{}');
+  return junk.scene === null && wrongType.scene === null && missing.scene === null;
+})());
+
 console.log('\nproject file: applying saved values to a model');
 const schema = {
   gap: { key: 'gap', name: 'Gap', type: 'range', min: 0, max: 10, default: 2 },
@@ -311,6 +322,17 @@ check('a reset repaints the panel',
   /return syncScene\(true\);/.test(app) && /forcePanel/.test(app));
 check('the project is exposed for inspection', /resetProject/.test(app)
   && /get savedPresets\(\)/.test(app));
+
+console.log('\nwiring: the scene the set stands in');
+check('scenes.js is in the build order', /'js\/scenes\.js'/.test(build));
+check('app carries the scene choice into the document',
+  /scene: sceneId/.test(app) && /let sceneId = DEFAULT_SCENE;/.test(app));
+check('the viewer swaps the world, not the models', /viewer\.setScene\(id\)/.test(app));
+check('the panel gets the scene list and the callback',
+  /scenes: SCENES/.test(app) && /onSceneChange: guard\(/.test(app));
+check('the panel renders a scene picker', /param-scene/.test(panel)
+  && /onSceneChange/.test(panel));
+check('the viewer falls back to the studio', /isScene\(id\) \? id : DEFAULT_SCENE/.test(read('js/viewer.js')));
 
 check('panel offers the reset button', /onReset/.test(panel)
   && /Reset project/.test(panel));
