@@ -5,6 +5,10 @@
 // localStorage; named projects themselves live in the SQLite database behind
 // tools/store.mjs, which sanitises documents through these same helpers.
 
+// Layout data only: no three.js, so this import still resolves in the plain
+// Node the tests run the parser under.
+import { LAYOUT_IDS } from './layouts.js';
+
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
 const API = './api/projects';
@@ -83,6 +87,8 @@ export function parseProject(raw) {
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
+        layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
+            ? data.layout : null,
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

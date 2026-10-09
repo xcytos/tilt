@@ -73,6 +73,21 @@ check('an unknown or hostile scene id is dropped', (() => {
   return junk.scene === null && wrongType.scene === null && missing.scene === null;
 })());
 
+console.log('\nproject file: the SET the set is staged in');
+const layouts = await import(pathToFileURL(path.join(DECOR, 'js/layouts.js')).href);
+
+check('a set survives a round trip through JSON',
+  proj.parseProject(proj.projectToJSON({ layout: 'cross-flow' })).layout === 'cross-flow');
+check('an unknown set is dropped',
+  proj.parseProject(JSON.stringify({ layout: 'not-a-set' })).layout === null
+  && proj.parseProject('{}').layout === null);
+check('every set has at least two frames on finite ground', layouts.LAYOUTS.every(l =>
+  l.placements.filter(p => p.kind === 'frame').length >= 2
+  && l.placements.every(p => p.kind === 'frame' || p.kind === 'pillar')
+  && l.placements.every(p => [p.x, p.z, p.ry].every(Number.isFinite))));
+check('set ids are unique', new Set(layouts.LAYOUT_IDS).size === layouts.LAYOUT_IDS.length,
+  layouts.LAYOUT_IDS.join(', '));
+
 console.log('\nproject file: applying saved values to a model');
 const schema = {
   gap: { key: 'gap', name: 'Gap', type: 'range', min: 0, max: 10, default: 2 },
@@ -333,6 +348,24 @@ check('the panel gets the scene list and the callback',
 check('the panel renders a scene picker', /param-scene/.test(panel)
   && /onSceneChange/.test(panel));
 check('the viewer falls back to the studio', /isScene\(id\) \? id : DEFAULT_SCENE/.test(read('js/viewer.js')));
+
+console.log('\nwiring: the SET the project is staged as');
+check('layouts.js and pillar.js are in the build order',
+  /'js\/layouts\.js'/.test(build) && /'js\/objects\/pillar\.js'/.test(build));
+check('app carries the set into the document', /layout: layoutId/.test(app));
+check('app registers the pillar as a type', /registry\.register\(PILLAR_ID/.test(app));
+check('a set places its instances, it does not spread them',
+  /function placeSet\(/.test(app) && /function syncSet\(/.test(app)
+  && /layoutId \? await syncSet\(\) : await syncPresets\(\)/.test(app));
+check('a set rebuilds from its slots rather than reusing a stale mount',
+  /async function syncSet\(\)\s*\{\s*unmountAll\(\);/.test(app));
+check('one preset can fill several slots with separate instances',
+  /function repeatDef\(/.test(app) && /registry\.instantiate\(repeatDef\(base, count\)\)/.test(app));
+check('the panel gets the set list and the callback',
+  /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
+check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));
+check('a set shows every group it mounted, pillars included',
+  /const staged = !!currentSet/.test(panel));
 
 check('panel offers the reset button', /onReset/.test(panel)
   && /Reset project/.test(panel));

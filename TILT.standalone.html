@@ -855,6 +855,84 @@ class SceneRig {
     }
 }
 
+// ---- js/layouts.js ----
+// The SETs from the design boards, written as placements instead of pictures.
+// Each board carries a small top-view diagram; these are those diagrams in
+// feet: x runs right, z runs toward the audience (the camera sits at -z), and
+// ry turns a frame in plan, in degrees. A left frame at -20 and its mirror at
+// +20 open into the funnel the grand-entrance boards show.
+//
+// No three.js in here: js/project.js imports the id list and it has to parse
+// in plain Node, where three does not resolve.
+const LAYOUTS = [
+    {
+        id: 'classic-symmetry',
+        name: 'Classic Symmetry',
+        subtitle: 'Balanced & timeless composition',
+        placements: [
+            { kind: 'frame', x: -5.5, z: 0, ry: -20 },
+            { kind: 'frame', x: 5.5, z: 0, ry: 20 },
+            { kind: 'pillar', x: -9.5, z: 2.5, ry: 0 },
+            { kind: 'pillar', x: 9.5, z: 2.5, ry: 0 }
+        ]
+    },
+    {
+        id: 'cross-flow',
+        name: 'Cross-Flow Draping',
+        subtitle: 'Intersecting curtains, flowing lines',
+        placements: [
+            { kind: 'frame', x: -4.5, z: 0, ry: 30 },
+            { kind: 'frame', x: 4.5, z: 0, ry: -30 },
+            { kind: 'pillar', x: -8.5, z: 2, ry: 0 },
+            { kind: 'pillar', x: 8.5, z: 2, ry: 0 }
+        ]
+    },
+    {
+        id: 'divided-entrance',
+        name: 'Divided Entrance',
+        subtitle: 'Two side frames, central opening',
+        placements: [
+            { kind: 'frame', x: -8, z: 0, ry: -8 },
+            { kind: 'frame', x: 8, z: 0, ry: 8 }
+        ]
+    },
+    {
+        id: 'depth-stagger',
+        name: 'Depth Stagger',
+        subtitle: 'Front-back placement for dimension',
+        placements: [
+            { kind: 'frame', x: -6, z: -3, ry: -12 },
+            { kind: 'frame', x: 6, z: 4, ry: 12 }
+        ]
+    },
+    {
+        id: 'diagonal-flow',
+        name: 'Diagonal Flow',
+        subtitle: 'Dynamic angled composition',
+        placements: [
+            { kind: 'frame', x: -7, z: -2, ry: 35 },
+            { kind: 'frame', x: 7, z: 2, ry: 35 }
+        ]
+    },
+    {
+        id: 'grand-entrance',
+        name: 'Grand Entrance',
+        subtitle: 'Two pillars with two frame units',
+        placements: [
+            { kind: 'frame', x: -7, z: 0, ry: -28 },
+            { kind: 'frame', x: 7, z: 0, ry: 28 },
+            { kind: 'pillar', x: -12.5, z: -2, ry: 0 },
+            { kind: 'pillar', x: 12.5, z: -2, ry: 0 }
+        ]
+    }
+];
+
+const LAYOUT_IDS = LAYOUTS.map(l => l.id);
+
+function layoutById(id) {
+    return LAYOUTS.find(l => l.id === id) || null;
+}
+
 // ---- js/project.js ----
 // The project file is the panel's memory: which display mode was on, which
 // presets were on stage, every control value for every preset that has been
@@ -862,6 +940,9 @@ class SceneRig {
 // Served builds keep a copy on disk as project.json and mirror it in
 // localStorage; named projects themselves live in the SQLite database behind
 // tools/store.mjs, which sanitises documents through these same helpers.
+
+// Layout data only: no three.js, so this import still resolves in the plain
+// Node the tests run the parser under.
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -941,6 +1022,8 @@ function parseProject(raw) {
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
+        layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
+            ? data.layout : null,
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],
@@ -1817,6 +1900,128 @@ function createO2TiltModel(initial = {}) {
     return model;
 }
 
+// ---- js/objects/pillar.js ----
+// O1 in the inventory printed on every board: the fixed classical column the
+// curtain frames are staged against. Stands on the model ground at y = 0 like
+// everything else, so a set can drop it straight into a layout slot.
+const PILLAR_ID = 'pillar';
+const PILLAR_NAME = 'Classical Pillar';
+const PILLAR_SUBTITLE = 'Set component';
+
+const PILLAR_PARAMS = {
+    height:   { label: 'Height',   type: 'range', min: 4, max: 16, step: 0.5, value: 9, unit: ' ft' },
+    diameter: { label: 'Diameter', type: 'range', min: 0.8, max: 3, step: 0.1, value: 1.4, unit: ' ft' },
+    capital:  { label: 'Capital',  type: 'toggle', value: true },
+    plinth:   { label: 'Plinth Base', type: 'toggle', value: true },
+    flutes:   { label: 'Fluted Shaft', type: 'toggle', value: true, advanced: true }
+};
+
+// The pillar has no preset file of its own - a set asks for it by name, so
+// its definition travels with the model instead of with models/.
+const PILLAR_DEF = {
+    id: PILLAR_ID,
+    name: PILLAR_NAME,
+    objects: [{ type: PILLAR_ID, params: {}, elements: [] }]
+};
+
+const PILLAR_THEME = {
+    light: { stone: 0xf3f0ea, env: 0.35 },
+    dark:  { stone: 0xd6d2c8, env: 0.18 }
+};
+
+function createPillarModel(initial = {}) {
+    const root = new THREE.Group();
+    root.name = PILLAR_ID;
+
+    const state = {};
+    for (const k of Object.keys(PILLAR_PARAMS)) state[k] = PILLAR_PARAMS[k].value;
+    Object.assign(state, initial);
+
+    const stone = new THREE.MeshStandardMaterial({
+        color: PILLAR_THEME.light.stone, roughness: 0.65, metalness: 0
+    });
+
+    function build() {
+        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.clear();
+
+        const d = state.diameter;
+        const h = state.height;
+        stone.flatShading = !!state.flutes;
+        stone.needsUpdate = true;
+
+        let y = 0;
+        if (state.plinth) {
+            const ph = Math.min(0.6, h * 0.07);
+            const plinth = new THREE.Mesh(new THREE.BoxGeometry(d * 1.5, ph, d * 1.5), stone);
+            plinth.position.y = ph / 2;
+            root.add(plinth);
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(d * 0.5, d * 0.1, 8, 24), stone);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = ph + d * 0.04;
+            root.add(ring);
+            y = ph + d * 0.08;
+        }
+
+        const capH = state.capital ? Math.min(0.9, h * 0.1) : 0;
+        const shaftH = Math.max(1, h - y - capH);
+        const shaft = new THREE.Mesh(
+            new THREE.CylinderGeometry(d / 2, d / 2 * 1.08, shaftH, state.flutes ? 20 : 32, 1),
+            stone);
+        shaft.position.y = y + shaftH / 2;
+        root.add(shaft);
+
+        if (state.capital) {
+            const neck = new THREE.Mesh(new THREE.TorusGeometry(d * 0.52, d * 0.07, 8, 24), stone);
+            neck.rotation.x = Math.PI / 2;
+            neck.position.y = y + shaftH + d * 0.04;
+            root.add(neck);
+            const cap = new THREE.Mesh(
+                new THREE.BoxGeometry(d * 1.4, capH * 0.55, d * 1.4), stone);
+            cap.position.y = y + shaftH + capH * 0.28;
+            root.add(cap);
+            const abacus = new THREE.Mesh(
+                new THREE.BoxGeometry(d * 1.55, capH * 0.25, d * 1.55), stone);
+            abacus.position.y = y + shaftH + capH * 0.68;
+            root.add(abacus);
+        }
+
+        for (const m of root.children) {
+            if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; }
+        }
+        model.dirty = false;
+    }
+
+    function setTheme(isDark) {
+        const t = isDark ? PILLAR_THEME.dark : PILLAR_THEME.light;
+        stone.color.setHex(t.stone);
+        stone.envMapIntensity = t.env;
+    }
+
+    function dispose() {
+        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.clear();
+        stone.dispose();
+    }
+
+    const model = {
+        id: PILLAR_ID,
+        name: PILLAR_NAME,
+        subtitle: PILLAR_SUBTITLE,
+        object3D: root,
+        params: PILLAR_PARAMS,
+        state,
+        dirty: true,
+        build,
+        setTheme,
+        setParams(partial) { Object.assign(state, partial); model.dirty = true; },
+        dispose
+    };
+
+    build();
+    return model;
+}
+
 // ---- js/viewer.js ----
 const FLOOR_SIZE = 200;
 const GRID_CELLS = 100;
@@ -2334,9 +2539,9 @@ function modeButtonCls(active) {
 function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        scenes = [], scene = null,
+        scenes = [], scene = null, sets = [], set = null,
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onReset, themeIsDark = false
+        onSceneChange, onSetChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -2347,6 +2552,7 @@ function createPanel(opts) {
     let current = model;
     let activeId_ = activeId;
     let currentScene = scene;
+    let currentSet = set;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -2514,6 +2720,39 @@ function createPanel(opts) {
         return shell.wrap;
     }
 
+    // The arrangement the frames and pillars are dropped into. "None" hands
+    // placement back to the display mode, which spaces presets side by side.
+    function setBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Set'));
+        const select = document.createElement('select');
+        select.id = 'param-set';
+        select.className = FIELD_CLS;
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = 'None (free placement)';
+        select.appendChild(none);
+        for (const s of sets) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            select.appendChild(opt);
+        }
+        select.value = currentSet || '';
+        select.addEventListener('change', e => onSetChange && onSetChange(e.target.value));
+        live.selects.push(select);
+        wrap.appendChild(select);
+        if (currentSet) {
+            const hit = sets.find(s => s.id === currentSet);
+            const note = document.createElement('p');
+            note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
+            note.textContent = hit ? hit.subtitle : '';
+            wrap.appendChild(note);
+        }
+        return wrap;
+    }
+
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
     // preset.
@@ -2595,6 +2834,7 @@ function createPanel(opts) {
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
             currentScene || '',
+            currentSet || '',
             (current && current.name) || ''
         ].join('|');
     }
@@ -2605,6 +2845,9 @@ function createPanel(opts) {
         live = { selects: [], checks: [], buttons: [] };
 
         const overlay = currentMode === 'overlay';
+        // A SET shows every group it mounted - frames and pillars - not just
+        // the one a single-model view would have picked.
+        const staged = !!currentSet;
         if (overlay || catalog.length > 1) host.appendChild(modeBlock());
 
         if (overlay) {
@@ -2612,7 +2855,9 @@ function createPanel(opts) {
             currentGroups.forEach((g, i) => host.appendChild(section(g, true, i === 0)));
         } else {
             if (catalog.length > 1) host.appendChild(selectBlock());
-            if (currentGroups[0]) host.appendChild(section(currentGroups[0], false, true));
+            const shown = staged ? currentGroups : currentGroups.slice(0, 1);
+            const collapsible = staged && shown.length > 1;
+            shown.forEach((g, i) => host.appendChild(section(g, collapsible, i === 0)));
         }
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
@@ -2629,6 +2874,7 @@ function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
         host.appendChild(themeFooter());
         applyBusy();
@@ -2655,6 +2901,7 @@ function createPanel(opts) {
             if (next.groups !== undefined) currentGroups = next.groups;
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
+            if (next.set !== undefined) currentSet = next.set;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;
@@ -2948,6 +3195,7 @@ try {
 
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
+registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
 
 // Scene state. `mode` chooses between one preset on stage and several side by
 // side; `mounted` holds exactly what is in the scene, keyed by preset id.
@@ -2955,6 +3203,12 @@ let mode = 'single';
 let activeId = null;
 let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
+// A SET: null means free placement (one preset on stage, or several spread
+// side by side); otherwise `layoutId` names the arrangement the frames and
+// pillars are dropped into, and `setSlots` remembers which slot each mounted
+// group was given so a rebuild can put it back in the same place.
+let layoutId = null;
+let setSlots = new Map();
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -2981,6 +3235,7 @@ function buildDoc() {
         mode,
         activeId,
         scene: sceneId,
+        layout: layoutId,
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -3067,6 +3322,9 @@ function orderIds() {
 }
 
 function groups() {
+    // A SET mounts groups the display order knows nothing about (the pillars),
+    // so it shows what is on stage in the order it was built.
+    if (layoutId) return [...mounted.entries()].map(([id, models]) => ({ id, models }));
     return orderIds()
         .filter(id => mounted.has(id))
         .map(id => ({ id, models: mounted.get(id) }));
@@ -3083,7 +3341,8 @@ function scheduleRebuild() {
         for (const g of gs) for (const m of g.models) if (m.dirty && m.build) m.build();
         // Re-space only. The camera is left alone so dragging a slider never
         // yanks the view around.
-        viewer.layoutGroups(gs.map(g => g.models));
+        if (layoutId) placeSet();
+        else viewer.layoutGroups(gs.map(g => g.models));
     });
 }
 
@@ -3104,38 +3363,130 @@ async function applyPrimaryTheme() {
     if (panel) panel.setTheme(dark);
 }
 
-// Reconcile the scene with `orderIds()`: drop what no longer belongs, mount
-// what is missing, re-space, then refresh the panel. `forcePanel` repaints the
-// controls even when nothing structural changed (used after a project reset).
+// Free placement: reconcile the stage with `orderIds()` - drop what no longer
+// belongs, mount what is missing. SETs do this differently, see syncSet.
+async function syncPresets() {
+    const want = orderIds();
+
+    for (const [id, models] of [...mounted]) {
+        if (want.includes(id)) continue;
+        for (const m of models) viewer.removeModel(m);
+        mounted.delete(id);
+    }
+
+    const failures = [];
+    for (const id of want) {
+        if (mounted.has(id)) continue;
+        try {
+            const def = await registry.load(id);
+            const { models } = await registry.instantiate(def);
+            for (const m of models) {
+                // Every element comes back with the settings it was left with.
+                applySaved(m.state, m.params, savedPresets[id]);
+                m.build();
+                viewer.addModel(m);
+            }
+            mounted.set(id, models);
+        } catch (err) {
+            console.error('[registry]', err);
+            failures.push({ id, message: (err && err.message) || String(err) });
+        }
+    }
+    return failures;
+}
+
+// One definition, repeated: a SET gives every slot of the same preset its own
+// instance, and the instances still share one set of controls.
+function repeatDef(base, count) {
+    if (count <= 1) return base;
+    return Object.assign({}, base, {
+        objects: Array.from({ length: count }, () => base.objects[0])
+    });
+}
+
+async function instantiateKey(key, count) {
+    const base = key === PILLAR_ID ? PILLAR_DEF : await registry.load(key);
+    const { models } = await registry.instantiate(repeatDef(base, count));
+    return models;
+}
+
+// A SET: frames fill the layout's frame slots in display order (cycling when
+// one preset has to fill several, which is how a symmetric set gets built
+// from a single model choice), and the pillars come with the set itself.
+async function syncSet() {
+    unmountAll();
+    const failures = [];
+    const lay = layoutById(layoutId);
+    if (!lay) return failures;
+
+    const presets = orderIds().filter(id => registry.list.some(e => e.id === id));
+    const plan = [];
+    lay.placements.filter(p => p.kind === 'frame').forEach((at, i) => {
+        const key = at.preset
+            || presets[i % Math.max(1, presets.length)]
+            || (registry.list[0] && registry.list[0].id);
+        if (key) plan.push({ key, at });
+    });
+    for (const at of lay.placements) {
+        if (at.kind === 'pillar') plan.push({ key: PILLAR_ID, at });
+    }
+
+    const byKey = new Map();
+    for (const item of plan) {
+        if (!byKey.has(item.key)) byKey.set(item.key, []);
+        byKey.get(item.key).push(item);
+    }
+
+    for (const [key, items] of byKey) {
+        try {
+            const models = await instantiateKey(key, items.length);
+            for (const m of models) {
+                applySaved(m.state, m.params, savedPresets[key]);
+                m.build();
+                viewer.addModel(m);
+            }
+            mounted.set(key, models);
+            setSlots.set(key, items.map(i => i.at));
+        } catch (err) {
+            console.error('[set]', err);
+            failures.push({ id: key, message: (err && err.message) || String(err) });
+        }
+    }
+    return failures;
+}
+
+function unmountAll() {
+    for (const [id, models] of [...mounted]) {
+        for (const m of models) viewer.removeModel(m);
+        mounted.delete(id);
+    }
+    setSlots = new Map();
+}
+
+// Put every mounted model on the spot its slot gave it. `layoutX` records the
+// x written here, so if free placement ever re-spaces these models it starts
+// from zero instead of from a leftover set position.
+function placeSet() {
+    for (const [key, models] of mounted) {
+        const slots = setSlots.get(key) || [];
+        models.forEach((m, i) => {
+            const at = slots[i];
+            if (!m.object3D) return;
+            const x = at ? at.x : 0;
+            m.object3D.position.set(x, 0, at ? at.z : 0);
+            m.object3D.rotation.y = at ? (at.ry || 0) * Math.PI / 180 : 0;
+            m.layoutX = x;
+        });
+    }
+}
+
+// Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
+// repaints the controls even when nothing structural changed (used after a
+// project reset).
 async function syncScene(forcePanel = false) {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
-        const want = orderIds();
-
-        for (const [id, models] of [...mounted]) {
-            if (want.includes(id)) continue;
-            for (const m of models) viewer.removeModel(m);
-            mounted.delete(id);
-        }
-
-        const failures = [];
-        for (const id of want) {
-            if (mounted.has(id)) continue;
-            try {
-                const def = await registry.load(id);
-                const { models } = await registry.instantiate(def);
-                for (const m of models) {
-                    // Every element comes back with the settings it was left with.
-                    applySaved(m.state, m.params, savedPresets[id]);
-                    m.build();
-                    viewer.addModel(m);
-                }
-                mounted.set(id, models);
-            } catch (err) {
-                console.error('[registry]', err);
-                failures.push({ id, message: (err && err.message) || String(err) });
-            }
-        }
+        const failures = layoutId ? await syncSet() : await syncPresets();
 
         // Forget presets that could not be built, so the next sync does not
         // retry them in a loop.
@@ -3149,7 +3500,8 @@ async function syncScene(forcePanel = false) {
         }
 
         const gs = groups();
-        viewer.layoutGroups(gs.map(g => g.models));
+        if (layoutId) placeSet();
+        else viewer.layoutGroups(gs.map(g => g.models));
         viewer.frameScene();
 
         await applyPrimaryTheme();
@@ -3160,6 +3512,7 @@ async function syncScene(forcePanel = false) {
                 groups: gs,
                 activeId,
                 scene: sceneId,
+                set: layoutId,
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -3218,6 +3571,19 @@ function setScene(id) {
     return true;
 }
 
+// Switch SET. Everything mounted is dropped first: a SET rebuilds from its
+// slots, so models must never arrive carrying the previous arrangement's
+// placement.
+function setLayout(id) {
+    const next = id && layoutById(id) ? id : null;
+    if (next === layoutId) return false;
+    layoutId = next;
+    unmountAll();
+    if (panel) panel.refresh({ set: layoutId }, true);
+    scheduleSave();
+    return syncScene();
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -3238,13 +3604,11 @@ async function resetProject() {
     overlayIds = [];
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
+    layoutId = null;
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
-    for (const [id, models] of [...mounted]) {
-        for (const m of models) viewer.removeModel(m);
-        mounted.delete(id);
-    }
+    unmountAll();
 
     await clearProject();
     if (editor) editor.setStatus('saved');
@@ -3311,6 +3675,7 @@ if (savedDoc) {
         viewer.setTheme(savedDoc.view.theme === 'dark');
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
+    if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -3358,11 +3723,14 @@ panel = createPanel({
     activeId,
     scenes: SCENES,
     scene: sceneId,
+    sets: LAYOUTS,
+    set: layoutId,
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
+    onSetChange: guard(id => setLayout(id)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -3491,13 +3859,14 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc, setScene,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
+    get layout() { return layoutId; },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
     get projectName() { return projectName; },

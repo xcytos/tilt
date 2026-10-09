@@ -8,9 +8,11 @@ const ROOT = path.resolve(HERE, '..');
 // Dependency order. app.js must stay last: it runs code at module scope.
 export const ORDER = [
     'js/scenes.js',
+    'js/layouts.js',
     'js/project.js',
     'js/registry.js',
     'js/objects/o2tilt.js',
+    'js/objects/pillar.js',
     'js/viewer.js',
     'js/panel.js',
     'js/editor.js',

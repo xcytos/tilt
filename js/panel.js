@@ -95,9 +95,9 @@ function modeButtonCls(active) {
 export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
-        scenes = [], scene = null,
+        scenes = [], scene = null, sets = [], set = null,
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onReset, themeIsDark = false
+        onSceneChange, onSetChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -108,6 +108,7 @@ export function createPanel(opts) {
     let current = model;
     let activeId_ = activeId;
     let currentScene = scene;
+    let currentSet = set;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -275,6 +276,39 @@ export function createPanel(opts) {
         return shell.wrap;
     }
 
+    // The arrangement the frames and pillars are dropped into. "None" hands
+    // placement back to the display mode, which spaces presets side by side.
+    function setBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Set'));
+        const select = document.createElement('select');
+        select.id = 'param-set';
+        select.className = FIELD_CLS;
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = 'None (free placement)';
+        select.appendChild(none);
+        for (const s of sets) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            select.appendChild(opt);
+        }
+        select.value = currentSet || '';
+        select.addEventListener('change', e => onSetChange && onSetChange(e.target.value));
+        live.selects.push(select);
+        wrap.appendChild(select);
+        if (currentSet) {
+            const hit = sets.find(s => s.id === currentSet);
+            const note = document.createElement('p');
+            note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
+            note.textContent = hit ? hit.subtitle : '';
+            wrap.appendChild(note);
+        }
+        return wrap;
+    }
+
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
     // preset.
@@ -356,6 +390,7 @@ export function createPanel(opts) {
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
             currentScene || '',
+            currentSet || '',
             (current && current.name) || ''
         ].join('|');
     }
@@ -366,6 +401,9 @@ export function createPanel(opts) {
         live = { selects: [], checks: [], buttons: [] };
 
         const overlay = currentMode === 'overlay';
+        // A SET shows every group it mounted - frames and pillars - not just
+        // the one a single-model view would have picked.
+        const staged = !!currentSet;
         if (overlay || catalog.length > 1) host.appendChild(modeBlock());
 
         if (overlay) {
@@ -373,7 +411,9 @@ export function createPanel(opts) {
             currentGroups.forEach((g, i) => host.appendChild(section(g, true, i === 0)));
         } else {
             if (catalog.length > 1) host.appendChild(selectBlock());
-            if (currentGroups[0]) host.appendChild(section(currentGroups[0], false, true));
+            const shown = staged ? currentGroups : currentGroups.slice(0, 1);
+            const collapsible = staged && shown.length > 1;
+            shown.forEach((g, i) => host.appendChild(section(g, collapsible, i === 0)));
         }
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
@@ -390,6 +430,7 @@ export function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
         host.appendChild(themeFooter());
         applyBusy();
@@ -416,6 +457,7 @@ export function createPanel(opts) {
             if (next.groups !== undefined) currentGroups = next.groups;
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
+            if (next.set !== undefined) currentSet = next.set;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;

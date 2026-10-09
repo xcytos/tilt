@@ -155,7 +155,7 @@ Plus a grab-handle bar; the existing minimize button becomes the sheet chevron.
 
 **New:** `index.html`, `home/home.js`, `home/home.css`, `tools/store.mjs`,
 `tools/sqlite-driver.mjs`, `tools/api.mjs`, `tests/test9.mjs`, `tests/test10.mjs`,
-`js/scenes.js`, `data/` (gitignored).
+`js/scenes.js`, `js/layouts.js`, `js/objects/pillar.js`, `data/` (gitignored).
 
 **Changed:** `tools/serve.mjs`, `serve.sh`, `.gitignore`, `TILT.html`,
 `js/app.js`, `js/viewer.js`, `js/project.js`, `tests/test8.mjs` (only if unavoidable),
@@ -189,6 +189,15 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    project document gains `scene`, the panel a Scene picker, `viewer.setScene()` rebuilds
    the rig and re-points the three fixed lights, background and fog. The models never
    move: a raised stage drops the floor *below* y = 0 instead of lifting the frames.
+7. **SET layouts** — `js/layouts.js` turns the boards' top-view diagrams into placements
+   in feet (Classic Symmetry, Cross-Flow Draping, Divided Entrance, Depth Stagger,
+   Diagonal Flow, Grand Entrance) and `js/objects/pillar.js` adds O1, the classical
+   column. A SET (`layout` in the document, a picker above Scene) replaces the
+   side-by-side row: frames fill the layout's frame slots in display order - one
+   preset repeats into both slots, which is how a symmetric set gets built from a
+   single model choice - and the pillars come with the set. `syncSet` rebuilds from
+   the slots every time, `placeSet` puts every model on its spot; free placement is
+   untouched.
 
 ---
 
@@ -214,9 +223,11 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    rebuild after every `js/` + `TILT.html` edit.
 6. Two windows (home + editor open) both PATCH → last write wins; the client always sends
    the whole doc, so there is no partial-merge bug.
-7. `js/project.js` must keep importing nothing: `tests/test8.mjs` imports it in plain
-   Node, where `three` does not resolve. It checks `scene` against a shape regex and
-   `app.js` checks it against the real `SCENES` list.
+7. `js/project.js` may only import modules with no dependencies of their own: the tests
+   import it in plain Node, where `three` does not resolve. It checks `scene` against a
+   shape regex and `layout` against `js/layouts.js`, which is pure data.
+8. `js/layouts.js` must stay three-free for the same reason - it is the only thing the
+   project parser pulls in.
 
 ## Needs your confirmation
 
