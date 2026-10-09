@@ -189,23 +189,28 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    project document gains `scene`, the panel a Scene picker, `viewer.setScene()` rebuilds
    the rig and re-points the three fixed lights, background and fog. The models never
    move: a raised stage drops the floor *below* y = 0 instead of lifting the frames.
-7. **SET layouts** — `js/layouts.js` turns the boards' top-view diagrams into placements
-   in feet (Classic Symmetry, Cross-Flow Draping, Divided Entrance, Depth Stagger,
-   Diagonal Flow, Grand Entrance) and `js/objects/pillar.js` adds O1, the classical
-   column. Two facts about the hardware shaped it: one O2-TILT is already *left +
-   right* (two mirrored rails of 27 ft-wide span from the centre gap, so it needs
-   no partner), and frame slots are therefore spaced ~30 ft apart so two selected
-   frames stand side by side rather than through each other. A SET (`layout` in the
-   document, a picker above Scene) replaces the side-by-side row and stages only
-   what was selected: each preset takes one slot - one preset in single mode lands
-   in the middle of them - and slots the selection does not reach stay empty.
-   Pillars are a component, never a default: `pillars` in the document, a checkbox
-   in the picker. A pillar carries no floor coordinate, only an edge of the frame
-   it stands beside (`center` where the two halves meet, `outer-left`/`outer-right`
-   just past the last pole) plus a depth offset; `frameBounds()` measures the
-   mounted O2 with a Box3 and `placeSet` puts the pillar on that edge, so the
-   pillar follows the Centre Gap control instead of a number frozen on the floor.
-   `syncSet` rebuilds from the slots every time; free placement is untouched.
+7. **SETs, pillars and free placement** - the composition stage. `js/layouts.js`
+   holds the boards' top-view diagrams as *starting points* only (Classic
+   Symmetry, Cross-Flow Draping, Divided Entrance, Depth Stagger, Diagonal Flow,
+   Grand Entrance): frame slots ~30 ft apart, because one O2-TILT is already
+   left + right - two mirrored 12 ft rails spanning about gap + 24 ft - and
+   needs no partner. Picking a set proposes the frames' coordinates; from then
+   on the numbers are yours. `js/objects/pillar.js` adds O1, the classical
+   column, as a component you add with a stepper (0, 1 or 2) - never as part
+   of a set. One pillar stands at the **centre** of the O2 where the modules
+   meet; two stand just beyond the **end of each module**,
+   measured from the model's own `stand-base` groups and stepped clear of the
+   end base, so they ride Centre Gap and Swing Pan in the module's own swing. The **Lock to frame** check (on by default) keeps them on those
+   anchors and re-derives them whenever the frame moves; unlock it and the
+   Position controls - X, Depth, Turn per instance - go live and nothing
+   overwrites them again. A **Mirror pair** check writes one instance's number
+   as the reflection of the other (x becomes -x), so a pair stays a pair.
+   Everything is plain data in the document: `places` (per-instance
+   coordinates, clamped on the way in), `mirror`, `pillars` (0-2) and `lock`.
+   `syncPillars` mounts the count, `defaultPlaces` derives what is missing,
+   `applyPlaces` is the single writer to the stage. Free placement of frames
+   (no set) still falls back to the viewer's own side-by-side spacing, captured
+   as numbers the moment it runs. Free placement is untouched.
 
 ---
 

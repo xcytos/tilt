@@ -83,19 +83,12 @@ check('an unknown set is dropped',
   && proj.parseProject('{}').layout === null);
 check('every set has at least two frames on finite ground', layouts.LAYOUTS.every(l =>
   l.placements.filter(p => p.kind === 'frame').length >= 2
-  && l.placements.every(p => p.kind === 'frame' || p.kind === 'pillar')
   && l.placements.filter(p => p.kind === 'frame')
     .every(p => [p.x, p.z, p.ry].every(Number.isFinite))));
 check('set ids are unique', new Set(layouts.LAYOUT_IDS).size === layouts.LAYOUT_IDS.length,
   layouts.LAYOUT_IDS.join(', '));
-check('every pillar stands on a named edge of the frame, never a floor number',
-  layouts.LAYOUTS.every(l => l.placements.filter(p => p.kind === 'pillar')
-    .every(p => ['center', 'outer-left', 'outer-right'].includes(p.edge)
-      && [p.z, p.ry].every(Number.isFinite))),
-  'edges: ' + layouts.LAYOUTS.map(l => l.id + '='
-    + l.placements.filter(p => p.kind === 'pillar').map(p => p.edge).join('/')).join(' '));
-check('every set offers at least one pillar',
-  layouts.LAYOUTS.every(l => l.placements.some(p => p.kind === 'pillar')));
+check('sets stage frames only - pillars are yours to add, not the drawing',
+  layouts.LAYOUTS.every(l => l.placements.every(p => p.kind === 'frame')));
 check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
   layouts.LAYOUTS.every(l => {
     const f = l.placements.filter(p => p.kind === 'frame');
@@ -107,13 +100,28 @@ check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
     }
     return true;
   }));
-check('pillars are opt-in and survive a round trip', (() => {
-  const on = proj.parseProject(proj.projectToJSON(
-    { layout: 'classic-symmetry', pillars: true }));
-  const off = proj.parseProject('{}');
-  return on.layout === 'classic-symmetry' && on.pillars === true
-    && off.pillars === false
-    && proj.parseProject(JSON.stringify({ pillars: 'yes' })).pillars === false;
+check('the pillar count, its lock and your placements survive a round trip', (() => {
+  const doc = proj.parseProject(proj.projectToJSON({
+    layout: 'classic-symmetry', pillars: 2, lock: false,
+    places: { pillar: [{ x: 4, z: 2, ry: 0 }, { x: -4, z: 2, ry: 0 }] },
+    mirror: { pillar: true }
+  }));
+  const fresh = proj.parseProject('{}');
+  return doc.layout === 'classic-symmetry' && doc.pillars === 2
+    && doc.lock === false && doc.mirror.pillar === true
+    && doc.places.pillar[1].x === -4
+    && fresh.pillars === 0 && fresh.lock === true;
+})());
+check('the pillar count is clamped to a pair',
+  proj.parseProject(JSON.stringify({ pillars: 9 })).pillars === 2
+  && proj.parseProject(JSON.stringify({ pillars: -3 })).pillars === 0
+  && proj.parseProject(JSON.stringify({ pillars: 'x' })).pillars === 0);
+check('a hostile placement is cleaned, not trusted', (() => {
+  const bad = proj.parseProject(JSON.stringify({
+    places: { pillar: [{ x: 1e9, z: 'no', ry: 5 }, 'junk'], 'a"; drop': [{ x: 1 }] }
+  }));
+  return bad.places.pillar[0].x === 300 && bad.places.pillar[0].z === 0
+    && bad.places.pillar[1] === null && !('a"; drop' in bad.places);
 })());
 
 console.log('\nproject file: applying saved values to a model');
@@ -382,30 +390,34 @@ check('layouts.js and pillar.js are in the build order',
   /'js\/layouts\.js'/.test(build) && /'js\/objects\/pillar\.js'/.test(build));
 check('app carries the set into the document', /layout: layoutId/.test(app));
 check('app registers the pillar as a type', /registry\.register\(PILLAR_ID/.test(app));
-check('a set places its instances, it does not spread them',
-  /function placeSet\(/.test(app) && /function syncSet\(/.test(app)
-  && /layoutId \? await syncSet\(\) : await syncPresets\(\)/.test(app));
-check('a set rebuilds from its slots rather than reusing a stale mount',
-  /async function syncSet\(\)\s*\{\s*unmountAll\(\);/.test(app));
+check('a set proposes slots while the stage mounts by selection',
+  /const slots = slotPick\(/.test(app)
+  && /\(await syncPresets\(\)\)\.concat\(await syncPillars\(\)\)/.test(app));
 check('one preset can fill several slots with separate instances',
   /function repeatDef\(/.test(app) && /registry\.instantiate\(repeatDef\(base, count\)\)/.test(app));
-check('a set stages only what was selected, one instance per slot',
-  /function slotPick\(/.test(app)
-  && /Math\.min\(presets\.length, frameSlots\.length\)/.test(app)
-  && /placed\.map\(\(at, i\) => \(\{ key: presets\[i\], at \}\)\)/.test(app));
-check('pillars are never mounted on their own',
-  /if \(pillarsOn\)/.test(app) && /function setPillars\(/.test(app)
-  && /param-pillars/.test(panel));
-check('a pillar takes its place from the frame it stands beside',
-  /function frameBounds\(/.test(app) && /new THREE\.Box3\(\)/.test(app)
-  && /outer-left/.test(app) && /box\.expandByObject/.test(app));
 check('a set that stands empty fills nothing',
   /if \(count <= 0\) return \[\]/.test(app));
+check('pillars mount as a count you choose, not as part of a set',
+  /async function syncPillars\(/.test(app) && /Math\.min\(2/.test(app)
+  && /heading\('Pillars'\)/.test(panel));
+check('one pillar stands at the centre, two at the end of each module',
+  /function frameAnchor\(/.test(app) && /'stand-base'/.test(app)
+  && /derivePillarPlace\(i, arr\.length\)/.test(app));
+check('the lock decides whether you or the frame own the numbers',
+  /function refreshLockedPillars\(/.test(app) && /function setPillarLock\(/.test(app)
+  && /Lock to frame/.test(panel) && /lock: pillarLock/.test(app));
+check('your numbers reach the document and come back',
+  /places: Object\.fromEntries/.test(app) && /onPlaceChange: guard\(/.test(app)
+  && /next\.places !== undefined/.test(panel));
+check('a mirrored pair writes both halves',
+  /function setMirror\(/.test(app) && /Mirror pair/.test(panel)
+  && /x: -next\.x/.test(app));
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));
-check('a set shows every group it mounted, pillars included',
-  /const staged = !!currentSet/.test(panel));
+check('every group on stage gets a section, pillars included',
+  /host\.appendChild\(pillarBlock\(\)\)/.test(panel)
+  && /currentGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel));
 
 check('panel offers the reset button', /onReset/.test(panel)
   && /Reset project/.test(panel));

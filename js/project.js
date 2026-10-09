@@ -66,6 +66,50 @@ function cleanView(view) {
     return out.position || out.target || out.theme ? out : null;
 }
 
+// Per-instance placement: { '<key>': [{ x, z, ry }, ...] }. Coordinates are
+// clamped to something walkable and each list to a handful of entries - a
+// hand-edited file must not be able to put a thousand objects on the stage.
+const PLACE_LIMIT = 8;
+const PLACE_KEYS = 16;
+const PLACE_KEY_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const clampN = (v, lo, hi, dflt) =>
+    (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt);
+
+function cleanPlaces(places) {
+    if (!places || typeof places !== 'object' || Array.isArray(places)) return {};
+    const out = {};
+    let keys = 0;
+    for (const [key, list] of Object.entries(places)) {
+        if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(key) || !Array.isArray(list)) continue;
+        const arr = [];
+        for (const p of list.slice(0, PLACE_LIMIT)) {
+            if (!p || typeof p !== 'object' || Array.isArray(p)) {
+                arr.push(null); // keep the index: instance i is still instance i
+                continue;
+            }
+            arr.push({
+                x: clampN(p.x, -300, 300, 0),
+                z: clampN(p.z, -300, 300, 0),
+                ry: clampN(p.ry, -360, 360, 0),
+                ...(p.auto === true ? { auto: true } : {})
+            });
+        }
+        out[key] = arr;
+        keys++;
+    }
+    return out;
+}
+
+// Which pairs of instances are kept symmetric across the stage centre.
+function cleanMirror(mirror) {
+    if (!mirror || typeof mirror !== 'object' || Array.isArray(mirror)) return {};
+    const out = {};
+    for (const key of Object.keys(mirror).slice(0, PLACE_KEYS)) {
+        if (PLACE_KEY_RE.test(key) && mirror[key] === true) out[key] = true;
+    }
+    return out;
+}
+
 // Checked against its shape here and against the real list in app.js, so
 // this module keeps importing nothing: the tests parse it in plain Node,
 // where a three.js import would not resolve.
@@ -89,7 +133,10 @@ export function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
             ? data.layout : null,
-        pillars: data.pillars === true,
+        pillars: Math.round(clampN(data.pillars, 0, 2, 0)),
+        lock: data.lock !== false,
+        places: cleanPlaces(data.places),
+        mirror: cleanMirror(data.mirror),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

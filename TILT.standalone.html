@@ -867,12 +867,10 @@ class SceneRig {
 // - far enough that two selected frames stand side by side instead of through
 // each other - and a selection of one falls in the middle of them.
 //
-// Pillars do not carry floor coordinates. Each names an edge of the O2 it
-// stands beside - `center` (in the gap where the two halves meet),
-// `outer-left` or `outer-right` (just past the last pole) - plus a depth
-// offset `z` from the frame's centre and a `ry`. js/app.js measures the
-// mounted frame and puts the pillar on that edge, so a pillar follows the
-// Centre Gap control instead of being a number frozen on the floor.
+// A SET is a starting point, nothing more: it proposes where the frames go and
+// then the coordinates belong to you. Pillars are not part of the drawings at
+// all - you add one or two yourself and the lock puts them at the centre or
+// at the end of each module (see js/app.js).
 //
 // No three.js in here: js/project.js imports the id list and it has to parse
 // in plain Node, where three does not resolve.
@@ -883,9 +881,7 @@ const LAYOUTS = [
         subtitle: 'Balanced & timeless composition',
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -8 },
-            { kind: 'frame', x: 15, z: 0, ry: 8 },
-            { kind: 'pillar', edge: 'outer-left', z: 0, ry: 0 },
-            { kind: 'pillar', edge: 'outer-right', z: 0, ry: 0 }
+            { kind: 'frame', x: 15, z: 0, ry: 8 }
         ]
     },
     {
@@ -894,8 +890,7 @@ const LAYOUTS = [
         subtitle: 'Intersecting curtains, flowing lines',
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -40 },
-            { kind: 'frame', x: 15, z: 0, ry: 40 },
-            { kind: 'pillar', edge: 'center', z: 4, ry: 0 }
+            { kind: 'frame', x: 15, z: 0, ry: 40 }
         ]
     },
     {
@@ -904,9 +899,7 @@ const LAYOUTS = [
         subtitle: 'Two side frames, central opening',
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -15 },
-            { kind: 'frame', x: 15, z: 0, ry: 15 },
-            { kind: 'pillar', edge: 'outer-left', z: 3, ry: 0 },
-            { kind: 'pillar', edge: 'outer-right', z: 3, ry: 0 }
+            { kind: 'frame', x: 15, z: 0, ry: 15 }
         ]
     },
     {
@@ -915,9 +908,7 @@ const LAYOUTS = [
         subtitle: 'Front-back placement for dimension',
         placements: [
             { kind: 'frame', x: -15, z: -4, ry: -15 },
-            { kind: 'frame', x: 15, z: 5, ry: 10 },
-            { kind: 'pillar', edge: 'outer-left', z: 4, ry: 0 },
-            { kind: 'pillar', edge: 'outer-right', z: -4, ry: 0 }
+            { kind: 'frame', x: 15, z: 5, ry: 10 }
         ]
     },
     {
@@ -926,27 +917,21 @@ const LAYOUTS = [
         subtitle: 'Dynamic angled composition',
         placements: [
             { kind: 'frame', x: -15, z: -3, ry: 30 },
-            { kind: 'frame', x: 15, z: 3, ry: 30 },
-            { kind: 'pillar', edge: 'outer-left', z: -3, ry: 45 },
-            { kind: 'pillar', edge: 'outer-right', z: 3, ry: 45 }
+            { kind: 'frame', x: 15, z: 3, ry: 30 }
         ]
     },
     {
         id: 'grand-entrance',
         name: 'Grand Entrance',
-        subtitle: 'Pillars flanking a gateway opening',
+        subtitle: 'Two frames funnelling to a gateway',
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -25 },
-            { kind: 'frame', x: 15, z: 0, ry: 25 },
-            { kind: 'pillar', edge: 'outer-left', z: 5, ry: 0 },
-            { kind: 'pillar', edge: 'outer-right', z: 5, ry: 0 }
+            { kind: 'frame', x: 15, z: 0, ry: 25 }
         ]
     }
 ];
 
 const LAYOUT_IDS = LAYOUTS.map(l => l.id);
-
-const PILLAR_EDGES = ['center', 'outer-left', 'outer-right'];
 
 function layoutById(id) {
     return LAYOUTS.find(l => l.id === id) || null;
@@ -1020,6 +1005,50 @@ function cleanView(view) {
     return out.position || out.target || out.theme ? out : null;
 }
 
+// Per-instance placement: { '<key>': [{ x, z, ry }, ...] }. Coordinates are
+// clamped to something walkable and each list to a handful of entries - a
+// hand-edited file must not be able to put a thousand objects on the stage.
+const PLACE_LIMIT = 8;
+const PLACE_KEYS = 16;
+const PLACE_KEY_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const clampN = (v, lo, hi, dflt) =>
+    (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt);
+
+function cleanPlaces(places) {
+    if (!places || typeof places !== 'object' || Array.isArray(places)) return {};
+    const out = {};
+    let keys = 0;
+    for (const [key, list] of Object.entries(places)) {
+        if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(key) || !Array.isArray(list)) continue;
+        const arr = [];
+        for (const p of list.slice(0, PLACE_LIMIT)) {
+            if (!p || typeof p !== 'object' || Array.isArray(p)) {
+                arr.push(null); // keep the index: instance i is still instance i
+                continue;
+            }
+            arr.push({
+                x: clampN(p.x, -300, 300, 0),
+                z: clampN(p.z, -300, 300, 0),
+                ry: clampN(p.ry, -360, 360, 0),
+                ...(p.auto === true ? { auto: true } : {})
+            });
+        }
+        out[key] = arr;
+        keys++;
+    }
+    return out;
+}
+
+// Which pairs of instances are kept symmetric across the stage centre.
+function cleanMirror(mirror) {
+    if (!mirror || typeof mirror !== 'object' || Array.isArray(mirror)) return {};
+    const out = {};
+    for (const key of Object.keys(mirror).slice(0, PLACE_KEYS)) {
+        if (PLACE_KEY_RE.test(key) && mirror[key] === true) out[key] = true;
+    }
+    return out;
+}
+
 // Checked against its shape here and against the real list in app.js, so
 // this module keeps importing nothing: the tests parse it in plain Node,
 // where a three.js import would not resolve.
@@ -1043,7 +1072,10 @@ function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
             ? data.layout : null,
-        pillars: data.pillars === true,
+        pillars: Math.round(clampN(data.pillars, 0, 2, 0)),
+        lock: data.lock !== false,
+        places: cleanPlaces(data.places),
+        mirror: cleanMirror(data.mirror),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],
@@ -2560,9 +2592,10 @@ function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
-        pillars = false,
+        pillars = 0, lock = true, places = {}, mirror = {},
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onSetChange, onPillarsChange, onReset, themeIsDark = false
+        onSceneChange, onSetChange, onPillarsChange, onLockChange,
+        onPlaceChange, onMirrorChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -2575,6 +2608,9 @@ function createPanel(opts) {
     let currentScene = scene;
     let currentSet = set;
     let currentPillars = pillars;
+    let currentPlaces = places;
+    let currentMirrors = mirror;
+    let currentLock = lock;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -2597,16 +2633,20 @@ function createPanel(opts) {
         onParamsChange && onParamsChange(partial, targets);
     }
 
+    // Busy takes everything down, but a control can also be off on its own
+    // (a stepper at its limit, a position locked to the frame) - `data-off`
+    // records that so this never switches it back on.
     function applyBusy() {
-        for (const el of live.selects) el.disabled = busy;
-        for (const el of live.checks) el.disabled = busy;
-        for (const el of live.buttons) el.disabled = busy;
+        for (const group of [live.selects, live.checks, live.buttons]) {
+            for (const el of group) el.disabled = busy || el.dataset.off === '1';
+        }
     }
 
     // One collapsible block of parameters for one preset. `targets` is the
     // preset's models, so a preset holding several objects is edited at once.
     function section(group, collapsible, open) {
         const key = group.id || 'active';
+        const idx = typeof group.inst === 'number' ? group.inst : 0;
         const targets = (group.models || []).filter(Boolean);
         const schema = targets[0];
 
@@ -2618,7 +2658,8 @@ function createPanel(opts) {
             const summary = document.createElement('summary');
             summary.className = 'cursor-pointer select-none px-3 py-2 text-xs '
                 + 'font-semibold text-gray-700 dark:text-zinc-200';
-            summary.textContent = schema ? schema.name : group.id;
+            summary.textContent = (schema ? schema.name : group.id)
+                + (group.total > 1 ? ` ${idx + 1}` : '');
             inner = document.createElement('div');
             inner.className = 'px-3 pb-3';
             root.append(summary, inner);
@@ -2697,9 +2738,95 @@ function createPanel(opts) {
             inner.appendChild(details);
         }
 
+        // Position: where THIS instance stands - numbers, not dragging, and
+        // with two instances a Mirror check keeps the pair symmetric across
+        // the stage centre (x becomes -x, rotation flips sign).
+        const place = (currentPlaces[key] || [])[idx];
+        if (place) inner.appendChild(positionBlock(key, idx, place, group));
+
         const sec = { key, targets, rows, root };
         sections.push(sec);
         return root;
+    }
+
+    // One instance's coordinates. While the lock is on, the numbers belong
+    // to the frame - one pillar at the centre, two at the end of each module
+    // in its swing - and the inputs stand still and say so. Unlocked, they
+    // are yours. With a mirrored pair the second follows the first.
+    function positionBlock(key, idx, place, group) {
+        const pair = group.total === 2;
+        const locked = !!group.total && currentLock;
+        const follows = pair && !!currentMirrors[key] && idx === 1 && !locked;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-3 pt-2 border-t border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+
+        const title = document.createElement('div');
+        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400 mb-1';
+        title.textContent = pair ? `Position ${idx + 1}` : 'Position';
+        wrap.appendChild(title);
+
+        const row = document.createElement('div');
+        row.className = 'grid grid-cols-3 gap-2';
+        for (const [label, prop, step] of [
+            ['X', 'x', 0.5], ['Depth', 'z', 0.5], ['Turn', 'ry', 1]
+        ]) {
+            const cell = document.createElement('label');
+            cell.className = 'block text-[11px] text-gray-500 dark:text-zinc-400';
+            cell.textContent = label;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = String(step);
+            input.value = String(Math.round(place[prop] * 100) / 100);
+            input.className = 'w-full mt-0.5 text-sm px-1.5 py-1 rounded-md border '
+                + 'border-gray-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 '
+                + 'text-gray-800 dark:text-zinc-100 tabular-nums';
+            input.disabled = locked || follows;
+            input.dataset.off = locked || follows ? '1' : '0';
+            input.addEventListener('change', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) {
+                    e.target.value = String(Math.round(place[prop] * 100) / 100);
+                    return;
+                }
+                onPlaceChange && onPlaceChange(key, idx, { [prop]: v });
+            });
+            cell.appendChild(input);
+            row.appendChild(cell);
+            live.selects.push(input);
+        }
+        wrap.appendChild(row);
+
+        if (locked || follows) {
+            const note = document.createElement('p');
+            note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
+            note.textContent = locked
+                ? 'Locked to the frame - unlock to move it.'
+                : 'Mirrors Position 1 across the centre.';
+            wrap.appendChild(note);
+        }
+
+        if (pair && !locked) {
+            const lab = document.createElement('label');
+            lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
+                + 'hover:text-sky-600 transition-colors';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = CHECK_CLS;
+            cb.checked = !!currentMirrors[key];
+            cb.addEventListener('change', e => {
+                onMirrorChange && onMirrorChange(key, e.target.checked);
+            });
+            const span = document.createElement('span');
+            span.className = 'font-medium';
+            span.textContent = 'Mirror pair';
+            lab.append(cb, span);
+            wrap.appendChild(lab);
+            live.checks.push(cb);
+        }
+        return wrap;
     }
 
     function modeBlock() {
@@ -2767,35 +2894,73 @@ function createPanel(opts) {
         wrap.appendChild(select);
         if (currentSet) {
             const hit = sets.find(s => s.id === currentSet);
-            const count = hit ? hit.placements.filter(p => p.kind === 'pillar').length : 0;
-            if (count) {
-                // Pillars belong to the drawing, not to the selection: they
-                // are offered here, never mounted on their own.
-                const lab = document.createElement('label');
-                lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
-                    + 'hover:text-sky-600 transition-colors';
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.id = 'param-pillars';
-                cb.className = CHECK_CLS;
-                cb.checked = !!currentPillars;
-                cb.addEventListener('change', e => {
-                    onPillarsChange && onPillarsChange(e.target.checked);
-                });
-                const span = document.createElement('span');
-                span.className = 'font-medium';
-                span.textContent = `Pillars (${count})`;
-                lab.append(cb, span);
-                wrap.appendChild(lab);
-                live.checks.push(cb);
-            }
             const note = document.createElement('p');
             note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
             note.textContent = hit
-                ? `${hit.subtitle} - one frame on stage, pillars at its centre or outer edge.`
+                ? `${hit.subtitle} - a starting point; every position below is yours to change.`
                 : '';
             wrap.appendChild(note);
         }
+        return wrap;
+    }
+
+    // How many O1 pillars stand on stage: one at the centre of the O2, two
+    // at the end of each module. The lock binds them to the frame's swing;
+    // unlock it and their Position controls go live.
+    function pillarBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Pillars'));
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2';
+        const step = delta => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = delta > 0 ? '+' : '\u2212';
+            btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                + 'dark:border-zinc-600 text-sm font-bold leading-none '
+                + 'hover:bg-sky-50 dark:hover:bg-zinc-700 disabled:opacity-40';
+            const out = currentPillars + delta < 0 || currentPillars + delta > 2;
+            btn.disabled = out;
+            btn.dataset.off = out ? '1' : '0';
+            btn.addEventListener('click', () => {
+                onPillarsChange && onPillarsChange(currentPillars + delta);
+            });
+            live.buttons.push(btn);
+            return btn;
+        };
+        const value = document.createElement('span');
+        value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
+        value.textContent = String(currentPillars);
+        row.append(step(-1), value, step(1));
+        wrap.appendChild(row);
+
+        const lab = document.createElement('label');
+        lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
+            + 'hover:text-sky-600 transition-colors';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = CHECK_CLS;
+        cb.checked = !!currentLock;
+        const off = currentPillars === 0;
+        cb.disabled = off;
+        cb.dataset.off = off ? '1' : '0';
+        cb.addEventListener('change', e => {
+            onLockChange && onLockChange(e.target.checked);
+        });
+        const span = document.createElement('span');
+        span.className = 'font-medium';
+        span.textContent = 'Lock to frame';
+        lab.append(cb, span);
+        wrap.appendChild(lab);
+        live.checks.push(cb);
+
+        const hint = document.createElement('p');
+        hint.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
+        hint.textContent = 'One pillar stands at the centre of the O2; two stand '
+            + 'at the end of each module and follow its swing while locked.';
+        wrap.appendChild(hint);
         return wrap;
     }
 
@@ -2881,7 +3046,9 @@ function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
-            currentPillars ? 'p' : '',
+            `${currentPillars}/${currentLock ? 'locked' : 'free'}`,
+            JSON.stringify(currentPlaces),
+            Object.keys(currentMirrors).sort().join(','),
             (current && current.name) || ''
         ].join('|');
     }
@@ -2892,20 +3059,18 @@ function createPanel(opts) {
         live = { selects: [], checks: [], buttons: [] };
 
         const overlay = currentMode === 'overlay';
-        // A SET shows every group it mounted - frames and pillars - not just
-        // the one a single-model view would have picked.
-        const staged = !!currentSet;
         if (overlay || catalog.length > 1) host.appendChild(modeBlock());
-
         if (overlay) {
             if (catalog.length > 1) host.appendChild(pickerBlock());
-            currentGroups.forEach((g, i) => host.appendChild(section(g, true, i === 0)));
-        } else {
-            if (catalog.length > 1) host.appendChild(selectBlock());
-            const shown = staged ? currentGroups : currentGroups.slice(0, 1);
-            const collapsible = staged && shown.length > 1;
-            shown.forEach((g, i) => host.appendChild(section(g, collapsible, i === 0)));
+        } else if (catalog.length > 1) {
+            host.appendChild(selectBlock());
         }
+        host.appendChild(pillarBlock());
+
+        // Every group on stage gets a section - the frame, then each pillar
+        // with its own position - because you compose the set yourself.
+        currentGroups.forEach((g, i) => host.appendChild(
+            section(g, currentGroups.length > 1, i === 0)));
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
         if (subEl) {
@@ -2950,6 +3115,9 @@ function createPanel(opts) {
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
             if (next.pillars !== undefined) currentPillars = next.pillars;
+            if (next.lock !== undefined) currentLock = next.lock;
+            if (next.places !== undefined) currentPlaces = next.places;
+            if (next.mirror !== undefined) currentMirrors = next.mirror;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;
@@ -3251,15 +3419,17 @@ let mode = 'single';
 let activeId = null;
 let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
-// A SET: null means free placement (one preset on stage, or several spread
-// side by side); otherwise `layoutId` names the arrangement the frames and
-// pillars are dropped into, and `setSlots` remembers which slot each mounted
-// group was given so a rebuild can put it back in the same place.
+// A SET is only a starting point. After it has run, `savedPlaces` holds the
+// coordinates that are yours - one entry per instance, per group - and
+// `mirrored` lists the pairs kept symmetric across the stage centre
+// (x becomes -x). `pillarCount` is how many O1 pillars stand on stage -
+// one or two, a component you add, never a default of a set. `pillarLock`
+// binds them to the frame; unlock it to place them yourself.
 let layoutId = null;
-let setSlots = new Map();
-// Pillars belong to a set's drawing, not to the selection: off unless the
-// project asks for them.
-let pillarsOn = false;
+const savedPlaces = new Map();
+const mirrored = new Set();
+let pillarCount = 0;
+let pillarLock = true;
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -3287,7 +3457,12 @@ function buildDoc() {
         activeId,
         scene: sceneId,
         layout: layoutId,
-        pillars: pillarsOn,
+        pillars: pillarCount,
+        lock: pillarLock,
+        places: Object.fromEntries([...savedPlaces]
+            .map(([k, v]) => [k, v.filter(Boolean)
+                .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
+        mirror: Object.fromEntries([...mirrored].map(k => [k, true])),
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -3374,12 +3549,18 @@ function orderIds() {
 }
 
 function groups() {
-    // A SET mounts groups the display order knows nothing about (the pillars),
-    // so it shows what is on stage in the order it was built.
-    if (layoutId) return [...mounted.entries()].map(([id, models]) => ({ id, models }));
-    return orderIds()
-        .filter(id => mounted.has(id))
-        .map(id => ({ id, models: mounted.get(id) }));
+    // Frames come in display order; a SET never hides any of them. Pillars
+    // are placed one by one, so each is its own group - the panel gives it
+    // its own section and its own position controls that way.
+    const out = [];
+    for (const id of orderIds()) {
+        if (mounted.has(id)) out.push({ id, models: mounted.get(id) });
+    }
+    const pillars = mounted.get(PILLAR_ID) || [];
+    pillars.forEach((m, i) => {
+        out.push({ id: PILLAR_ID, models: [m], inst: i, total: pillars.length });
+    });
+    return out;
 }
 
 function primaryId() { return orderIds()[0] || null; }
@@ -3389,12 +3570,12 @@ function scheduleRebuild() {
     rebuildQueued = true;
     requestAnimationFrame(() => {
         rebuildQueued = false;
-        const gs = groups();
-        for (const g of gs) for (const m of g.models) if (m.dirty && m.build) m.build();
-        // Re-space only. The camera is left alone so dragging a slider never
+        for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
+        // Re-place only. A locked pillar follows its module's end through
+        // the swing; the camera is left alone so dragging a slider never
         // yanks the view around.
-        if (layoutId) placeSet();
-        else viewer.layoutGroups(gs.map(g => g.models));
+        refreshLockedPillars();
+        applyPlaces();
     });
 }
 
@@ -3415,8 +3596,9 @@ async function applyPrimaryTheme() {
     if (panel) panel.setTheme(dark);
 }
 
-// Free placement: reconcile the stage with `orderIds()` - drop what no longer
-// belongs, mount what is missing. SETs do this differently, see syncSet.
+// Reconcile the stage with `orderIds()` - drop what no longer belongs, mount
+// what is missing. Spacing never happens here: position is data, and
+// defaultPlaces() decides it below.
 async function syncPresets() {
     const want = orderIds();
 
@@ -3447,8 +3629,8 @@ async function syncPresets() {
     return failures;
 }
 
-// One definition, repeated: a SET gives every slot of the same preset its own
-// instance, and the instances still share one set of controls.
+// One definition, repeated: a pillar pair (or any count you ask for) gets its
+// own instance per slot, and the instances still share one set of controls.
 function repeatDef(base, count) {
     if (count <= 1) return base;
     return Object.assign({}, base, {
@@ -3480,46 +3662,35 @@ function slotPick(slots, count) {
     return out;
 }
 
-// A SET stages exactly what was chosen: each selected preset takes one frame
-// slot - never more - and the pillars stand only when they were asked for.
-// Slots the selection does not reach stay empty.
-async function syncSet() {
-    unmountAll();
+// Pillars are a component you add: exactly `pillarCount` instances under one
+// key. Shrinking the count keeps the placements you have edited; growing it
+// leaves holes for defaultPlaces() to derive.
+async function syncPillars() {
     const failures = [];
-    const lay = layoutById(layoutId);
-    if (!lay) return failures;
+    const have = mounted.get(PILLAR_ID) || [];
+    if (have.length === pillarCount) return failures;
 
-    const presets = orderIds().filter(id => registry.list.some(e => e.id === id));
-    const frameSlots = lay.placements.filter(p => p.kind === 'frame');
-    const placed = slotPick(frameSlots, Math.min(presets.length, frameSlots.length));
-
-    const plan = placed.map((at, i) => ({ key: presets[i], at }));
-    if (pillarsOn) {
-        for (const at of lay.placements) {
-            if (at.kind === 'pillar') plan.push({ key: PILLAR_ID, at });
-        }
+    const prev = savedPlaces.get(PILLAR_ID) || [];
+    for (const m of have) viewer.removeModel(m);
+    mounted.delete(PILLAR_ID);
+    savedPlaces.set(PILLAR_ID,
+        Array.from({ length: pillarCount }, (_, i) => prev[i] || null));
+    if (pillarCount <= 0) {
+        savedPlaces.delete(PILLAR_ID);
+        return failures;
     }
 
-    const byKey = new Map();
-    for (const item of plan) {
-        if (!byKey.has(item.key)) byKey.set(item.key, []);
-        byKey.get(item.key).push(item);
-    }
-
-    for (const [key, items] of byKey) {
-        try {
-            const models = await instantiateKey(key, items.length);
-            for (const m of models) {
-                applySaved(m.state, m.params, savedPresets[key]);
-                m.build();
-                viewer.addModel(m);
-            }
-            mounted.set(key, models);
-            setSlots.set(key, items.map(i => i.at));
-        } catch (err) {
-            console.error('[set]', err);
-            failures.push({ id: key, message: (err && err.message) || String(err) });
+    try {
+        const models = await instantiateKey(PILLAR_ID, pillarCount);
+        for (const m of models) {
+            applySaved(m.state, m.params, savedPresets[PILLAR_ID]);
+            m.build();
+            viewer.addModel(m);
         }
+        mounted.set(PILLAR_ID, models);
+    } catch (err) {
+        console.error('[pillars]', err);
+        failures.push({ id: PILLAR_ID, message: (err && err.message) || String(err) });
     }
     return failures;
 }
@@ -3529,73 +3700,200 @@ function unmountAll() {
         for (const m of models) viewer.removeModel(m);
         mounted.delete(id);
     }
-    setSlots = new Map();
+    savedPlaces.clear();
+    mirrored.clear();
 }
 
-// Where the mounted O2 stands, measured rather than assumed: its bounds move
-// with the Centre Gap, Swing Pan and Decline controls, and a pillar must sit
-// on the edge the frame actually has - not on a coordinate frozen at design
-// time. Returns null when no frame is on stage.
-function frameBounds() {
-    const box = new THREE.Box3();
-    let seen = false;
+// The ends of the O2, measured from the model itself: each module's outer
+// stand base, carried around the frame's own turn. The stands already sit on
+// the rail, so these points include Centre Gap and Swing Pan - a pillar put
+// here stands at the end of its module, in whatever swing the rail has.
+function frameAnchor() {
     for (const [key, models] of mounted) {
         if (key === PILLAR_ID) continue;
-        for (const m of models) {
-            if (!m.object3D) continue;
-            box.expandByObject(m.object3D);
-            seen = true;
+        const m = models && models[0];
+        if (!m || !m.object3D) continue;
+        let left = null, right = null;
+        m.object3D.traverse(o => {
+            if (o.name !== 'stand-base') return;
+            const p = o.position;
+            if (p.x < 0) {
+                if (!left || p.x < left.x) left = { x: p.x, z: p.z };
+            } else if (p.x > 0) {
+                if (!right || p.x > right.x) right = { x: p.x, z: p.z };
+            }
+        });
+        if (!left || !right) continue;
+        const pos = m.object3D.position, turn = m.object3D.rotation.y;
+        const c = Math.cos(turn), s = Math.sin(turn);
+        const world = p => ({ x: pos.x + p.x * c + p.z * s, z: pos.z - p.x * s + p.z * c });
+        return {
+            centre: { x: pos.x, z: pos.z },
+            left: world(left),
+            right: world(right)
+        };
+    }
+    return null;
+}
+
+// Where a pillar of index i stands: ONE pillar goes to the centre of the O2,
+// where the two modules meet; TWO stand at the end of each module. Without a
+// frame on stage they fall back to the stage centre and a pair of outer
+// spots, so a pillars-only preview still stands somewhere sensible.
+function derivePillarPlace(i, total) {
+    const ends = frameAnchor();
+    if (total <= 1) return ends ? ends.centre : { x: 0, z: 0 };
+    if (!ends) return { x: i === 0 ? -15 : 15, z: 0 };
+    const end = i === 0 ? ends.left : ends.right;
+    // Just beyond the module's end base, not through it: the base plate is
+    // 1.6 ft square, so stand clear of its diagonal by stepping outward along
+    // the direction the module is pointing.
+    const dx = end.x - ends.centre.x, dz = end.z - ends.centre.z;
+    const len = Math.hypot(dx, dz) || 1;
+    return { x: end.x + (dx / len) * 1.5, z: end.z + (dz / len) * 1.5 };
+}
+
+function readPlace(m) {
+    const pos = m.object3D ? m.object3D.position : { x: 0, z: 0 };
+    const ry = m.object3D ? m.object3D.rotation.y * 180 / Math.PI : 0;
+    return { x: pos.x, z: pos.z, ry };
+}
+
+// Give every model its starting spot. A SET's slots and the viewer's own
+// side-by-side spacing are both just defaults: anything you have already
+// placed keeps its coordinates, and only newcomers are derived.
+function defaultPlaces() {
+    const presets = orderIds().filter(id => id !== PILLAR_ID && mounted.has(id));
+    const missing = presets.filter(k => {
+        const arr = savedPlaces.get(k);
+        return !arr || arr.length !== (mounted.get(k) || []).length;
+    });
+
+    if (missing.length) {
+        if (layoutId) {
+            const lay = layoutById(layoutId);
+            const frameSlots = lay ? lay.placements.filter(p => p.kind === 'frame') : [];
+            const slots = slotPick(frameSlots, Math.min(presets.length, frameSlots.length));
+            presets.forEach((k, i) => {
+                if (!missing.includes(k)) return;
+                const at = slots[i];
+                savedPlaces.set(k, [{
+                    x: at ? at.x : 0, z: at ? at.z : 0, ry: at ? at.ry || 0 : 0
+                }]);
+            });
+        } else {
+            // No set: the viewer's own spacing is the default, captured as
+            // numbers the moment it has run.
+            viewer.layoutGroups(presets.map(id => mounted.get(id)));
+            for (const k of missing) {
+                savedPlaces.set(k, (mounted.get(k) || []).map(readPlace));
+            }
         }
     }
-    if (!seen || box.isEmpty()) return null;
-    const centre = box.getCenter(new THREE.Vector3());
-    return { minX: box.min.x, maxX: box.max.x, x: centre.x, z: centre.z };
+
+    fillPillarPlaces();
 }
 
-// A pillar is always beside the O2: at the centre (where the two mirrored
-// halves meet) or just outside an outer edge, offset in depth from the frame.
-// With no frame mounted it falls back to the same place relative to the stage
-// centre, so pillars-only previews still stand somewhere sensible.
-function pillarSpot(bounds, at) {
-    const clear = 1.0;
-    if (!bounds) {
-        const x = at.edge === 'outer-left' ? -15 : at.edge === 'outer-right' ? 15 : 0;
-        return { x, z: at.z || 0 };
-    }
-    if (at.edge === 'center') return { x: bounds.x, z: bounds.z + (at.z || 0) };
-    if (at.edge === 'outer-left') return { x: bounds.minX - clear, z: bounds.z + (at.z || 0) };
-    return { x: bounds.maxX + clear, z: bounds.z + (at.z || 0) };
+// Pillars with no coordinate yet (a fresh count, a fresh set) start on the
+// same anchor the lock would give them.
+function fillPillarPlaces() {
+    const models = mounted.get(PILLAR_ID) || [];
+    if (!models.length) return;
+    const prev = savedPlaces.get(PILLAR_ID) || [];
+    const arr = Array.from({ length: models.length }, (_, i) => prev[i] || null);
+    arr.forEach((p, i) => {
+        if (p) return;
+        const spot = derivePillarPlace(i, arr.length);
+        arr[i] = { x: spot.x, z: spot.z, ry: 0 };
+    });
+    savedPlaces.set(PILLAR_ID, arr);
+    refreshLockedPillars();
 }
 
-// Put every mounted model on the spot its slot gave it. Frames first: a
-// pillar takes its coordinates from the frame it stands beside, so the O2
-// has to be on its spot before they are. `layoutX` records the x written
-// here, so if free placement ever re-spaces these models it starts from zero
-// instead of from a leftover set position.
-function placeSet() {
+// The lock. On (the default) every pillar is bound to the frame: it stands
+// at the centre or at its module's end and follows the rail through Centre
+// Gap, Swing Pan, Decline and any turn of the frame. Off, the coordinates
+// are simply yours - the Position controls go live and nothing overwrites
+// them again.
+function refreshLockedPillars() {
+    if (!pillarLock) return false;
+    const models = mounted.get(PILLAR_ID) || [];
+    const arr = savedPlaces.get(PILLAR_ID);
+    if (!models.length || !arr || arr.length !== models.length) return false;
+    let changed = false;
+    arr.forEach((p, i) => {
+        const spot = derivePillarPlace(i, arr.length);
+        if (!p || p.x !== spot.x || p.z !== spot.z) changed = true;
+        arr[i] = { x: spot.x, z: spot.z, ry: p ? p.ry : 0 };
+    });
+    return changed;
+}
+
+// The one writer: every model's transform comes from `savedPlaces`. Frames
+// first, because a pillar takes its coordinates from the frame it stands
+// beside. `layoutX` records the x written here so the viewer's own spacing
+// can start from zero instead of from a leftover position.
+function applyPlaces() {
     for (const [key, models] of mounted) {
-        if (key === PILLAR_ID) continue;
-        const slots = setSlots.get(key) || [];
+        const arr = savedPlaces.get(key) || [];
         models.forEach((m, i) => {
-            const at = slots[i];
-            if (!m.object3D) return;
-            const x = at ? at.x : 0;
-            m.object3D.position.set(x, 0, at ? at.z : 0);
-            m.object3D.rotation.y = at ? (at.ry || 0) * Math.PI / 180 : 0;
-            m.layoutX = x;
+            const p = arr[i];
+            if (!m.object3D || !p) return;
+            m.object3D.position.set(p.x, 0, p.z);
+            m.object3D.rotation.y = (p.ry || 0) * Math.PI / 180;
+            m.layoutX = p.x;
         });
     }
+}
 
-    const bounds = frameBounds();
-    const pillarModels = mounted.get(PILLAR_ID) || [];
-    const spots = setSlots.get(PILLAR_ID) || [];
-    pillarModels.forEach((m, i) => {
-        if (!m.object3D || !spots[i]) return;
-        const spot = pillarSpot(bounds, spots[i]);
-        m.object3D.position.set(spot.x, 0, spot.z);
-        m.object3D.rotation.y = (spots[i].ry || 0) * Math.PI / 180;
-        m.layoutX = spot.x;
-    });
+function num(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function placesFor() {
+    return Object.fromEntries([...savedPlaces].map(([k, v]) => [k, v]));
+}
+
+function mirrorsFor() {
+    return Object.fromEntries([...mirrored].map(k => [k, true]));
+}
+
+// One number at a time. Editing an instance of a mirrored pair also writes
+// its twin as the reflection across the stage centre, so the pair stays a
+// pair - that is the mirror check, and it applies to two pillars (or any
+// group of two) exactly the same way.
+function setPlace(key, index, patch) {
+    const arr = savedPlaces.get(key);
+    if (!arr || !arr[index]) return false;
+    const cur = arr[index];
+    const next = {
+        x: num(patch.x, cur.x),
+        z: num(patch.z, cur.z),
+        ry: num(patch.ry, cur.ry)
+    };
+    arr[index] = next;
+    if (mirrored.has(key) && arr.length === 2) {
+        arr[index === 0 ? 1 : 0] = { x: -next.x, z: next.z, ry: -next.ry };
+    }
+    applyPlaces();
+    if (panel) panel.refresh({ places: placesFor() }, true);
+    scheduleSave();
+    return true;
+}
+
+function setMirror(key, on) {
+    on = !!on;
+    if (on === mirrored.has(key)) return false;
+    if (on) mirrored.add(key); else mirrored.delete(key);
+    const arr = savedPlaces.get(key);
+    if (on && arr && arr.length === 2) {
+        arr[1] = { x: -arr[0].x, z: arr[0].z, ry: -arr[0].ry };
+    }
+    applyPlaces();
+    if (panel) panel.refresh({ places: placesFor(), mirror: mirrorsFor() }, true);
+    scheduleSave();
+    return true;
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
@@ -3604,7 +3902,7 @@ function placeSet() {
 async function syncScene(forcePanel = false) {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
-        const failures = layoutId ? await syncSet() : await syncPresets();
+        const failures = (await syncPresets()).concat(await syncPillars());
 
         // Forget presets that could not be built, so the next sync does not
         // retry them in a loop.
@@ -3617,9 +3915,9 @@ async function syncScene(forcePanel = false) {
             }
         }
 
+        defaultPlaces();
+        applyPlaces();
         const gs = groups();
-        if (layoutId) placeSet();
-        else viewer.layoutGroups(gs.map(g => g.models));
         viewer.frameScene();
 
         await applyPrimaryTheme();
@@ -3631,7 +3929,10 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 set: layoutId,
-                pillars: pillarsOn,
+                pillars: pillarCount,
+                lock: pillarLock,
+                places: placesFor(),
+                mirror: mirrorsFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -3697,21 +3998,41 @@ function setLayout(id) {
     const next = id && layoutById(id) ? id : null;
     if (next === layoutId) return false;
     layoutId = next;
-    unmountAll();
-    if (panel) panel.refresh({ set: layoutId }, true);
+    // Switching a SET re-derives the frames' coordinates from the new
+    // drawing - that is what switching means. Unlocked pillars keep their
+    // numbers; locked ones follow the frame to its new anchor.
+    for (const key of [...savedPlaces.keys()]) {
+        if (key !== PILLAR_ID) savedPlaces.delete(key);
+    }
+    if (panel) panel.refresh({ set: layoutId, places: placesFor() }, true);
     scheduleSave();
     return syncScene();
 }
 
-// Pillars are a component of the set, not a default of it: toggling them
-// rebuilds the stage from the same slots with or without them.
-function setPillars(on) {
-    on = !!on;
-    if (on === pillarsOn) return false;
-    pillarsOn = on;
-    if (panel) panel.refresh({ pillars: pillarsOn }, true);
+// Pillars are a component you add, never a default of a set: the stepper
+// decides how many stand on stage, and each one gets its own section.
+function setPillars(count) {
+    const next = Math.max(0, Math.min(2, Math.round(Number(count) || 0)));
+    if (next === pillarCount) return false;
+    pillarCount = next;
+    if (next < 2) mirrored.delete(PILLAR_ID);
+    if (panel) panel.refresh({ pillars: pillarCount }, true);
     scheduleSave();
     return syncScene();
+}
+
+// Locking pins every pillar to its anchor (centre for one, the end of each
+// module for two) and re-derives them whenever the frame moves. Unlocking
+// hands the coordinates over: nothing overwrites them again.
+function setPillarLock(on) {
+    on = !!on;
+    if (on === pillarLock) return false;
+    pillarLock = on;
+    refreshLockedPillars();
+    applyPlaces();
+    if (panel) panel.refresh({ lock: pillarLock, places: placesFor() }, true);
+    scheduleSave();
+    return true;
 }
 
 // Forget the project: reset the document to its defaults, drop every saved
@@ -3735,7 +4056,8 @@ async function resetProject() {
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
     layoutId = null;
-    pillarsOn = false;
+    pillarCount = 0;
+    pillarLock = true;
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -3807,7 +4129,14 @@ if (savedDoc) {
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
-    if (savedDoc.pillars === true) pillarsOn = true;
+    if (Number.isFinite(savedDoc.pillars)) {
+        pillarCount = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
+    }
+    if (savedDoc.lock === false) pillarLock = false;
+    for (const [k, v] of Object.entries(savedDoc.places || {})) {
+        if (Array.isArray(v)) savedPlaces.set(k, v.map(p => Object.assign({}, p)));
+    }
+    for (const k of Object.keys(savedDoc.mirror || {})) mirrored.add(k);
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -3857,18 +4186,28 @@ panel = createPanel({
     scene: sceneId,
     sets: LAYOUTS,
     set: layoutId,
-    pillars: pillarsOn,
+    pillars: pillarCount,
+    lock: pillarLock,
+    places: placesFor(),
+    mirror: mirrorsFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onSetChange: guard(id => setLayout(id)),
-    onPillarsChange: guard(on => setPillars(on)),
+    onPillarsChange: guard(n => setPillars(n)),
+    onLockChange: guard(on => setPillarLock(on)),
+    onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
+    onMirrorChange: guard((key, on) => setMirror(key, on)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
-        const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
+        const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
             .filter(Boolean);
+        // Instances of the same preset share one set of controls: two pillars
+        // are one row of sliders, not two rows that drift apart.
+        const ids = new Set(picked.map(m => m.id));
+        const list = [...mounted.values()].flat().filter(m => ids.has(m.id));
         for (const m of list) {
             if (!m.setParams || !m.params) continue;
             const known = {};
@@ -3993,7 +4332,8 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setPillars,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
+    setPillars, setPillarLock, setPlace, setMirror,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
@@ -4001,7 +4341,9 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
     get layout() { return layoutId; },
-    get pillars() { return pillarsOn; },
+    get pillarCount() { return pillarCount; },
+    get lock() { return pillarLock; },
+    get places() { return placesFor(); },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
     get projectName() { return projectName; },
