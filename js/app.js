@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
 import { createEditor } from './editor.js';
@@ -47,6 +48,9 @@ let sceneId = DEFAULT_SCENE;
 // group was given so a rebuild can put it back in the same place.
 let layoutId = null;
 let setSlots = new Map();
+// Pillars belong to a set's drawing, not to the selection: off unless the
+// project asks for them.
+let pillarsOn = false;
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -74,6 +78,7 @@ function buildDoc() {
         activeId,
         scene: sceneId,
         layout: layoutId,
+        pillars: pillarsOn,
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -248,9 +253,27 @@ async function instantiateKey(key, count) {
     return models;
 }
 
-// A SET: frames fill the layout's frame slots in display order (cycling when
-// one preset has to fill several, which is how a symmetric set gets built
-// from a single model choice), and the pillars come with the set itself.
+// Where `count` objects stand in `slots`. A half-filled set stays balanced
+// instead of piling onto one side: a single object takes the average of every
+// slot, several take evenly spread slots, and a full set uses them as drawn.
+function slotPick(slots, count) {
+    if (count >= slots.length) return slots.slice();
+    if (count <= 0) return [];
+    if (count === 1) {
+        const n = slots.length;
+        const mean = key => slots.reduce((sum, p) => sum + p[key], 0) / n;
+        return [{ kind: 'frame', x: mean('x'), z: mean('z'), ry: mean('ry') }];
+    }
+    const out = [];
+    for (let i = 0; i < count; i++) {
+        out.push(slots[Math.round((i * (slots.length - 1)) / (count - 1))]);
+    }
+    return out;
+}
+
+// A SET stages exactly what was chosen: each selected preset takes one frame
+// slot - never more - and the pillars stand only when they were asked for.
+// Slots the selection does not reach stay empty.
 async function syncSet() {
     unmountAll();
     const failures = [];
@@ -258,15 +281,14 @@ async function syncSet() {
     if (!lay) return failures;
 
     const presets = orderIds().filter(id => registry.list.some(e => e.id === id));
-    const plan = [];
-    lay.placements.filter(p => p.kind === 'frame').forEach((at, i) => {
-        const key = at.preset
-            || presets[i % Math.max(1, presets.length)]
-            || (registry.list[0] && registry.list[0].id);
-        if (key) plan.push({ key, at });
-    });
-    for (const at of lay.placements) {
-        if (at.kind === 'pillar') plan.push({ key: PILLAR_ID, at });
+    const frameSlots = lay.placements.filter(p => p.kind === 'frame');
+    const placed = slotPick(frameSlots, Math.min(presets.length, frameSlots.length));
+
+    const plan = placed.map((at, i) => ({ key: presets[i], at }));
+    if (pillarsOn) {
+        for (const at of lay.placements) {
+            if (at.kind === 'pillar') plan.push({ key: PILLAR_ID, at });
+        }
     }
 
     const byKey = new Map();
@@ -301,11 +323,49 @@ function unmountAll() {
     setSlots = new Map();
 }
 
-// Put every mounted model on the spot its slot gave it. `layoutX` records the
-// x written here, so if free placement ever re-spaces these models it starts
-// from zero instead of from a leftover set position.
+// Where the mounted O2 stands, measured rather than assumed: its bounds move
+// with the Centre Gap, Swing Pan and Decline controls, and a pillar must sit
+// on the edge the frame actually has - not on a coordinate frozen at design
+// time. Returns null when no frame is on stage.
+function frameBounds() {
+    const box = new THREE.Box3();
+    let seen = false;
+    for (const [key, models] of mounted) {
+        if (key === PILLAR_ID) continue;
+        for (const m of models) {
+            if (!m.object3D) continue;
+            box.expandByObject(m.object3D);
+            seen = true;
+        }
+    }
+    if (!seen || box.isEmpty()) return null;
+    const centre = box.getCenter(new THREE.Vector3());
+    return { minX: box.min.x, maxX: box.max.x, x: centre.x, z: centre.z };
+}
+
+// A pillar is always beside the O2: at the centre (where the two mirrored
+// halves meet) or just outside an outer edge, offset in depth from the frame.
+// With no frame mounted it falls back to the same place relative to the stage
+// centre, so pillars-only previews still stand somewhere sensible.
+function pillarSpot(bounds, at) {
+    const clear = 1.0;
+    if (!bounds) {
+        const x = at.edge === 'outer-left' ? -15 : at.edge === 'outer-right' ? 15 : 0;
+        return { x, z: at.z || 0 };
+    }
+    if (at.edge === 'center') return { x: bounds.x, z: bounds.z + (at.z || 0) };
+    if (at.edge === 'outer-left') return { x: bounds.minX - clear, z: bounds.z + (at.z || 0) };
+    return { x: bounds.maxX + clear, z: bounds.z + (at.z || 0) };
+}
+
+// Put every mounted model on the spot its slot gave it. Frames first: a
+// pillar takes its coordinates from the frame it stands beside, so the O2
+// has to be on its spot before they are. `layoutX` records the x written
+// here, so if free placement ever re-spaces these models it starts from zero
+// instead of from a leftover set position.
 function placeSet() {
     for (const [key, models] of mounted) {
+        if (key === PILLAR_ID) continue;
         const slots = setSlots.get(key) || [];
         models.forEach((m, i) => {
             const at = slots[i];
@@ -316,6 +376,17 @@ function placeSet() {
             m.layoutX = x;
         });
     }
+
+    const bounds = frameBounds();
+    const pillarModels = mounted.get(PILLAR_ID) || [];
+    const spots = setSlots.get(PILLAR_ID) || [];
+    pillarModels.forEach((m, i) => {
+        if (!m.object3D || !spots[i]) return;
+        const spot = pillarSpot(bounds, spots[i]);
+        m.object3D.position.set(spot.x, 0, spot.z);
+        m.object3D.rotation.y = (spots[i].ry || 0) * Math.PI / 180;
+        m.layoutX = spot.x;
+    });
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
@@ -351,6 +422,7 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 set: layoutId,
+                pillars: pillarsOn,
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -422,6 +494,17 @@ function setLayout(id) {
     return syncScene();
 }
 
+// Pillars are a component of the set, not a default of it: toggling them
+// rebuilds the stage from the same slots with or without them.
+function setPillars(on) {
+    on = !!on;
+    if (on === pillarsOn) return false;
+    pillarsOn = on;
+    if (panel) panel.refresh({ pillars: pillarsOn }, true);
+    scheduleSave();
+    return syncScene();
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -443,6 +526,7 @@ async function resetProject() {
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
     layoutId = null;
+    pillarsOn = false;
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -514,6 +598,7 @@ if (savedDoc) {
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
+    if (savedDoc.pillars === true) pillarsOn = true;
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -563,12 +648,14 @@ panel = createPanel({
     scene: sceneId,
     sets: LAYOUTS,
     set: layoutId,
+    pillars: pillarsOn,
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onSetChange: guard(id => setLayout(id)),
+    onPillarsChange: guard(on => setPillars(on)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const list = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -697,7 +784,7 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setPillars,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
@@ -705,6 +792,7 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
     get layout() { return layoutId; },
+    get pillars() { return pillarsOn; },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },
     get projectName() { return projectName; },

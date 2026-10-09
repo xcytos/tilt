@@ -89,6 +89,7 @@ export function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
             ? data.layout : null,
+        pillars: data.pillars === true,
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

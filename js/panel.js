@@ -96,8 +96,9 @@ export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
+        pillars = false,
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onSetChange, onReset, themeIsDark = false
+        onSceneChange, onSetChange, onPillarsChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -109,6 +110,7 @@ export function createPanel(opts) {
     let activeId_ = activeId;
     let currentScene = scene;
     let currentSet = set;
+    let currentPillars = pillars;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -301,9 +303,33 @@ export function createPanel(opts) {
         wrap.appendChild(select);
         if (currentSet) {
             const hit = sets.find(s => s.id === currentSet);
+            const count = hit ? hit.placements.filter(p => p.kind === 'pillar').length : 0;
+            if (count) {
+                // Pillars belong to the drawing, not to the selection: they
+                // are offered here, never mounted on their own.
+                const lab = document.createElement('label');
+                lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
+                    + 'hover:text-sky-600 transition-colors';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.id = 'param-pillars';
+                cb.className = CHECK_CLS;
+                cb.checked = !!currentPillars;
+                cb.addEventListener('change', e => {
+                    onPillarsChange && onPillarsChange(e.target.checked);
+                });
+                const span = document.createElement('span');
+                span.className = 'font-medium';
+                span.textContent = `Pillars (${count})`;
+                lab.append(cb, span);
+                wrap.appendChild(lab);
+                live.checks.push(cb);
+            }
             const note = document.createElement('p');
             note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
-            note.textContent = hit ? hit.subtitle : '';
+            note.textContent = hit
+                ? `${hit.subtitle} - one frame on stage, pillars at its centre or outer edge.`
+                : '';
             wrap.appendChild(note);
         }
         return wrap;
@@ -391,6 +417,7 @@ export function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
+            currentPillars ? 'p' : '',
             (current && current.name) || ''
         ].join('|');
     }
@@ -458,6 +485,7 @@ export function createPanel(opts) {
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
+            if (next.pillars !== undefined) currentPillars = next.pillars;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;

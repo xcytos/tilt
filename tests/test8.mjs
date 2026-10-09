@@ -84,9 +84,37 @@ check('an unknown set is dropped',
 check('every set has at least two frames on finite ground', layouts.LAYOUTS.every(l =>
   l.placements.filter(p => p.kind === 'frame').length >= 2
   && l.placements.every(p => p.kind === 'frame' || p.kind === 'pillar')
-  && l.placements.every(p => [p.x, p.z, p.ry].every(Number.isFinite))));
+  && l.placements.filter(p => p.kind === 'frame')
+    .every(p => [p.x, p.z, p.ry].every(Number.isFinite))));
 check('set ids are unique', new Set(layouts.LAYOUT_IDS).size === layouts.LAYOUT_IDS.length,
   layouts.LAYOUT_IDS.join(', '));
+check('every pillar stands on a named edge of the frame, never a floor number',
+  layouts.LAYOUTS.every(l => l.placements.filter(p => p.kind === 'pillar')
+    .every(p => ['center', 'outer-left', 'outer-right'].includes(p.edge)
+      && [p.z, p.ry].every(Number.isFinite))),
+  'edges: ' + layouts.LAYOUTS.map(l => l.id + '='
+    + l.placements.filter(p => p.kind === 'pillar').map(p => p.edge).join('/')).join(' '));
+check('every set offers at least one pillar',
+  layouts.LAYOUTS.every(l => l.placements.some(p => p.kind === 'pillar')));
+check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
+  layouts.LAYOUTS.every(l => {
+    const f = l.placements.filter(p => p.kind === 'frame');
+    if (f.length < 2) return true;
+    for (let i = 0; i < f.length; i++) {
+      for (let j = i + 1; j < f.length; j++) {
+        if (Math.abs(f[i].x - f[j].x) < 30 && Math.abs(f[i].z - f[j].z) < 8) return false;
+      }
+    }
+    return true;
+  }));
+check('pillars are opt-in and survive a round trip', (() => {
+  const on = proj.parseProject(proj.projectToJSON(
+    { layout: 'classic-symmetry', pillars: true }));
+  const off = proj.parseProject('{}');
+  return on.layout === 'classic-symmetry' && on.pillars === true
+    && off.pillars === false
+    && proj.parseProject(JSON.stringify({ pillars: 'yes' })).pillars === false;
+})());
 
 console.log('\nproject file: applying saved values to a model');
 const schema = {
@@ -361,6 +389,18 @@ check('a set rebuilds from its slots rather than reusing a stale mount',
   /async function syncSet\(\)\s*\{\s*unmountAll\(\);/.test(app));
 check('one preset can fill several slots with separate instances',
   /function repeatDef\(/.test(app) && /registry\.instantiate\(repeatDef\(base, count\)\)/.test(app));
+check('a set stages only what was selected, one instance per slot',
+  /function slotPick\(/.test(app)
+  && /Math\.min\(presets\.length, frameSlots\.length\)/.test(app)
+  && /placed\.map\(\(at, i\) => \(\{ key: presets\[i\], at \}\)\)/.test(app));
+check('pillars are never mounted on their own',
+  /if \(pillarsOn\)/.test(app) && /function setPillars\(/.test(app)
+  && /param-pillars/.test(panel));
+check('a pillar takes its place from the frame it stands beside',
+  /function frameBounds\(/.test(app) && /new THREE\.Box3\(\)/.test(app)
+  && /outer-left/.test(app) && /box\.expandByObject/.test(app));
+check('a set that stands empty fills nothing',
+  /if \(count <= 0\) return \[\]/.test(app));
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));

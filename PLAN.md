@@ -192,12 +192,20 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
 7. **SET layouts** — `js/layouts.js` turns the boards' top-view diagrams into placements
    in feet (Classic Symmetry, Cross-Flow Draping, Divided Entrance, Depth Stagger,
    Diagonal Flow, Grand Entrance) and `js/objects/pillar.js` adds O1, the classical
-   column. A SET (`layout` in the document, a picker above Scene) replaces the
-   side-by-side row: frames fill the layout's frame slots in display order - one
-   preset repeats into both slots, which is how a symmetric set gets built from a
-   single model choice - and the pillars come with the set. `syncSet` rebuilds from
-   the slots every time, `placeSet` puts every model on its spot; free placement is
-   untouched.
+   column. Two facts about the hardware shaped it: one O2-TILT is already *left +
+   right* (two mirrored rails of 27 ft-wide span from the centre gap, so it needs
+   no partner), and frame slots are therefore spaced ~30 ft apart so two selected
+   frames stand side by side rather than through each other. A SET (`layout` in the
+   document, a picker above Scene) replaces the side-by-side row and stages only
+   what was selected: each preset takes one slot - one preset in single mode lands
+   in the middle of them - and slots the selection does not reach stay empty.
+   Pillars are a component, never a default: `pillars` in the document, a checkbox
+   in the picker. A pillar carries no floor coordinate, only an edge of the frame
+   it stands beside (`center` where the two halves meet, `outer-left`/`outer-right`
+   just past the last pole) plus a depth offset; `frameBounds()` measures the
+   mounted O2 with a Box3 and `placeSet` puts the pillar on that edge, so the
+   pillar follows the Centre Gap control instead of a number frozen on the floor.
+   `syncSet` rebuilds from the slots every time; free placement is untouched.
 
 ---
 
