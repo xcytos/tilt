@@ -135,6 +135,7 @@ export function parseProject(raw) {
             ? data.layout : null,
         pillars: Math.round(clampN(data.pillars, 0, 2, 0)),
         lock: data.lock !== false,
+        place: ['centre', 'inner', 'outer'].includes(data.place) ? data.place : 'outer',
         places: cleanPlaces(data.places),
         mirror: cleanMirror(data.mirror),
         mounted: Array.isArray(data.mounted)

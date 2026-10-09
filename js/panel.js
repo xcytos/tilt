@@ -96,10 +96,12 @@ export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
-        pillars = 0, lock = true, places = {}, mirror = {},
+        pillars = 0, lock = true, pillarPlace = 'outer',
+        places = {}, mirror = {},
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
         onSceneChange, onSetChange, onPillarsChange, onLockChange,
-        onPlaceChange, onMirrorChange, onReset, themeIsDark = false
+        onPillarPlaceChange, onPlaceChange, onMirrorChange, onReset,
+        themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -115,6 +117,7 @@ export function createPanel(opts) {
     let currentPlaces = places;
     let currentMirrors = mirror;
     let currentLock = lock;
+    let currentPillarPlace = pillarPlace;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -440,6 +443,34 @@ export function createPanel(opts) {
         row.append(step(-1), value, step(1));
         wrap.appendChild(row);
 
+        // Centre for one pillar; the outer ends or the opposite ends beside
+        // the gap for two. Hidden while nothing is on stage - there is no
+        // place to choose yet.
+        if (currentPillars > 0) {
+            const placeSel = document.createElement('select');
+            placeSel.id = 'param-pillar-place';
+            placeSel.className = FIELD_CLS;
+            placeSel.setAttribute('aria-label', 'Pillar place');
+            const options = currentPillars === 1
+                ? [['centre', 'Centre of the O2']]
+                : [['outer', 'Outer ends of each module'],
+                   ['inner', 'Inner ends (beside the gap)']];
+            for (const [val, text] of options) {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                placeSel.appendChild(opt);
+            }
+            placeSel.value = options.some(o => o[0] === currentPillarPlace)
+                ? currentPillarPlace : options[0][0];
+            placeSel.addEventListener('change', e => {
+                onPillarPlaceChange && onPillarPlaceChange(e.target.value);
+            });
+            placeSel.style.marginTop = '0.5rem';
+            live.selects.push(placeSel);
+            wrap.appendChild(placeSel);
+        }
+
         const lab = document.createElement('label');
         lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
             + 'hover:text-sky-600 transition-colors';
@@ -463,7 +494,7 @@ export function createPanel(opts) {
         const hint = document.createElement('p');
         hint.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
         hint.textContent = 'One pillar stands at the centre of the O2; two stand '
-            + 'at the end of each module and follow its swing while locked.';
+            + 'at both ends of the modules you choose and follow the swing while locked.';
         wrap.appendChild(hint);
         return wrap;
     }
@@ -550,7 +581,7 @@ export function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
-            `${currentPillars}/${currentLock ? 'locked' : 'free'}`,
+            `${currentPillars}/${currentLock ? 'locked' : 'free'}/${currentPillarPlace}`,
             JSON.stringify(currentPlaces),
             Object.keys(currentMirrors).sort().join(','),
             (current && current.name) || ''
@@ -620,6 +651,7 @@ export function createPanel(opts) {
             if (next.set !== undefined) currentSet = next.set;
             if (next.pillars !== undefined) currentPillars = next.pillars;
             if (next.lock !== undefined) currentLock = next.lock;
+            if (next.pillarPlace !== undefined) currentPillarPlace = next.pillarPlace;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.mirror !== undefined) currentMirrors = next.mirror;
             if (next.model !== undefined) current = next.model;

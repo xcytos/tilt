@@ -100,17 +100,20 @@ check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
     }
     return true;
   }));
-check('the pillar count, its lock and your placements survive a round trip', (() => {
+check('the pillar count, its lock, its place and your placements survive', (() => {
   const doc = proj.parseProject(proj.projectToJSON({
-    layout: 'classic-symmetry', pillars: 2, lock: false,
+    layout: 'classic-symmetry', pillars: 2, lock: false, place: 'inner',
     places: { pillar: [{ x: 4, z: 2, ry: 0 }, { x: -4, z: 2, ry: 0 }] },
     mirror: { pillar: true }
   }));
   const fresh = proj.parseProject('{}');
+  const odd = proj.parseProject(JSON.stringify({ place: 'sideways' }));
   return doc.layout === 'classic-symmetry' && doc.pillars === 2
     && doc.lock === false && doc.mirror.pillar === true
+    && doc.place === 'inner'
     && doc.places.pillar[1].x === -4
-    && fresh.pillars === 0 && fresh.lock === true;
+    && fresh.pillars === 0 && fresh.lock === true && fresh.place === 'outer'
+    && odd.place === 'outer';
 })());
 check('the pillar count is clamped to a pair',
   proj.parseProject(JSON.stringify({ pillars: 9 })).pillars === 2
@@ -403,6 +406,15 @@ check('pillars mount as a count you choose, not as part of a set',
 check('one pillar stands at the centre, two at the end of each module',
   /function frameAnchor\(/.test(app) && /'stand-base'/.test(app)
   && /derivePillarPlace\(i, arr\.length\)/.test(app));
+check('two pillars can also stand at the opposite ends beside the gap',
+  /let pillarPlace = 'outer'/.test(app) && /innerLeft/.test(app)
+  && /innerRight/.test(app) && /function setPillarPlace\(/.test(app)
+  && /param-pillar-place/.test(panel) && /onPillarPlaceChange: guard\(/.test(app)
+  && /\['centre', 'inner', 'outer'\]\.includes\(value\)/.test(app)
+  && /i === 0 \? ends\.innerLeft : ends\.innerRight/.test(app));
+check('the inner pillar sits on the gap-side end, not between the poles',
+  /complete inner end/.test(app)
+  && /pillarPlace === 'inner'[\s\S]*?return i === 0 \? ends\.innerLeft/.test(app));
 check('the lock decides whether you or the frame own the numbers',
   /function refreshLockedPillars\(/.test(app) && /function setPillarLock\(/.test(app)
   && /Lock to frame/.test(panel) && /lock: pillarLock/.test(app));
