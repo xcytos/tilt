@@ -76,6 +76,8 @@ check('an unknown or hostile scene id is dropped', (() => {
 console.log('\nproject file: the SET the set is staged in');
 const layouts = await import(pathToFileURL(path.join(DECOR, 'js/layouts.js')).href);
 const colorways = await import(pathToFileURL(path.join(DECOR, 'js/colorways.js')).href);
+const recipes = await import(pathToFileURL(path.join(DECOR, 'js/recipes.js')).href);
+const scenesSrc = fs.readFileSync(path.join(DECOR, 'js/scenes.js'), 'utf8');
 
 check('a set survives a round trip through JSON',
   proj.parseProject(proj.projectToJSON({ layout: 'cross-flow' })).layout === 'cross-flow');
@@ -419,6 +421,21 @@ check('the catalog is the merged pair: S Curve and S Curve Arc', (() => {
 check('old Classic and Slope documents remap onto S Curve',
   /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
   && /const remapId = id =>/.test(app));
+check('every Look is complete and lands on real ids', (() => {
+  const sceneIds = [...scenesSrc.matchAll(/id: '([a-z-]+)'/g)].map(m => m[1]);
+  return recipes.RECIPES.length === 5
+    && new Set(recipes.RECIPES.map(r => r.id)).size === 5
+    && recipes.RECIPES.every(r => sceneIds.includes(r.scene)
+      && colorways.COLORWAY_IDS.includes(r.colorway)
+      && layouts.LAYOUT_IDS.includes(r.set))
+    && recipes.recipeFor('ballroom', 'ivory', 'classic-symmetry').id === 'ivory-ballroom'
+    && recipes.recipeFor('ballroom', 'blush', 'classic-symmetry') === null;
+})());
+check('the Looks reach the panel and one tap writes all three fields',
+  /'js\/recipes\.js'/.test(build) && /function setRecipe\(/.test(app)
+  && /onRecipeChange: guard\(/.test(app) && /recipes: RECIPES/.test(app)
+  && /recipesBlock\(\)/.test(panel) && /onRecipeChange/.test(panel)
+  && /recipe: recipeState\(\)/.test(app));
 check('the fabric palette reaches the panel and the stage',
   /'js\/colorways\.js'/.test(build) && /colorway: colorwayId/.test(app)
   && /function applyColorway\(/.test(app) && /function setColorway\(/.test(app)

@@ -5,6 +5,7 @@ import { Registry } from './registry.js';
 import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
 import { LAYOUTS, layoutById } from './layouts.js';
 import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
+import { RECIPES, recipeById, recipeFor } from './recipes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
 import {
@@ -530,9 +531,43 @@ function setColorway(id) {
     if (next === colorwayId) return false;
     colorwayId = next;
     applyColorway();
-    if (panel) panel.refresh({ colorway: colorwayId }, true);
+    if (panel) panel.refresh({ colorway: colorwayId, recipe: recipeState() }, true);
     scheduleSave();
     return true;
+}
+
+// A Look is remembered through the three fields it writes, never of its
+// own, so the highlighted chip is whatever matches the current combination.
+const recipeState = () => (recipeFor(sceneId, colorwayId, layoutId) || {}).id || '';
+
+// A Look in one tap: scene + fabric palette + SET, applied in a single
+// sync - the same work setScene/setLayout/setColorway do, without three
+// rebuilds in a row.
+function setRecipe(id) {
+    const r = recipeById(id);
+    if (!r) return false;
+    if (r.scene === sceneId && r.colorway === colorwayId && r.set === layoutId) {
+        return false;
+    }
+    sceneId = r.scene;
+    viewer.setScene(sceneId);
+    colorwayId = r.colorway;
+    if (r.set !== layoutId) {
+        // Switching a SET re-derives the frames' coordinates from the new
+        // drawing - same rule as setLayout.
+        layoutId = r.set;
+        for (const key of [...savedPlaces.keys()]) {
+            if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
+        }
+    }
+    if (panel) {
+        panel.refresh({
+            scene: sceneId, colorway: colorwayId, set: layoutId,
+            recipe: recipeState(), places: placesFor()
+        }, true);
+    }
+    scheduleSave();
+    return syncScene();
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
@@ -574,6 +609,7 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 colorway: colorwayId,
+                recipe: recipeState(),
                 set: layoutId,
                 framePillars: framePillarsPlain(),
                 places: placesFor(),
@@ -630,7 +666,7 @@ function setScene(id) {
     if (!isScene(id) || id === sceneId) return false;
     sceneId = id;
     viewer.setScene(id);
-    if (panel) panel.refresh({ scene: sceneId }, true);
+    if (panel) panel.refresh({ scene: sceneId, recipe: recipeState() }, true);
     scheduleSave();
     return true;
 }
@@ -648,7 +684,7 @@ function setLayout(id) {
     for (const key of [...savedPlaces.keys()]) {
         if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
     }
-    if (panel) panel.refresh({ set: layoutId, places: placesFor() }, true);
+    if (panel) panel.refresh({ set: layoutId, recipe: recipeState(), places: placesFor() }, true);
     scheduleSave();
     return syncScene();
 }
@@ -867,6 +903,8 @@ panel = createPanel({
     scene: sceneId,
     colorways: COLORWAYS,
     colorway: colorwayId,
+    recipes: RECIPES,
+    recipe: recipeState(),
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
@@ -877,6 +915,7 @@ panel = createPanel({
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onColorwayChange: guard(id => setColorway(id)),
+    onRecipeChange: guard(id => setRecipe(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
@@ -1013,6 +1052,7 @@ stage('started');
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
     scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
+    setRecipe,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },

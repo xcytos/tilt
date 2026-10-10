@@ -950,6 +950,30 @@ function colorwayById(id) {
     return COLORWAYS.find(c => c.id === id) || null;
 }
 
+// ---- js/recipes.js ----
+// One-tap Looks: the planner's favourite bundles of SET + scene + fabric
+// palette. Pure data like layouts.js and colorways.js - the ids are checked
+// against those lists and this module has to parse in plain Node. A Look is
+// not stored of its own: the project remembers it through the three fields
+// it writes, and the panel highlights the chip that matches the current
+// combination.
+const RECIPES = [
+    { id: 'ivory-ballroom', name: 'Ivory Ballroom', scene: 'ballroom', colorway: 'ivory', set: 'classic-symmetry' },
+    { id: 'blush-garden', name: 'Blush Garden', scene: 'garden-night', colorway: 'blush', set: 'grand-entrance' },
+    { id: 'sage-terrace', name: 'Sage Sunset', scene: 'terrace', colorway: 'sage', set: 'cross-flow' },
+    { id: 'navy-gala', name: 'Navy Gala', scene: 'white-stage', colorway: 'navy', set: 'diagonal-flow' },
+    { id: 'midnight-luxe', name: 'Midnight Luxe', scene: 'studio', colorway: 'midnight', set: 'depth-stagger' }
+];
+
+function recipeById(id) {
+    return RECIPES.find(r => r.id === id) || null;
+}
+
+function recipeFor(scene, colorway, set) {
+    return RECIPES.find(r => r.scene === scene && r.colorway === colorway
+        && r.set === set) || null;
+}
+
 // ---- js/project.js ----
 // The project file is the panel's memory: which display mode was on, which
 // presets were on stage, every control value for every preset that has been
@@ -2630,9 +2654,10 @@ function createPanel(opts) {
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, places = {},
         colorways = [], colorway = '',
+        recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onColorwayChange, onSetChange, onFramePillarsChange,
-        onPlaceChange, onReset, themeIsDark = false
+        onSceneChange, onColorwayChange, onRecipeChange, onSetChange,
+        onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -2647,6 +2672,7 @@ function createPanel(opts) {
     let currentFramePillars = framePillars;
     let currentPlaces = places;
     let currentColorway = colorway;
+    let currentRecipe = recipe;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -3025,6 +3051,35 @@ function createPanel(opts) {
     }
 
 
+    // Looks: a whole project in one tap - SET, room and fabric palette
+    // together. The chip matching the current three fields lights up; the
+    // parts stay editable underneath.
+    function recipesBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Looks'));
+        const row = document.createElement('div');
+        row.className = 'flex flex-wrap gap-2';
+        for (const r of recipes) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = r.id === currentRecipe;
+            btn.className = 'px-2 py-1.5 rounded-lg border text-xs transition-colors '
+                + (on
+                    ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                    : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = r.name;
+            btn.addEventListener('click', () => {
+                onRecipeChange && onRecipeChange(r.id);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     // Fabric palettes from the boards: one tap recolours every curtain on
     // stage. The pillar's stone stays stone in every palette.
     function colorwayBlock() {
@@ -3141,6 +3196,7 @@ function createPanel(opts) {
             currentScene || '',
             currentSet || '',
             currentColorway || '',
+            currentRecipe || '',
             JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
             (current && current.name) || ''
@@ -3178,6 +3234,7 @@ function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (recipes.length > 1) host.appendChild(recipesBlock());
         if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
         if (colorways.length > 1) host.appendChild(colorwayBlock());
@@ -3208,6 +3265,7 @@ function createPanel(opts) {
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
             if (next.colorway !== undefined) currentColorway = next.colorway;
+            if (next.recipe !== undefined) currentRecipe = next.recipe;
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
@@ -3999,9 +4057,43 @@ function setColorway(id) {
     if (next === colorwayId) return false;
     colorwayId = next;
     applyColorway();
-    if (panel) panel.refresh({ colorway: colorwayId }, true);
+    if (panel) panel.refresh({ colorway: colorwayId, recipe: recipeState() }, true);
     scheduleSave();
     return true;
+}
+
+// A Look is remembered through the three fields it writes, never of its
+// own, so the highlighted chip is whatever matches the current combination.
+const recipeState = () => (recipeFor(sceneId, colorwayId, layoutId) || {}).id || '';
+
+// A Look in one tap: scene + fabric palette + SET, applied in a single
+// sync - the same work setScene/setLayout/setColorway do, without three
+// rebuilds in a row.
+function setRecipe(id) {
+    const r = recipeById(id);
+    if (!r) return false;
+    if (r.scene === sceneId && r.colorway === colorwayId && r.set === layoutId) {
+        return false;
+    }
+    sceneId = r.scene;
+    viewer.setScene(sceneId);
+    colorwayId = r.colorway;
+    if (r.set !== layoutId) {
+        // Switching a SET re-derives the frames' coordinates from the new
+        // drawing - same rule as setLayout.
+        layoutId = r.set;
+        for (const key of [...savedPlaces.keys()]) {
+            if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
+        }
+    }
+    if (panel) {
+        panel.refresh({
+            scene: sceneId, colorway: colorwayId, set: layoutId,
+            recipe: recipeState(), places: placesFor()
+        }, true);
+    }
+    scheduleSave();
+    return syncScene();
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
@@ -4043,6 +4135,7 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 colorway: colorwayId,
+                recipe: recipeState(),
                 set: layoutId,
                 framePillars: framePillarsPlain(),
                 places: placesFor(),
@@ -4099,7 +4192,7 @@ function setScene(id) {
     if (!isScene(id) || id === sceneId) return false;
     sceneId = id;
     viewer.setScene(id);
-    if (panel) panel.refresh({ scene: sceneId }, true);
+    if (panel) panel.refresh({ scene: sceneId, recipe: recipeState() }, true);
     scheduleSave();
     return true;
 }
@@ -4117,7 +4210,7 @@ function setLayout(id) {
     for (const key of [...savedPlaces.keys()]) {
         if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
     }
-    if (panel) panel.refresh({ set: layoutId, places: placesFor() }, true);
+    if (panel) panel.refresh({ set: layoutId, recipe: recipeState(), places: placesFor() }, true);
     scheduleSave();
     return syncScene();
 }
@@ -4336,6 +4429,8 @@ panel = createPanel({
     scene: sceneId,
     colorways: COLORWAYS,
     colorway: colorwayId,
+    recipes: RECIPES,
+    recipe: recipeState(),
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
@@ -4346,6 +4441,7 @@ panel = createPanel({
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onColorwayChange: guard(id => setColorway(id)),
+    onRecipeChange: guard(id => setRecipe(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
@@ -4482,6 +4578,7 @@ stage('started');
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
     scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
+    setRecipe,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },

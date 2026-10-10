@@ -100,9 +100,10 @@ export function createPanel(opts) {
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, places = {},
         colorways = [], colorway = '',
+        recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onColorwayChange, onSetChange, onFramePillarsChange,
-        onPlaceChange, onReset, themeIsDark = false
+        onSceneChange, onColorwayChange, onRecipeChange, onSetChange,
+        onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -117,6 +118,7 @@ export function createPanel(opts) {
     let currentFramePillars = framePillars;
     let currentPlaces = places;
     let currentColorway = colorway;
+    let currentRecipe = recipe;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -495,6 +497,35 @@ export function createPanel(opts) {
     }
 
 
+    // Looks: a whole project in one tap - SET, room and fabric palette
+    // together. The chip matching the current three fields lights up; the
+    // parts stay editable underneath.
+    function recipesBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Looks'));
+        const row = document.createElement('div');
+        row.className = 'flex flex-wrap gap-2';
+        for (const r of recipes) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = r.id === currentRecipe;
+            btn.className = 'px-2 py-1.5 rounded-lg border text-xs transition-colors '
+                + (on
+                    ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                    : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = r.name;
+            btn.addEventListener('click', () => {
+                onRecipeChange && onRecipeChange(r.id);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     // Fabric palettes from the boards: one tap recolours every curtain on
     // stage. The pillar's stone stays stone in every palette.
     function colorwayBlock() {
@@ -611,6 +642,7 @@ export function createPanel(opts) {
             currentScene || '',
             currentSet || '',
             currentColorway || '',
+            currentRecipe || '',
             JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
             (current && current.name) || ''
@@ -648,6 +680,7 @@ export function createPanel(opts) {
             host.appendChild(empty);
         }
 
+        if (recipes.length > 1) host.appendChild(recipesBlock());
         if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
         if (colorways.length > 1) host.appendChild(colorwayBlock());
@@ -678,6 +711,7 @@ export function createPanel(opts) {
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
             if (next.colorway !== undefined) currentColorway = next.colorway;
+            if (next.recipe !== undefined) currentRecipe = next.recipe;
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
