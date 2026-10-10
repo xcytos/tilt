@@ -117,6 +117,32 @@ check('the action sheet rises from the bottom', /slide-up/.test(homeCss));
 // --------------------------------------------------------------- 5. editor
 console.log('\neditor: the project bar in TILT.html');
 const shell = read('TILT.html');
+
+console.log('\nPWA: installable, offline shell, never the project state');
+check('the manifest, worker and icons are on disk', (() => {
+  const mf = JSON.parse(read('manifest.webmanifest'));
+  return mf.short_name === 'TILT' && mf.start_url === '/TILT.html'
+    && mf.icons.some(i => i.sizes === '192x192' && i.type === 'image/png')
+    && fs.existsSync(path.join(DECOR, 'sw.js'))
+    && fs.existsSync(path.join(DECOR, 'icon-192.png'))
+    && fs.existsSync(path.join(DECOR, 'icon-512.png'));
+})());
+check('the worker caches the shell but never the project state', (() => {
+  const sw = read('sw.js');
+  return /\/api\//.test(sw) && /project\.json/.test(sw)
+    && /caches\.open/.test(sw) && /'\/'/.test(sw);
+})());
+check('the server serves a webmanifest and watches the PWA files',
+  /\.webmanifest/.test(serveSrc) && /'sw\.js'/.test(serveSrc)
+  && /icon-192\.png/.test(serveSrc));
+check('both pages link the manifest and register the worker',
+  /manifest\.webmanifest/.test(html) && /serviceWorker\.register\('\/sw\.js'\)/.test(html)
+  && /manifest\.webmanifest/.test(shell) && /serviceWorker\.register\('\/sw\.js'\)/.test(shell));
+check('the install prompt is offered and never on file://',
+  /beforeinstallprompt/.test(html) && /beforeinstallprompt/.test(shell)
+  && /https\?:\$\/\.test\(location\.protocol\)/.test(html));
+check('the editor viewport covers the notch too', /viewport-fit=cover/.test(shell));
+
 const appSrc = read('js/app.js');
 const projSrc = read('js/project.js');
 const editorSrc = read('js/editor.js');

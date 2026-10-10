@@ -14,7 +14,8 @@ const MAX_BODY = 128 * 1024;
 // Anything that feeds the bundle, the homepage or either shell triggers a
 // browser reload. project.json and data/ are deliberately absent: saving a
 // project must not reload the page.
-const WATCHED = ['js', 'js/objects', 'models', 'home', 'TILT.html', 'index.html'];
+const WATCHED = ['js', 'js/objects', 'models', 'home', 'TILT.html', 'index.html',
+    'manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png'];
 
 // The database is state, not an asset. Neither it nor the repo's own
 // metadata may be downloaded through this server.
@@ -28,6 +29,7 @@ const MIME = {
     '.mjs': 'text/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
     '.json': 'application/json; charset=utf-8',
+    '.webmanifest': 'application/manifest+json; charset=utf-8',
     '.map': 'application/json; charset=utf-8',
     '.svg': 'image/svg+xml',
     '.png': 'image/png',
