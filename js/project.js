@@ -8,6 +8,7 @@
 // Layout data only: no three.js, so this import still resolves in the plain
 // Node the tests run the parser under.
 import { LAYOUT_IDS } from './layouts.js';
+import { COLORWAY_IDS, DEFAULT_COLORWAY } from './colorways.js';
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -146,6 +147,7 @@ export function parseProject(raw) {
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
+        colorway: COLORWAY_IDS.includes(data.colorway) ? data.colorway : DEFAULT_COLORWAY,
         layout: typeof data.layout === 'string'
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,

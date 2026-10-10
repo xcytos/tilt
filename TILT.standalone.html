@@ -930,6 +930,26 @@ function layoutById(id) {
     return LAYOUTS.find(l => l.id === id) || null;
 }
 
+// ---- js/colorways.js ----
+// Fabric palettes straight from the design boards. Pure data - the project
+// parser checks the saved id against this list and it has to parse in plain
+// Node, where three does not resolve. `fabric` is the curtain colour; the
+// pillar's stone stays stone in every palette.
+const COLORWAYS = [
+    { id: 'ivory', name: 'Ivory / Champagne', fabric: 0xf2e8d5 },
+    { id: 'blush', name: 'Blush', fabric: 0xe8b4b8 },
+    { id: 'sage', name: 'Sage', fabric: 0xb7c4a8 },
+    { id: 'navy', name: 'Royal Navy', fabric: 0x243456 },
+    { id: 'midnight', name: 'Midnight Luxe', fabric: 0x14161d }
+];
+
+const DEFAULT_COLORWAY = 'ivory';
+const COLORWAY_IDS = COLORWAYS.map(c => c.id);
+
+function colorwayById(id) {
+    return COLORWAYS.find(c => c.id === id) || null;
+}
+
 // ---- js/project.js ----
 // The project file is the panel's memory: which display mode was on, which
 // presets were on stage, every control value for every preset that has been
@@ -1078,6 +1098,7 @@ function parseProject(raw) {
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
+        colorway: COLORWAY_IDS.includes(data.colorway) ? data.colorway : DEFAULT_COLORWAY,
         layout: typeof data.layout === 'string'
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
@@ -1928,6 +1949,13 @@ function createO2TiltModel(initial = {}) {
         matJoint.envMapIntensity = t.metalEnv;
     }
 
+    // The chosen fabric palette. setTheme resets the fabric to its own white
+    // or grey, so the composition root applies the colorway after the theme.
+    function setColorway(hex) {
+        if (!Number.isFinite(hex)) return;
+        matFabric.color.setHex(hex);
+    }
+
     function dispose() {
         release(railL); release(railR); release(fabricL); release(fabricR);
         railL = railR = fabricL = fabricR = null;
@@ -1951,6 +1979,7 @@ function createO2TiltModel(initial = {}) {
         build,
         getAnchors,
         setTheme,
+        setColorway,
         setParams(partial) { Object.assign(state, partial); model.dirty = true; },
         dispose
     };
@@ -2600,9 +2629,10 @@ function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, places = {},
+        colorways = [], colorway = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onSetChange, onFramePillarsChange, onPlaceChange,
-        onReset, themeIsDark = false
+        onSceneChange, onColorwayChange, onSetChange, onFramePillarsChange,
+        onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -2616,6 +2646,7 @@ function createPanel(opts) {
     let currentSet = set;
     let currentFramePillars = framePillars;
     let currentPlaces = places;
+    let currentColorway = colorway;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -2994,6 +3025,39 @@ function createPanel(opts) {
     }
 
 
+    // Fabric palettes from the boards: one tap recolours every curtain on
+    // stage. The pillar's stone stays stone in every palette.
+    function colorwayBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Colorway'));
+        const row = document.createElement('div');
+        row.className = 'flex flex-wrap gap-2';
+        for (const c of colorways) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = c.id === currentColorway;
+            btn.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg border text-xs '
+                + 'transition-colors ' + (on
+                    ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                    : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            const chip = document.createElement('span');
+            chip.className = 'w-4 h-4 rounded-full border border-black/10 shrink-0';
+            chip.style.background = '#' + c.fabric.toString(16).padStart(6, '0');
+            const label = document.createElement('span');
+            label.textContent = c.name;
+            btn.append(chip, label);
+            btn.addEventListener('click', () => {
+                onColorwayChange && onColorwayChange(c.id);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
     // preset.
@@ -3076,6 +3140,7 @@ function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
+            currentColorway || '',
             JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
             (current && current.name) || ''
@@ -3115,6 +3180,7 @@ function createPanel(opts) {
 
         if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
+        if (colorways.length > 1) host.appendChild(colorwayBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -3141,6 +3207,7 @@ function createPanel(opts) {
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
+            if (next.colorway !== undefined) currentColorway = next.colorway;
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
@@ -3444,6 +3511,8 @@ let mode = 'single';
 let activeId = null;
 let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
+// The fabric palette every curtain on stage wears - one tap in the panel.
+let colorwayId = DEFAULT_COLORWAY;
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
 // coordinates that are yours - one entry per instance, per group - for the
 // frames. Pillars have no coordinates of their own: `framePillars` holds
@@ -3479,6 +3548,7 @@ function buildDoc() {
         mode,
         activeId,
         scene: sceneId,
+        colorway: colorwayId,
         layout: layoutId,
         pillars: framePillarsPlain(),
         places: Object.fromEntries([...savedPlaces]
@@ -3913,6 +3983,27 @@ function setPlace(key, index, patch) {
     return true;
 }
 
+// The chosen fabric palette, applied to every frame on stage. Models opt in
+// with setColorway; the pillar's stone stays stone. The composition root
+// calls this after the theme, because setTheme resets the fabric colour.
+function applyColorway() {
+    const hit = colorwayById(colorwayId);
+    if (!hit) return;
+    for (const models of mounted.values()) {
+        for (const m of models) if (m.setColorway) m.setColorway(hit.fabric);
+    }
+}
+
+function setColorway(id) {
+    const next = colorwayById(id) ? id : DEFAULT_COLORWAY;
+    if (next === colorwayId) return false;
+    colorwayId = next;
+    applyColorway();
+    if (panel) panel.refresh({ colorway: colorwayId }, true);
+    scheduleSave();
+    return true;
+}
+
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
 // repaints the controls even when nothing structural changed (used after a
 // project reset).
@@ -3943,6 +4034,7 @@ async function syncScene(forcePanel = false) {
         viewer.frameScene();
 
         await applyPrimaryTheme();
+        applyColorway();
 
         if (panel) {
             panel.refresh({
@@ -3950,6 +4042,7 @@ async function syncScene(forcePanel = false) {
                 groups: gs,
                 activeId,
                 scene: sceneId,
+                colorway: colorwayId,
                 set: layoutId,
                 framePillars: framePillarsPlain(),
                 places: placesFor(),
@@ -4075,6 +4168,7 @@ async function resetProject() {
     overlayIds = [];
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
+    colorwayId = DEFAULT_COLORWAY;
     layoutId = null;
     framePillars.clear();
 
@@ -4151,6 +4245,7 @@ if (savedDoc) {
         viewer.setTheme(savedDoc.view.theme === 'dark');
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
+    if (colorwayById(savedDoc.colorway)) colorwayId = savedDoc.colorway;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
     if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
         && !Array.isArray(savedDoc.pillars)) {
@@ -4239,6 +4334,8 @@ panel = createPanel({
     activeId,
     scenes: SCENES,
     scene: sceneId,
+    colorways: COLORWAYS,
+    colorway: colorwayId,
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
@@ -4248,6 +4345,7 @@ panel = createPanel({
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
+    onColorwayChange: guard(id => setColorway(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
@@ -4383,7 +4481,7 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
@@ -4391,6 +4489,7 @@ window.O2 = {
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
+    get colorway() { return colorwayId; },
     get layout() { return layoutId; },
     get framePillars() { return framePillarsPlain(); },
     get places() { return placesFor(); },

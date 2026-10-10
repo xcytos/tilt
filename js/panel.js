@@ -99,9 +99,10 @@ export function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, places = {},
+        colorways = [], colorway = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onSetChange, onFramePillarsChange, onPlaceChange,
-        onReset, themeIsDark = false
+        onSceneChange, onColorwayChange, onSetChange, onFramePillarsChange,
+        onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -115,6 +116,7 @@ export function createPanel(opts) {
     let currentSet = set;
     let currentFramePillars = framePillars;
     let currentPlaces = places;
+    let currentColorway = colorway;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -493,6 +495,39 @@ export function createPanel(opts) {
     }
 
 
+    // Fabric palettes from the boards: one tap recolours every curtain on
+    // stage. The pillar's stone stays stone in every palette.
+    function colorwayBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Colorway'));
+        const row = document.createElement('div');
+        row.className = 'flex flex-wrap gap-2';
+        for (const c of colorways) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = c.id === currentColorway;
+            btn.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg border text-xs '
+                + 'transition-colors ' + (on
+                    ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                    : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            const chip = document.createElement('span');
+            chip.className = 'w-4 h-4 rounded-full border border-black/10 shrink-0';
+            chip.style.background = '#' + c.fabric.toString(16).padStart(6, '0');
+            const label = document.createElement('span');
+            label.textContent = c.name;
+            btn.append(chip, label);
+            btn.addEventListener('click', () => {
+                onColorwayChange && onColorwayChange(c.id);
+            });
+            live.buttons.push(btn);
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
     // preset.
@@ -575,6 +610,7 @@ export function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
+            currentColorway || '',
             JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
             (current && current.name) || ''
@@ -614,6 +650,7 @@ export function createPanel(opts) {
 
         if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
+        if (colorways.length > 1) host.appendChild(colorwayBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -640,6 +677,7 @@ export function createPanel(opts) {
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
+            if (next.colorway !== undefined) currentColorway = next.colorway;
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;

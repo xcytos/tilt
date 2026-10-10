@@ -9,6 +9,7 @@ const ROOT = path.resolve(HERE, '..');
 export const ORDER = [
     'js/scenes.js',
     'js/layouts.js',
+    'js/colorways.js',
     'js/project.js',
     'js/registry.js',
     'js/objects/o2tilt.js',

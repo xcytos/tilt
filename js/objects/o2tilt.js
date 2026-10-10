@@ -446,6 +446,13 @@ export function createO2TiltModel(initial = {}) {
         matJoint.envMapIntensity = t.metalEnv;
     }
 
+    // The chosen fabric palette. setTheme resets the fabric to its own white
+    // or grey, so the composition root applies the colorway after the theme.
+    function setColorway(hex) {
+        if (!Number.isFinite(hex)) return;
+        matFabric.color.setHex(hex);
+    }
+
     function dispose() {
         release(railL); release(railR); release(fabricL); release(fabricR);
         railL = railR = fabricL = fabricR = null;
@@ -469,6 +476,7 @@ export function createO2TiltModel(initial = {}) {
         build,
         getAnchors,
         setTheme,
+        setColorway,
         setParams(partial) { Object.assign(state, partial); model.dirty = true; },
         dispose
     };

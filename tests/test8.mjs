@@ -75,6 +75,7 @@ check('an unknown or hostile scene id is dropped', (() => {
 
 console.log('\nproject file: the SET the set is staged in');
 const layouts = await import(pathToFileURL(path.join(DECOR, 'js/layouts.js')).href);
+const colorways = await import(pathToFileURL(path.join(DECOR, 'js/colorways.js')).href);
 
 check('a set survives a round trip through JSON',
   proj.parseProject(proj.projectToJSON({ layout: 'cross-flow' })).layout === 'cross-flow');
@@ -92,6 +93,15 @@ check('the merged sets leave five, Divided Entrance folded away',
   && layouts.layoutById('classic-symmetry').placements.every(p => Math.abs(p.ry) === 10));
 check('old divided-entrance documents land on Classic Symmetry',
   proj.parseProject(JSON.stringify({ layout: 'divided-entrance' })).layout === 'classic-symmetry');
+check("the boards' fabric palettes are pure, unique data",
+  colorways.COLORWAYS.length === 5
+  && new Set(colorways.COLORWAY_IDS).size === 5
+  && colorways.DEFAULT_COLORWAY === 'ivory'
+  && colorways.COLORWAYS.every(c => typeof c.fabric === 'number' && c.name));
+check('a saved colorway survives, junk drops to the default',
+  proj.parseProject(JSON.stringify({ colorway: 'sage' })).colorway === 'sage'
+  && proj.parseProject(JSON.stringify({ colorway: 'plaid' })).colorway === 'ivory'
+  && proj.parseProject('{}').colorway === 'ivory');
 check('sets stage frames only - pillars are yours to add, not the drawing',
   layouts.LAYOUTS.every(l => l.placements.every(p => p.kind === 'frame')));
 check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
@@ -409,6 +419,11 @@ check('the catalog is the merged pair: S Curve and S Curve Arc', (() => {
 check('old Classic and Slope documents remap onto S Curve',
   /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
   && /const remapId = id =>/.test(app));
+check('the fabric palette reaches the panel and the stage',
+  /'js\/colorways\.js'/.test(build) && /colorway: colorwayId/.test(app)
+  && /function applyColorway\(/.test(app) && /function setColorway\(/.test(app)
+  && /onColorwayChange: guard\(/.test(app)
+  && /colorwayBlock\(\)/.test(panel) && /onColorwayChange/.test(panel));
 check('the built-in fallback is S Curve too',
   /id: 'o2tilt'/.test(fs.readFileSync(path.join(DECOR, 'js/registry.js'), 'utf8'))
   && /MODEL_NAME = 'S Curve'/.test(fs.readFileSync(

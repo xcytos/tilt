@@ -4,6 +4,7 @@ import { createEditor } from './editor.js';
 import { Registry } from './registry.js';
 import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
 import { LAYOUTS, layoutById } from './layouts.js';
+import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
 import {
@@ -41,6 +42,8 @@ let mode = 'single';
 let activeId = null;
 let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
+// The fabric palette every curtain on stage wears - one tap in the panel.
+let colorwayId = DEFAULT_COLORWAY;
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
 // coordinates that are yours - one entry per instance, per group - for the
 // frames. Pillars have no coordinates of their own: `framePillars` holds
@@ -76,6 +79,7 @@ function buildDoc() {
         mode,
         activeId,
         scene: sceneId,
+        colorway: colorwayId,
         layout: layoutId,
         pillars: framePillarsPlain(),
         places: Object.fromEntries([...savedPlaces]
@@ -510,6 +514,27 @@ function setPlace(key, index, patch) {
     return true;
 }
 
+// The chosen fabric palette, applied to every frame on stage. Models opt in
+// with setColorway; the pillar's stone stays stone. The composition root
+// calls this after the theme, because setTheme resets the fabric colour.
+function applyColorway() {
+    const hit = colorwayById(colorwayId);
+    if (!hit) return;
+    for (const models of mounted.values()) {
+        for (const m of models) if (m.setColorway) m.setColorway(hit.fabric);
+    }
+}
+
+function setColorway(id) {
+    const next = colorwayById(id) ? id : DEFAULT_COLORWAY;
+    if (next === colorwayId) return false;
+    colorwayId = next;
+    applyColorway();
+    if (panel) panel.refresh({ colorway: colorwayId }, true);
+    scheduleSave();
+    return true;
+}
+
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
 // repaints the controls even when nothing structural changed (used after a
 // project reset).
@@ -540,6 +565,7 @@ async function syncScene(forcePanel = false) {
         viewer.frameScene();
 
         await applyPrimaryTheme();
+        applyColorway();
 
         if (panel) {
             panel.refresh({
@@ -547,6 +573,7 @@ async function syncScene(forcePanel = false) {
                 groups: gs,
                 activeId,
                 scene: sceneId,
+                colorway: colorwayId,
                 set: layoutId,
                 framePillars: framePillarsPlain(),
                 places: placesFor(),
@@ -672,6 +699,7 @@ async function resetProject() {
     overlayIds = [];
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
+    colorwayId = DEFAULT_COLORWAY;
     layoutId = null;
     framePillars.clear();
 
@@ -748,6 +776,7 @@ if (savedDoc) {
         viewer.setTheme(savedDoc.view.theme === 'dark');
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
+    if (colorwayById(savedDoc.colorway)) colorwayId = savedDoc.colorway;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
     if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
         && !Array.isArray(savedDoc.pillars)) {
@@ -836,6 +865,8 @@ panel = createPanel({
     activeId,
     scenes: SCENES,
     scene: sceneId,
+    colorways: COLORWAYS,
+    colorway: colorwayId,
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
@@ -845,6 +876,7 @@ panel = createPanel({
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
+    onColorwayChange: guard(id => setColorway(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
@@ -980,7 +1012,7 @@ stage('started');
 
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
-    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
+    scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
@@ -988,6 +1020,7 @@ window.O2 = {
     get activeId() { return activeId; },
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
+    get colorway() { return colorwayId; },
     get layout() { return layoutId; },
     get framePillars() { return framePillarsPlain(); },
     get places() { return placesFor(); },
