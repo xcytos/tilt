@@ -100,12 +100,24 @@ function cleanPlaces(places) {
     return out;
 }
 
-// Which pairs of instances are kept symmetric across the stage centre.
-function cleanMirror(mirror) {
-    if (!mirror || typeof mirror !== 'object' || Array.isArray(mirror)) return {};
+// Pillars belong to their frame: { '<frameId>': { count, place } }. Count is
+// 0-2 per instance of the frame; place is where the pair anchors - centre of
+// the O2, the outer ends of its modules, or the inner ends beside the gap.
+// Documents from the global-pillar days carry a plain number instead; that
+// is passed through so app.js can migrate it against the frames it knows.
+function cleanFramePillars(raw) {
+    if (typeof raw === 'number') return raw;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     const out = {};
-    for (const key of Object.keys(mirror).slice(0, PLACE_KEYS)) {
-        if (PLACE_KEY_RE.test(key) && mirror[key] === true) out[key] = true;
+    let keys = 0;
+    for (const [id, v] of Object.entries(raw)) {
+        if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(id)
+            || !v || typeof v !== 'object' || Array.isArray(v)) continue;
+        out[id] = {
+            count: Math.round(clampN(v.count, 0, 2, 0)),
+            place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'
+        };
+        keys++;
     }
     return out;
 }
@@ -133,11 +145,8 @@ export function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
             ? data.layout : null,
-        pillars: Math.round(clampN(data.pillars, 0, 2, 0)),
-        lock: data.lock !== false,
-        place: ['centre', 'inner', 'outer'].includes(data.place) ? data.place : 'outer',
+        pillars: cleanFramePillars(data.pillars),
         places: cleanPlaces(data.places),
-        mirror: cleanMirror(data.mirror),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

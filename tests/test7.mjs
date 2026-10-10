@@ -148,9 +148,9 @@ check('app tracks which presets are wanted', /let overlayIds = \[\];/.test(app))
 check('app tracks what is actually mounted', /const mounted = new Map\(\);/.test(app));
 check('app spaces models through viewer.layoutGroups', /viewer\.layoutGroups\(/.test(app));
 const syncSrc = /async function syncScene\([^)]*\) \{[\s\S]*?\n\}/.exec(app);
-check('scene sync derives every place, then frames once',
+check('scene sync places frames, then pillars, then frames once',
       !!syncSrc
-      && /defaultPlaces\(\);\s*\n\s*applyPlaces\(\);[\s\S]*?viewer\.frameScene\(\);/.test(syncSrc));
+      && /defaultPlaces\(\);[\s\S]*?applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);[\s\S]*?viewer\.frameScene\(\);/.test(syncSrc));
 check('panel callbacks are guarded against rejection',
       /onSelect: guard\(/.test(app) && /onModeChange: guard\(/.test(app)
       && /onToggle: guard\(/.test(app));

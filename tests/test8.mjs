@@ -100,31 +100,34 @@ check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
     }
     return true;
   }));
-check('the pillar count, its lock, its place and your placements survive', (() => {
+check('each frame carries its pillar options through a round trip', (() => {
   const doc = proj.parseProject(proj.projectToJSON({
-    layout: 'classic-symmetry', pillars: 2, lock: false, place: 'inner',
-    places: { pillar: [{ x: 4, z: 2, ry: 0 }, { x: -4, z: 2, ry: 0 }] },
-    mirror: { pillar: true }
+    layout: 'classic-symmetry',
+    pillars: { o2tilt: { count: 2, place: 'inner' } },
+    places: { o2tilt: [{ x: 4, z: 2, ry: 0 }] }
   }));
   const fresh = proj.parseProject('{}');
-  const odd = proj.parseProject(JSON.stringify({ place: 'sideways' }));
-  return doc.layout === 'classic-symmetry' && doc.pillars === 2
-    && doc.lock === false && doc.mirror.pillar === true
-    && doc.place === 'inner'
-    && doc.places.pillar[1].x === -4
-    && fresh.pillars === 0 && fresh.lock === true && fresh.place === 'outer'
-    && odd.place === 'outer';
+  return doc.layout === 'classic-symmetry'
+    && doc.pillars.o2tilt.count === 2 && doc.pillars.o2tilt.place === 'inner'
+    && doc.places.o2tilt[0].x === 4
+    && typeof fresh.pillars === 'object'
+    && !Object.keys(fresh.pillars).length;
 })());
-check('the pillar count is clamped to a pair',
-  proj.parseProject(JSON.stringify({ pillars: 9 })).pillars === 2
-  && proj.parseProject(JSON.stringify({ pillars: -3 })).pillars === 0
-  && proj.parseProject(JSON.stringify({ pillars: 'x' })).pillars === 0);
+check("a frame's pillar count is clamped to a pair", (() => {
+  const doc = proj.parseProject(JSON.stringify({
+    pillars: { o2tilt: { count: 9, place: 'sideways' }, 'a"; drop': { count: 1 } }
+  }));
+  return doc.pillars.o2tilt.count === 2 && doc.pillars.o2tilt.place === 'outer'
+    && !('a"; drop' in doc.pillars);
+})());
+check('old documents with a global pillar count pass through',
+  proj.parseProject(JSON.stringify({ pillars: 2 })).pillars === 2);
 check('a hostile placement is cleaned, not trusted', (() => {
   const bad = proj.parseProject(JSON.stringify({
-    places: { pillar: [{ x: 1e9, z: 'no', ry: 5 }, 'junk'], 'a"; drop': [{ x: 1 }] }
+    places: { o2tilt: [{ x: 1e9, z: 'no', ry: 5 }, 'junk'], 'a"; drop': [{ x: 1 }] }
   }));
-  return bad.places.pillar[0].x === 300 && bad.places.pillar[0].z === 0
-    && bad.places.pillar[1] === null && !('a"; drop' in bad.places);
+  return bad.places.o2tilt[0].x === 300 && bad.places.o2tilt[0].z === 0
+    && bad.places.o2tilt[1] === null && !('a"; drop' in bad.places);
 })());
 
 console.log('\nproject file: applying saved values to a model');
@@ -395,41 +398,40 @@ check('app carries the set into the document', /layout: layoutId/.test(app));
 check('app registers the pillar as a type', /registry\.register\(PILLAR_ID/.test(app));
 check('a set proposes slots while the stage mounts by selection',
   /const slots = slotPick\(/.test(app)
-  && /\(await syncPresets\(\)\)\.concat\(await syncPillars\(\)\)/.test(app));
+  && /const failures = await syncPresets\(\);/.test(app));
 check('one preset can fill several slots with separate instances',
   /function repeatDef\(/.test(app) && /registry\.instantiate\(repeatDef\(base, count\)\)/.test(app));
 check('a set that stands empty fills nothing',
   /if \(count <= 0\) return \[\]/.test(app));
-check('pillars mount as a count you choose, not as part of a set',
-  /async function syncPillars\(/.test(app) && /Math\.min\(2/.test(app)
-  && /heading\('Pillars'\)/.test(panel));
-check('one pillar stands at the centre, two at the end of each module',
-  /function frameAnchor\(/.test(app) && /'stand-base'/.test(app)
-  && /derivePillarPlace\(i, arr\.length\)/.test(app));
+check('pillars mount beside their frame, count per instance',
+  /async function syncPillarsFor\(/.test(app) && /function pillarKey\(/.test(app)
+  && /frames\.length \* per/.test(app) && /'Pillars'/.test(panel));
+check('one pillar stands at the centre, two at its ends',
+  /function frameAnchorOf\(/.test(app) && /'stand-base'/.test(app)
+  && /function derivePillarPlace\(/.test(app));
 check('two pillars can also stand at the opposite ends beside the gap',
-  /let pillarPlace = 'outer'/.test(app) && /innerLeft/.test(app)
-  && /innerRight/.test(app) && /function setPillarPlace\(/.test(app)
-  && /param-pillar-place/.test(panel) && /onPillarPlaceChange: guard\(/.test(app)
-  && /\['centre', 'inner', 'outer'\]\.includes\(value\)/.test(app)
-  && /i === 0 \? ends\.innerLeft : ends\.innerRight/.test(app));
-check('the inner pillar sits on the gap-side end, not between the poles',
-  /complete inner end/.test(app)
-  && /pillarPlace === 'inner'[\s\S]*?return i === 0 \? ends\.innerLeft/.test(app));
-check('the lock decides whether you or the frame own the numbers',
-  /function refreshLockedPillars\(/.test(app) && /function setPillarLock\(/.test(app)
-  && /Lock to frame/.test(panel) && /lock: pillarLock/.test(app));
+  /place === 'inner'/.test(app) && /innerLeft/.test(app) && /innerRight/.test(app)
+  && /i === 0 \? ends\.innerLeft : ends\.innerRight/.test(app)
+  && /param-pillars-place/.test(panel) && /onFramePillarsChange: guard\(/.test(app));
+check("the pillar options live inside the frame's own section",
+  /function framePillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
+  && /framePillars: framePillarsPlain\(\)/.test(app));
+check("a pillar's look hides behind a settings icon",
+  /function gearIcon\(/.test(panel) && /Pillar settings/.test(panel)
+  && /gearRanges/.test(panel));
+check('pillars travel with their frame through the All-at-once row',
+  /applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);/.test(app)
+  && /for \(const k of presets\)/.test(app)
+  && /frames\[Math\.floor\(i \/ per\)\]/.test(app));
 check('your numbers reach the document and come back',
   /places: Object\.fromEntries/.test(app) && /onPlaceChange: guard\(/.test(app)
   && /next\.places !== undefined/.test(panel));
-check('a mirrored pair writes both halves',
-  /function setMirror\(/.test(app) && /Mirror pair/.test(panel)
-  && /x: -next\.x/.test(app));
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));
 check('every group on stage gets a section, pillars included',
-  /host\.appendChild\(pillarBlock\(\)\)/.test(panel)
-  && /currentGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel));
+  /currentGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel)
+  && /total: pillars\.length, owner: id/.test(app));
 
 check('panel offers the reset button', /onReset/.test(panel)
   && /Reset project/.test(panel));

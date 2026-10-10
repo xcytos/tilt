@@ -196,26 +196,30 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
    left + right - two mirrored 12 ft rails spanning about gap + 24 ft - and
    needs no partner. Picking a set proposes the frames' coordinates; from then
    on the numbers are yours. `js/objects/pillar.js` adds O1, the classical
-   column, as a component you add with a stepper (0, 1 or 2) - never as part
-   of a set. One pillar stands at the **centre** of the O2 where the modules
-   meet; two stand at the **outer end of each module** or - the opposite ends -
-   at the **inner ends beside the centre gap**, chosen with the **Place**
-   control in the Pillars block, all measured from the model's own
-   `stand-base` groups: the inner pillar stands right on the gap-side start of
-   the rail (the complete inner end, never between the poles), the outer one
-   steps clear of the end base - so both ride Centre Gap and Swing Pan in the
-   module's own swing. The **Lock to frame** check (on by default) keeps them on those
-   anchors and re-derives them whenever the frame moves; unlock it and the
-   Position controls - X, Depth, Turn per instance - go live and nothing
-   overwrites them again. A **Mirror pair** check writes one instance's number
-   as the reflection of the other (x becomes -x), so a pair stays a pair.
-   Everything is plain data in the document: `places` (per-instance
-   coordinates, clamped on the way in), `mirror`, `pillars` (0-2), `lock` and
-   `place` (`centre` | `inner` | `outer`).
-   `syncPillars` mounts the count, `defaultPlaces` derives what is missing,
-   `applyPlaces` is the single writer to the stage. Free placement of frames
-   (no set) still falls back to the viewer's own side-by-side spacing, captured
-   as numbers the moment it runs. Free placement is untouched.
+   column, as a component each O2 frame carries - never as part of a set.
+   Pillars are configured inside that frame's own panel section: a stepper
+   (0, 1 or 2, per instance) and a Place choice. One pillar stands at the
+   **centre** of that frame's O2 where the modules meet; two stand at the
+   **outer ends** of its modules or - the opposite ends - at the **inner ends
+   beside the centre gap**, all measured from that frame's own `stand-base`
+   groups: the inner pillar stands right on the gap-side start of the rail
+   (the complete inner end, never between the poles), the outer one steps
+   clear of the end base - so both ride Centre Gap and Swing Pan in that
+   module's own swing. Pillars have no coordinates of their own: after every
+   placement they re-derive from where their frame actually stands
+   (`refreshPillarPlaces` runs between the two `applyPlaces` passes), so they
+   travel with the frame through a set's slots and through the side-by-side
+   row of All at once. Each pillar's look - Height, Diameter, Capital,
+   Plinth, Flutes - lives behind one settings icon in its own section; there
+   are no X/Y/Z fields and no lock or mirror for pillars. Everything is plain
+   data in the document: `places` (per-frame-instance coordinates, clamped on
+   the way in) and `pillars` - `{ '<frameId>': { count, place } }` (`place`:
+   `centre` | `inner` | `outer`). `syncPillarsFor` mounts each frame's count,
+   `defaultPlaces` derives frame coordinates - re-capturing every frame when
+   the All-at-once row re-spaces, so placement and camera framing never
+   disagree - and `applyPlaces` is the single writer to the stage. Free
+   placement of frames (no set) still falls back to the viewer's own
+   side-by-side spacing, captured as numbers the moment it runs.
 
 ---
 

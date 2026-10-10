@@ -42,19 +42,14 @@ let activeId = null;
 let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
-// coordinates that are yours - one entry per instance, per group - and
-// `mirrored` lists the pairs kept symmetric across the stage centre
-// (x becomes -x). `pillarCount` is how many O1 pillars stand on stage -
-// one or two, a component you add, never a default of a set. `pillarLock`
-// binds them to the frame; unlock it to place them yourself.
+// coordinates that are yours - one entry per instance, per group - for the
+// frames. Pillars have no coordinates of their own: `framePillars` holds
+// each frame's own configuration - { count: 0-2, place } keyed by preset id
+// - and the pillars always stand on that frame's anchors, travelling with
+// it wherever it goes.
 let layoutId = null;
 const savedPlaces = new Map();
-const mirrored = new Set();
-let pillarCount = 0;
-let pillarLock = true;
-// Where the pair stands: 'outer' at each module's far end, 'inner' at the
-// opposite ends beside the centre gap, 'centre' for a single pillar.
-let pillarPlace = 'outer';
+const framePillars = new Map();
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -82,13 +77,11 @@ function buildDoc() {
         activeId,
         scene: sceneId,
         layout: layoutId,
-        pillars: pillarCount,
-        lock: pillarLock,
-        place: pillarPlace,
+        pillars: framePillarsPlain(),
         places: Object.fromEntries([...savedPlaces]
+            .filter(([k]) => !k.startsWith(PILLAR_ID))
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
-        mirror: Object.fromEntries([...mirrored].map(k => [k, true])),
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -175,17 +168,20 @@ function orderIds() {
 }
 
 function groups() {
-    // Frames come in display order; a SET never hides any of them. Pillars
-    // are placed one by one, so each is its own group - the panel gives it
-    // its own section and its own position controls that way.
+    // Frames come in display order, a SET never hides any of them, and each
+    // frame's own pillars follow it - one group apiece, so the panel gives
+    // each its own section right after the frame it stands beside.
     const out = [];
     for (const id of orderIds()) {
         if (mounted.has(id)) out.push({ id, models: mounted.get(id) });
+        const pillars = mounted.get(pillarKey(id)) || [];
+        pillars.forEach((m, i) => {
+            out.push({
+                id: PILLAR_ID, models: [m], inst: i,
+                total: pillars.length, owner: id
+            });
+        });
     }
-    const pillars = mounted.get(PILLAR_ID) || [];
-    pillars.forEach((m, i) => {
-        out.push({ id: PILLAR_ID, models: [m], inst: i, total: pillars.length });
-    });
     return out;
 }
 
@@ -197,10 +193,10 @@ function scheduleRebuild() {
     requestAnimationFrame(() => {
         rebuildQueued = false;
         for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
-        // Re-place only. A locked pillar follows its module's end through
-        // the swing; the camera is left alone so dragging a slider never
-        // yanks the view around.
-        refreshLockedPillars();
+        // Re-place only. A pillar follows its frame's end through the
+        // swing; the camera is left alone so dragging a slider never yanks
+        // the view around.
+        refreshPillarPlaces();
         applyPlaces();
     });
 }
@@ -229,9 +225,13 @@ async function syncPresets() {
     const want = orderIds();
 
     for (const [id, models] of [...mounted]) {
-        if (want.includes(id)) continue;
+        // A pillar group stays while the frame that owns it stays.
+        const owner = id.startsWith(PILLAR_ID + ':')
+            ? id.slice(PILLAR_ID.length + 1) : id;
+        if (want.includes(owner)) continue;
         for (const m of models) viewer.removeModel(m);
         mounted.delete(id);
+        savedPlaces.delete(id);
     }
 
     const failures = [];
@@ -251,6 +251,10 @@ async function syncPresets() {
             console.error('[registry]', err);
             failures.push({ id, message: (err && err.message) || String(err) });
         }
+    }
+    // Each frame brings its own pillars along.
+    for (const id of want) {
+        failures.push(...await syncPillarsFor(id));
     }
     return failures;
 }
@@ -288,35 +292,47 @@ function slotPick(slots, count) {
     return out;
 }
 
-// Pillars are a component you add: exactly `pillarCount` instances under one
-// key. Shrinking the count keeps the placements you have edited; growing it
-// leaves holes for defaultPlaces() to derive.
-async function syncPillars() {
-    const failures = [];
-    const have = mounted.get(PILLAR_ID) || [];
-    if (have.length === pillarCount) return failures;
+// Pillars live under their frame's key: `count` per instance of that frame.
+// Changing the count rebuilds the set; the look (saved preset values) rides
+// along either way.
+function pillarKey(frameId) {
+    return PILLAR_ID + ':' + frameId;
+}
 
-    const prev = savedPlaces.get(PILLAR_ID) || [];
+function framePillarsFor(id) {
+    return framePillars.get(id) || { count: 0, place: 'outer' };
+}
+
+function framePillarsPlain() {
+    return Object.fromEntries([...framePillars]
+        .map(([id, c]) => [id, { count: c.count, place: c.place }]));
+}
+
+async function syncPillarsFor(frameId) {
+    const failures = [];
+    const key = pillarKey(frameId);
+    const frames = mounted.get(frameId) || [];
+    const per = Math.max(0, Math.min(2, framePillarsFor(frameId).count));
+    const want = frames.length * per;
+    const have = mounted.get(key) || [];
+    if (have.length === want) return failures;
+
     for (const m of have) viewer.removeModel(m);
-    mounted.delete(PILLAR_ID);
-    savedPlaces.set(PILLAR_ID,
-        Array.from({ length: pillarCount }, (_, i) => prev[i] || null));
-    if (pillarCount <= 0) {
-        savedPlaces.delete(PILLAR_ID);
-        return failures;
-    }
+    mounted.delete(key);
+    savedPlaces.delete(key);
+    if (want <= 0) return failures;
 
     try {
-        const models = await instantiateKey(PILLAR_ID, pillarCount);
+        const models = await instantiateKey(PILLAR_ID, want);
         for (const m of models) {
             applySaved(m.state, m.params, savedPresets[PILLAR_ID]);
             m.build();
             viewer.addModel(m);
         }
-        mounted.set(PILLAR_ID, models);
+        mounted.set(key, models);
     } catch (err) {
         console.error('[pillars]', err);
-        failures.push({ id: PILLAR_ID, message: (err && err.message) || String(err) });
+        failures.push({ id: key, message: (err && err.message) || String(err) });
     }
     return failures;
 }
@@ -327,62 +343,52 @@ function unmountAll() {
         mounted.delete(id);
     }
     savedPlaces.clear();
-    mirrored.clear();
 }
 
-// Both ends of both modules of the O2, measured from the model itself: the
+// Both ends of both modules of ONE O2, measured from the model itself: the
 // outer stand bases (far ends) and the inner ones beside the centre gap (the
-// opposite ends), each carried around the frame's own turn. The stands sit on
-// the rail, so these points include Centre Gap and Swing Pan - a pillar put
-// here stands at the end of its module, in whatever swing the rail has.
-function frameAnchor() {
-    for (const [key, models] of mounted) {
-        if (key === PILLAR_ID) continue;
-        const m = models && models[0];
-        if (!m || !m.object3D) continue;
-        let leftOut = null, leftIn = null, rightIn = null, rightOut = null;
-        m.object3D.traverse(o => {
-            if (o.name !== 'stand-base') return;
-            const p = o.position;
-            if (p.x < 0) {
-                if (!leftOut || p.x < leftOut.x) leftOut = { x: p.x, z: p.z };
-                if (!leftIn || p.x > leftIn.x) leftIn = { x: p.x, z: p.z };
-            } else if (p.x > 0) {
-                if (!rightIn || p.x < rightIn.x) rightIn = { x: p.x, z: p.z };
-                if (!rightOut || p.x > rightOut.x) rightOut = { x: p.x, z: p.z };
-            }
-        });
-        if (!leftOut || !rightOut || !leftIn || !rightIn) continue;
-        const pos = m.object3D.position, turn = m.object3D.rotation.y;
-        const c = Math.cos(turn), s = Math.sin(turn);
-        const world = p => ({ x: pos.x + p.x * c + p.z * s, z: pos.z - p.x * s + p.z * c });
-        return {
-            centre: { x: pos.x, z: pos.z },
-            left: world(leftOut),
-            right: world(rightOut),
-            innerLeft: world(leftIn),
-            innerRight: world(rightIn)
-        };
-    }
-    return null;
+// opposite ends), each carried around that frame's own turn. The stands sit
+// on the rail, so these points include Centre Gap and Swing Pan - a pillar
+// put here stands at the end of its module, in whatever swing the rail has.
+function frameAnchorOf(m) {
+    if (!m || !m.object3D) return null;
+    let leftOut = null, leftIn = null, rightIn = null, rightOut = null;
+    m.object3D.traverse(o => {
+        if (o.name !== 'stand-base') return;
+        const p = o.position;
+        if (p.x < 0) {
+            if (!leftOut || p.x < leftOut.x) leftOut = { x: p.x, z: p.z };
+            if (!leftIn || p.x > leftIn.x) leftIn = { x: p.x, z: p.z };
+        } else if (p.x > 0) {
+            if (!rightIn || p.x < rightIn.x) rightIn = { x: p.x, z: p.z };
+            if (!rightOut || p.x > rightOut.x) rightOut = { x: p.x, z: p.z };
+        }
+    });
+    if (!leftOut || !rightOut || !leftIn || !rightIn) return null;
+    const pos = m.object3D.position, turn = m.object3D.rotation.y;
+    const c = Math.cos(turn), s = Math.sin(turn);
+    const world = p => ({ x: pos.x + p.x * c + p.z * s, z: pos.z - p.x * s + p.z * c });
+    return {
+        centre: { x: pos.x, z: pos.z },
+        left: world(leftOut),
+        right: world(rightOut),
+        innerLeft: world(leftIn),
+        innerRight: world(rightIn)
+    };
 }
 
-// Where a pillar of index i stands. ONE pillar goes to the centre of the O2,
-// where the modules meet. TWO go to the ends you chose: the outer ends, or
-// the opposite ends beside the centre gap. Without a frame on stage they fall
-// back to the stage centre and a pair of outer spots, so a pillars-only
-// preview still stands somewhere sensible.
-function derivePillarPlace(i, total) {
-    const ends = frameAnchor();
-    if (total <= 1 || pillarPlace === 'centre') {
-        return ends ? ends.centre : { x: 0, z: 0 };
+// Where pillar i of a frame's set stands, read from THAT frame. ONE pillar
+// goes to the centre of its O2, where the modules meet. TWO go to the ends
+// the place names: the outer ends, or the complete inner ends beside the
+// centre gap - never somewhere between the poles.
+function derivePillarPlace(frame, place, i, total) {
+    const ends = frameAnchorOf(frame);
+    if (!ends) {
+        const p = frame && frame.object3D ? frame.object3D.position : null;
+        return p ? { x: p.x, z: p.z } : { x: 0, z: 0 };
     }
-    if (!ends) return { x: i === 0 ? -15 : 15, z: 0 };
-    if (pillarPlace === 'inner') {
-        // The complete inner end: right at the module's gap-side stand, the
-        // very start of the rail - not somewhere between the poles.
-        return i === 0 ? ends.innerLeft : ends.innerRight;
-    }
+    if (total <= 1 || place === 'centre') return ends.centre;
+    if (place === 'inner') return i === 0 ? ends.innerLeft : ends.innerRight;
     const end = i === 0 ? ends.left : ends.right;
     // The outer end: just beyond the module's end base, not through it - the
     // base plate is 1.6 ft square, so stand clear of its diagonal by stepping
@@ -421,57 +427,43 @@ function defaultPlaces() {
                 }]);
             });
         } else {
-            // No set: the viewer's own spacing is the default, captured as
-            // numbers the moment it has run.
+            // No set: the viewer's own side-by-side spacing is the default.
+            // It re-spaces every frame, so every frame's numbers are
+            // re-captured - not only the newcomers' - or the row and the
+            // saved places would disagree and models would pile up.
             viewer.layoutGroups(presets.map(id => mounted.get(id)));
-            for (const k of missing) {
+            for (const k of presets) {
                 savedPlaces.set(k, (mounted.get(k) || []).map(readPlace));
             }
         }
     }
-
-    fillPillarPlaces();
 }
 
-// Pillars with no coordinate yet (a fresh count, a fresh set) start on the
-// same anchor the lock would give them.
-function fillPillarPlaces() {
-    const models = mounted.get(PILLAR_ID) || [];
-    if (!models.length) return;
-    const prev = savedPlaces.get(PILLAR_ID) || [];
-    const arr = Array.from({ length: models.length }, (_, i) => prev[i] || null);
-    arr.forEach((p, i) => {
-        if (p) return;
-        const spot = derivePillarPlace(i, arr.length);
-        arr[i] = { x: spot.x, z: spot.z, ry: 0 };
-    });
-    savedPlaces.set(PILLAR_ID, arr);
-    refreshLockedPillars();
-}
-
-// Put every pillar on its anchor (centre, outer ends or inner ends). Used
-// directly when you pick a place - that is a snap, wherever you are - and
-// through the lock on every rebuild.
-function deriveAllPillarPlaces() {
-    const models = mounted.get(PILLAR_ID) || [];
-    const arr = savedPlaces.get(PILLAR_ID);
-    if (!models.length || !arr || arr.length !== models.length) return false;
+// Every pillar re-derives from the frame that owns it, AFTER that frame has
+// been placed - so a pillar travels with its frame through the side-by-side
+// row of All at once, through a set's slots, and through Centre Gap, Swing
+// Pan and any turn of the frame.
+function refreshPillarPlaces() {
     let changed = false;
-    arr.forEach((p, i) => {
-        const spot = derivePillarPlace(i, arr.length);
-        if (!p || p.x !== spot.x || p.z !== spot.z) changed = true;
-        arr[i] = { x: spot.x, z: spot.z, ry: p ? p.ry : 0 };
-    });
+    for (const [key, models] of mounted) {
+        if (!key.startsWith(PILLAR_ID + ':') || !models.length) continue;
+        const frameId = key.slice(PILLAR_ID.length + 1);
+        const frames = mounted.get(frameId) || [];
+        const cfg = framePillarsFor(frameId);
+        const per = Math.max(0, Math.min(2, cfg.count)) || 1;
+        const arr = models.map((m, i) => {
+            const frame = frames[Math.floor(i / per)] || frames[0] || null;
+            const spot = derivePillarPlace(frame, cfg.place, i % per, per);
+            return { x: spot.x, z: spot.z, ry: 0 };
+        });
+        const prev = savedPlaces.get(key);
+        if (!prev || prev.length !== arr.length
+            || arr.some((p, i) => !prev[i] || prev[i].x !== p.x || prev[i].z !== p.z)) {
+            changed = true;
+        }
+        savedPlaces.set(key, arr);
+    }
     return changed;
-}
-
-// The lock. On (the default) every pillar is bound to the frame: it stands
-// on its anchor and follows the rail through Centre Gap, Swing Pan, Decline
-// and any turn of the frame. Off, the coordinates are simply yours - the
-// Position controls go live and nothing overwrites them again.
-function refreshLockedPillars() {
-    if (!pillarLock) return false;
-    return deriveAllPillarPlaces();
 }
 
 // The one writer: every model's transform comes from `savedPlaces`. Frames
@@ -500,43 +492,20 @@ function placesFor() {
     return Object.fromEntries([...savedPlaces].map(([k, v]) => [k, v]));
 }
 
-function mirrorsFor() {
-    return Object.fromEntries([...mirrored].map(k => [k, true]));
-}
-
-// One number at a time. Editing an instance of a mirrored pair also writes
-// its twin as the reflection across the stage centre, so the pair stays a
-// pair - that is the mirror check, and it applies to two pillars (or any
-// group of two) exactly the same way.
+// One number at a time, for frames. Pillars are not edited here: they have
+// no coordinates of their own - they follow the frame that owns them.
 function setPlace(key, index, patch) {
+    if (key.startsWith(PILLAR_ID)) return false;
     const arr = savedPlaces.get(key);
     if (!arr || !arr[index]) return false;
     const cur = arr[index];
-    const next = {
+    arr[index] = {
         x: num(patch.x, cur.x),
         z: num(patch.z, cur.z),
         ry: num(patch.ry, cur.ry)
     };
-    arr[index] = next;
-    if (mirrored.has(key) && arr.length === 2) {
-        arr[index === 0 ? 1 : 0] = { x: -next.x, z: next.z, ry: -next.ry };
-    }
     applyPlaces();
     if (panel) panel.refresh({ places: placesFor() }, true);
-    scheduleSave();
-    return true;
-}
-
-function setMirror(key, on) {
-    on = !!on;
-    if (on === mirrored.has(key)) return false;
-    if (on) mirrored.add(key); else mirrored.delete(key);
-    const arr = savedPlaces.get(key);
-    if (on && arr && arr.length === 2) {
-        arr[1] = { x: -arr[0].x, z: arr[0].z, ry: -arr[0].ry };
-    }
-    applyPlaces();
-    if (panel) panel.refresh({ places: placesFor(), mirror: mirrorsFor() }, true);
     scheduleSave();
     return true;
 }
@@ -547,7 +516,7 @@ function setMirror(key, on) {
 async function syncScene(forcePanel = false) {
     if (panel) { panel.setBusy(true); panel.setError(''); }
     try {
-        const failures = (await syncPresets()).concat(await syncPillars());
+        const failures = await syncPresets();
 
         // Forget presets that could not be built, so the next sync does not
         // retry them in a loop.
@@ -561,6 +530,11 @@ async function syncScene(forcePanel = false) {
         }
 
         defaultPlaces();
+        // Frames first, then the pillars re-derive from where their frames
+        // actually stand, then everything is written - so a pillar always
+        // travels with its frame, including through the All-at-once row.
+        applyPlaces();
+        refreshPillarPlaces();
         applyPlaces();
         const gs = groups();
         viewer.frameScene();
@@ -574,11 +548,8 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 set: layoutId,
-                pillars: pillarCount,
-                lock: pillarLock,
-                pillarPlace,
+                framePillars: framePillarsPlain(),
                 places: placesFor(),
-                mirror: mirrorsFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             panel.sync();
@@ -645,60 +616,40 @@ function setLayout(id) {
     if (next === layoutId) return false;
     layoutId = next;
     // Switching a SET re-derives the frames' coordinates from the new
-    // drawing - that is what switching means. Unlocked pillars keep their
-    // numbers; locked ones follow the frame to its new anchor.
+    // drawing - that is what switching means. Pillars have no numbers of
+    // their own; they follow each frame to its new anchor.
     for (const key of [...savedPlaces.keys()]) {
-        if (key !== PILLAR_ID) savedPlaces.delete(key);
+        if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
     }
     if (panel) panel.refresh({ set: layoutId, places: placesFor() }, true);
     scheduleSave();
     return syncScene();
 }
 
-// Pillars are a component you add, never a default of a set: the stepper
-// decides how many stand on stage, and each one gets its own section.
-function setPillars(count) {
-    const next = Math.max(0, Math.min(2, Math.round(Number(count) || 0)));
-    if (next === pillarCount) return false;
-    pillarCount = next;
-    if (next < 2) mirrored.delete(PILLAR_ID);
-    // A new count gets fresh anchors: one pillar means centre, two mean the
-    // pair of ends the Place control names.
-    pillarPlace = next === 1 ? 'centre' : (pillarPlace === 'centre' ? 'outer' : pillarPlace);
-    savedPlaces.delete(PILLAR_ID);
-    if (panel) {
-        panel.refresh({ pillars: pillarCount, pillarPlace, places: placesFor() }, true);
+// A frame's own pillar options, set from that frame's own section: how many
+// pillars stand beside it (0-2, per instance) and where the pair anchors -
+// the centre of its O2, the outer ends of its modules, or the complete
+// inner ends beside the gap. One pillar means centre; two never do.
+function setFramePillars(id, patch) {
+    if (!patch || typeof patch !== 'object') return false;
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    const cur = framePillarsFor(id);
+    let count = cur.count, place = cur.place;
+    if (patch.count !== undefined) {
+        count = Math.max(0, Math.min(2, Math.round(Number(patch.count) || 0)));
     }
+    if (patch.place !== undefined && ['centre', 'inner', 'outer'].includes(patch.place)) {
+        place = patch.place;
+    }
+    if (count === 1) place = 'centre';
+    if (count === 2 && place === 'centre') place = 'outer';
+    if (count === cur.count && place === cur.place) return false;
+    framePillars.set(id, { count, place });
+    // A new count gets a fresh set of anchors.
+    if (count !== cur.count) savedPlaces.delete(pillarKey(id));
+    if (panel) panel.refresh({ framePillars: framePillarsPlain() }, true);
     scheduleSave();
     return syncScene();
-}
-
-// Centre, outer ends or the opposite ends beside the gap. Picking one snaps
-// the pillars there straight away - with the lock on it is the anchor they
-// keep following; with it off it is a one-shot re-place you can then edit.
-function setPillarPlace(value) {
-    const next = ['centre', 'inner', 'outer'].includes(value) ? value : 'outer';
-    if (next === pillarPlace) return false;
-    pillarPlace = next;
-    deriveAllPillarPlaces();
-    applyPlaces();
-    if (panel) panel.refresh({ pillarPlace, places: placesFor() }, true);
-    scheduleSave();
-    return true;
-}
-
-// Locking pins every pillar to its anchor (centre for one, the end of each
-// module for two) and re-derives them whenever the frame moves. Unlocking
-// hands the coordinates over: nothing overwrites them again.
-function setPillarLock(on) {
-    on = !!on;
-    if (on === pillarLock) return false;
-    pillarLock = on;
-    refreshLockedPillars();
-    applyPlaces();
-    if (panel) panel.refresh({ lock: pillarLock, places: placesFor() }, true);
-    scheduleSave();
-    return true;
 }
 
 // Forget the project: reset the document to its defaults, drop every saved
@@ -722,9 +673,7 @@ async function resetProject() {
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
     layoutId = null;
-    pillarCount = 0;
-    pillarLock = true;
-    pillarPlace = 'outer';
+    framePillars.clear();
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -796,20 +745,32 @@ if (savedDoc) {
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
-    if (Number.isFinite(savedDoc.pillars)) {
-        pillarCount = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
+    if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
+        && !Array.isArray(savedDoc.pillars)) {
+        for (const [id, v] of Object.entries(savedDoc.pillars)) {
+            if (!knownIds.has(id) || !v || typeof v !== 'object') continue;
+            const count = Math.max(0, Math.min(2, Math.round(Number(v.count) || 0)));
+            framePillars.set(id, {
+                count,
+                place: count === 1 ? 'centre'
+                    : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer')
+            });
+        }
+    } else if (Number.isFinite(savedDoc.pillars)) {
+        // Documents from the global-pillar days: one pair beside the frame
+        // that was active.
+        const target = savedDoc.activeId && knownIds.has(savedDoc.activeId)
+            ? savedDoc.activeId
+            : (registry.list[0] && registry.list[0].id);
+        const count = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
+        if (target && count) {
+            framePillars.set(target, { count, place: count === 1 ? 'centre' : 'outer' });
+        }
     }
-    if (savedDoc.lock === false) pillarLock = false;
-    if (['centre', 'inner', 'outer'].includes(savedDoc.place)) {
-        pillarPlace = savedDoc.place;
-    }
-    // Keep the choice honest for the count that is actually mounted.
-    if (pillarCount === 1) pillarPlace = 'centre';
-    if (pillarCount === 2 && pillarPlace === 'centre') pillarPlace = 'outer';
     for (const [k, v] of Object.entries(savedDoc.places || {})) {
+        if (k.startsWith(PILLAR_ID)) continue;
         if (Array.isArray(v)) savedPlaces.set(k, v.map(p => Object.assign({}, p)));
     }
-    for (const k of Object.keys(savedDoc.mirror || {})) mirrored.add(k);
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         if (knownIds.has(id)) savedPresets[id] = values;
@@ -859,22 +820,16 @@ panel = createPanel({
     scene: sceneId,
     sets: LAYOUTS,
     set: layoutId,
-    pillars: pillarCount,
-    lock: pillarLock,
-    pillarPlace,
+    framePillars: framePillarsPlain(),
     places: placesFor(),
-    mirror: mirrorsFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onSetChange: guard(id => setLayout(id)),
-    onPillarsChange: guard(n => setPillars(n)),
-    onLockChange: guard(on => setPillarLock(on)),
-    onPillarPlaceChange: guard(v => setPillarPlace(v)),
+    onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
-    onMirrorChange: guard((key, on) => setMirror(key, on)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -1008,7 +963,7 @@ stage('started');
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
     scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout,
-    setPillars, setPillarLock, setPillarPlace, setPlace, setMirror,
+    setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
     get mode() { return mode; },
@@ -1016,9 +971,7 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
     get layout() { return layoutId; },
-    get pillarCount() { return pillarCount; },
-    get lock() { return pillarLock; },
-    get pillarPlace() { return pillarPlace; },
+    get framePillars() { return framePillarsPlain(); },
     get places() { return placesFor(); },
     get savedPresets() { return savedPresets; },
     get projectId() { return projectId(); },

@@ -1,3 +1,5 @@
+import { PILLAR_ID } from './objects/pillar.js';
+
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
 const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
 const CHECK_CLS = 'custom-checkbox';
@@ -96,12 +98,10 @@ export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
-        pillars = 0, lock = true, pillarPlace = 'outer',
-        places = {}, mirror = {},
+        framePillars = {}, places = {},
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onSetChange, onPillarsChange, onLockChange,
-        onPillarPlaceChange, onPlaceChange, onMirrorChange, onReset,
-        themeIsDark = false
+        onSceneChange, onSetChange, onFramePillarsChange, onPlaceChange,
+        onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -113,11 +113,8 @@ export function createPanel(opts) {
     let activeId_ = activeId;
     let currentScene = scene;
     let currentSet = set;
-    let currentPillars = pillars;
+    let currentFramePillars = framePillars;
     let currentPlaces = places;
-    let currentMirrors = mirror;
-    let currentLock = lock;
-    let currentPillarPlace = pillarPlace;
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -176,10 +173,13 @@ export function createPanel(opts) {
             inner = root;
         }
 
+        const isPillar = group.id === PILLAR_ID;
         const rows = {};
         const normalToggles = [];
         const advancedRanges = [];
         const advancedToggles = [];
+        const gearRanges = [];
+        const gearToggles = [];
 
         // Renders one control and wires it to `emit`, so the schema stays the
         // only source of truth for what the panel shows.
@@ -204,7 +204,12 @@ export function createPanel(opts) {
 
         if (schema && schema.params) {
             for (const [k, p] of Object.entries(schema.params)) {
-                if (p.advanced) {
+                // A pillar's look lives behind one settings icon; everything
+                // else is laid out plainly. The pillar is configured through
+                // its frame's section - count and place - never by numbers.
+                if (isPillar) {
+                    (p.type === 'range' ? gearRanges : gearToggles).push([k, p]);
+                } else if (p.advanced) {
                     (p.type === 'range' ? advancedRanges : advancedToggles)
                         .push([k, p]);
                 } else if (p.type === 'range') {
@@ -220,6 +225,27 @@ export function createPanel(opts) {
             row.className = 'flex flex-wrap gap-4 pt-1';
             for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
             inner.appendChild(row);
+        }
+
+        if (gearRanges.length || gearToggles.length) {
+            const details = document.createElement('details');
+            details.className = 'mt-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            summary.append(gearIcon(), document.createTextNode('Pillar settings'));
+            const gearBody = document.createElement('div');
+            gearBody.className = 'px-2 pb-2';
+            for (const [k, p] of gearRanges) gearBody.appendChild(addRange(k, p));
+            if (gearToggles.length) {
+                const row = document.createElement('div');
+                row.className = 'flex flex-wrap gap-4 pt-1';
+                for (const [k, p] of gearToggles) row.appendChild(addToggle(k, p));
+                gearBody.appendChild(row);
+            }
+            details.append(summary, gearBody);
+            inner.appendChild(details);
         }
 
         // Everything the panel shows must come from the schema; "advanced" is
@@ -245,26 +271,21 @@ export function createPanel(opts) {
             inner.appendChild(details);
         }
 
-        // Position: where THIS instance stands - numbers, not dragging, and
-        // with two instances a Mirror check keeps the pair symmetric across
-        // the stage centre (x becomes -x, rotation flips sign).
-        const place = (currentPlaces[key] || [])[idx];
-        if (place) inner.appendChild(positionBlock(key, idx, place, group));
+        // Position: where THIS frame instance stands - numbers, not
+        // dragging. Pillars never appear here: they follow their frame.
+        if (!isPillar) {
+            const place = (currentPlaces[key] || [])[idx];
+            if (place) inner.appendChild(positionBlock(key, idx, place));
+            inner.appendChild(framePillarsBlock(key));
+        }
 
         const sec = { key, targets, rows, root };
         sections.push(sec);
         return root;
     }
 
-    // One instance's coordinates. While the lock is on, the numbers belong
-    // to the frame - one pillar at the centre, two at the end of each module
-    // in its swing - and the inputs stand still and say so. Unlocked, they
-    // are yours. With a mirrored pair the second follows the first.
-    function positionBlock(key, idx, place, group) {
-        const pair = group.total === 2;
-        const locked = !!group.total && currentLock;
-        const follows = pair && !!currentMirrors[key] && idx === 1 && !locked;
-
+    // One frame instance's coordinates: numbers, not dragging.
+    function positionBlock(key, idx, place) {
         const wrap = document.createElement('div');
         wrap.className = 'mt-3 pt-2 border-t border-dashed '
             + 'border-gray-300 dark:border-zinc-600';
@@ -272,7 +293,7 @@ export function createPanel(opts) {
         const title = document.createElement('div');
         title.className = 'text-[11px] font-semibold uppercase tracking-wider '
             + 'text-gray-500 dark:text-zinc-400 mb-1';
-        title.textContent = pair ? `Position ${idx + 1}` : 'Position';
+        title.textContent = 'Position';
         wrap.appendChild(title);
 
         const row = document.createElement('div');
@@ -290,8 +311,6 @@ export function createPanel(opts) {
             input.className = 'w-full mt-0.5 text-sm px-1.5 py-1 rounded-md border '
                 + 'border-gray-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 '
                 + 'text-gray-800 dark:text-zinc-100 tabular-nums';
-            input.disabled = locked || follows;
-            input.dataset.off = locked || follows ? '1' : '0';
             input.addEventListener('change', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) {
@@ -305,33 +324,95 @@ export function createPanel(opts) {
             live.selects.push(input);
         }
         wrap.appendChild(row);
+        return wrap;
+    }
 
-        if (locked || follows) {
-            const note = document.createElement('p');
-            note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
-            note.textContent = locked
-                ? 'Locked to the frame - unlock to move it.'
-                : 'Mirrors Position 1 across the centre.';
-            wrap.appendChild(note);
-        }
+    // A small settings gear, for the pillar's look.
+    function gearIcon() {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'currentColor');
+        svg.setAttribute('class', 'w-3.5 h-3.5 inline -mt-px mr-1 align-middle');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32'
+            + '-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49'
+            + '.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a'
+            + '.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c'
+            + '-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c'
+            + '-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07'
+            + '.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22'
+            + 'l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84'
+            + 'c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39'
+            + '.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01'
+            + '-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62'
+            + ' 3.6 3.6-1.62 3.6-3.6 3.6z');
+        svg.appendChild(path);
+        return svg;
+    }
 
-        if (pair && !locked) {
-            const lab = document.createElement('label');
-            lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
-                + 'hover:text-sky-600 transition-colors';
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = CHECK_CLS;
-            cb.checked = !!currentMirrors[key];
-            cb.addEventListener('change', e => {
-                onMirrorChange && onMirrorChange(key, e.target.checked);
+    // This frame's own pillars: how many stand beside it (0-2, per instance)
+    // and where the pair anchors - the centre of its O2, the outer ends of
+    // its modules, or the complete inner ends beside the gap.
+    function framePillarsBlock(id) {
+        const cfg = currentFramePillars[id] || { count: 0, place: 'outer' };
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-3 pt-2 border-t border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+
+        const title = document.createElement('div');
+        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400 mb-1';
+        title.textContent = 'Pillars';
+        wrap.appendChild(title);
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2';
+        const step = delta => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = delta > 0 ? '+' : '\u2212';
+            btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                + 'dark:border-zinc-600 text-sm font-bold leading-none '
+                + 'hover:bg-sky-50 dark:hover:bg-zinc-700 disabled:opacity-40';
+            const next = cfg.count + delta;
+            const out = next < 0 || next > 2;
+            btn.disabled = out;
+            btn.dataset.off = out ? '1' : '0';
+            btn.addEventListener('click', () => {
+                onFramePillarsChange && onFramePillarsChange(id, { count: next });
             });
-            const span = document.createElement('span');
-            span.className = 'font-medium';
-            span.textContent = 'Mirror pair';
-            lab.append(cb, span);
-            wrap.appendChild(lab);
-            live.checks.push(cb);
+            live.buttons.push(btn);
+            return btn;
+        };
+        const value = document.createElement('span');
+        value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
+        value.textContent = String(cfg.count);
+        row.append(step(-1), value, step(1));
+        wrap.appendChild(row);
+
+        if (cfg.count > 0) {
+            const placeSel = document.createElement('select');
+            placeSel.id = 'param-pillars-place';
+            placeSel.className = FIELD_CLS;
+            placeSel.setAttribute('aria-label', 'Pillar place');
+            const options = cfg.count === 1
+                ? [['centre', 'Centre of the O2']]
+                : [['outer', 'Outer ends of each module'],
+                   ['inner', 'Inner ends (beside the gap)']];
+            for (const [val, text] of options) {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = text;
+                placeSel.appendChild(opt);
+            }
+            placeSel.value = options.some(o => o[0] === cfg.place)
+                ? cfg.place : options[0][0];
+            placeSel.addEventListener('change', e => {
+                onFramePillarsChange && onFramePillarsChange(id, { place: e.target.value });
+            });
+            placeSel.style.marginTop = '0.5rem';
+            live.selects.push(placeSel);
+            wrap.appendChild(placeSel);
         }
         return wrap;
     }
@@ -411,93 +492,6 @@ export function createPanel(opts) {
         return wrap;
     }
 
-    // How many O1 pillars stand on stage: one at the centre of the O2, two
-    // at the end of each module. The lock binds them to the frame's swing;
-    // unlock it and their Position controls go live.
-    function pillarBlock() {
-        const wrap = document.createElement('div');
-        wrap.className = 'mb-3';
-        wrap.appendChild(heading('Pillars'));
-
-        const row = document.createElement('div');
-        row.className = 'flex items-center gap-2';
-        const step = delta => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = delta > 0 ? '+' : '\u2212';
-            btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
-                + 'dark:border-zinc-600 text-sm font-bold leading-none '
-                + 'hover:bg-sky-50 dark:hover:bg-zinc-700 disabled:opacity-40';
-            const out = currentPillars + delta < 0 || currentPillars + delta > 2;
-            btn.disabled = out;
-            btn.dataset.off = out ? '1' : '0';
-            btn.addEventListener('click', () => {
-                onPillarsChange && onPillarsChange(currentPillars + delta);
-            });
-            live.buttons.push(btn);
-            return btn;
-        };
-        const value = document.createElement('span');
-        value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
-        value.textContent = String(currentPillars);
-        row.append(step(-1), value, step(1));
-        wrap.appendChild(row);
-
-        // Centre for one pillar; the outer ends or the opposite ends beside
-        // the gap for two. Hidden while nothing is on stage - there is no
-        // place to choose yet.
-        if (currentPillars > 0) {
-            const placeSel = document.createElement('select');
-            placeSel.id = 'param-pillar-place';
-            placeSel.className = FIELD_CLS;
-            placeSel.setAttribute('aria-label', 'Pillar place');
-            const options = currentPillars === 1
-                ? [['centre', 'Centre of the O2']]
-                : [['outer', 'Outer ends of each module'],
-                   ['inner', 'Inner ends (beside the gap)']];
-            for (const [val, text] of options) {
-                const opt = document.createElement('option');
-                opt.value = val;
-                opt.textContent = text;
-                placeSel.appendChild(opt);
-            }
-            placeSel.value = options.some(o => o[0] === currentPillarPlace)
-                ? currentPillarPlace : options[0][0];
-            placeSel.addEventListener('change', e => {
-                onPillarPlaceChange && onPillarPlaceChange(e.target.value);
-            });
-            placeSel.style.marginTop = '0.5rem';
-            live.selects.push(placeSel);
-            wrap.appendChild(placeSel);
-        }
-
-        const lab = document.createElement('label');
-        lab.className = 'mt-2 flex items-center gap-2 text-sm cursor-pointer '
-            + 'hover:text-sky-600 transition-colors';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = CHECK_CLS;
-        cb.checked = !!currentLock;
-        const off = currentPillars === 0;
-        cb.disabled = off;
-        cb.dataset.off = off ? '1' : '0';
-        cb.addEventListener('change', e => {
-            onLockChange && onLockChange(e.target.checked);
-        });
-        const span = document.createElement('span');
-        span.className = 'font-medium';
-        span.textContent = 'Lock to frame';
-        lab.append(cb, span);
-        wrap.appendChild(lab);
-        live.checks.push(cb);
-
-        const hint = document.createElement('p');
-        hint.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
-        hint.textContent = 'One pillar stands at the centre of the O2; two stand '
-            + 'at both ends of the modules you choose and follow the swing while locked.';
-        wrap.appendChild(hint);
-        return wrap;
-    }
 
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
@@ -581,9 +575,8 @@ export function createPanel(opts) {
             activeId_ || '',
             currentScene || '',
             currentSet || '',
-            `${currentPillars}/${currentLock ? 'locked' : 'free'}/${currentPillarPlace}`,
+            JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
-            Object.keys(currentMirrors).sort().join(','),
             (current && current.name) || ''
         ].join('|');
     }
@@ -600,10 +593,8 @@ export function createPanel(opts) {
         } else if (catalog.length > 1) {
             host.appendChild(selectBlock());
         }
-        host.appendChild(pillarBlock());
-
-        // Every group on stage gets a section - the frame, then each pillar
-        // with its own position - because you compose the set yourself.
+        // Every group on stage gets a section - the frame (with its own
+        // pillar options), then each pillar with its look behind a gear.
         currentGroups.forEach((g, i) => host.appendChild(
             section(g, currentGroups.length > 1, i === 0)));
 
@@ -649,11 +640,8 @@ export function createPanel(opts) {
             if (next.activeId !== undefined) activeId_ = next.activeId;
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
-            if (next.pillars !== undefined) currentPillars = next.pillars;
-            if (next.lock !== undefined) currentLock = next.lock;
-            if (next.pillarPlace !== undefined) currentPillarPlace = next.pillarPlace;
+            if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
-            if (next.mirror !== undefined) currentMirrors = next.mirror;
             if (next.model !== undefined) current = next.model;
             renderIfChanged(force);
             return this;
