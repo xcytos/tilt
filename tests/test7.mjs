@@ -103,7 +103,7 @@ const o2 = await import(pathToFileURL(o2File).href);
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', o2.createO2TiltModel, o2.PARAMS);
 await registry.loadManifest();
-check('manifest lists three presets', registry.list.length === 3, `${registry.list.length}`);
+check('manifest lists the merged pair', registry.list.length === 2, `${registry.list.length}`);
 
 const groups = [];
 let allValid = true;
@@ -129,7 +129,7 @@ check('every preset has measurable bounds',
       spans.every(([a, b]) => Number.isFinite(a) && Number.isFinite(b)));
 
 const row = placed(spans);
-check('the three presets sit side by side without clipping', !overlaps(row),
+check('the presets sit side by side without clipping', !overlaps(row),
       JSON.stringify(row.map(b => [b[0].toFixed(2), b[1].toFixed(2)])));
 check('spacings are the configured gap', gapsBetween(row)
   .every(g => Math.abs(g - GAP) < 1e-9), JSON.stringify(gapsBetween(row).map(g => g.toFixed(3))));

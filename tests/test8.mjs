@@ -87,6 +87,11 @@ check('every set has at least two frames on finite ground', layouts.LAYOUTS.ever
     .every(p => [p.x, p.z, p.ry].every(Number.isFinite))));
 check('set ids are unique', new Set(layouts.LAYOUT_IDS).size === layouts.LAYOUT_IDS.length,
   layouts.LAYOUT_IDS.join(', '));
+check('the merged sets leave five, Divided Entrance folded away',
+  layouts.LAYOUTS.length === 5 && !layouts.LAYOUT_IDS.includes('divided-entrance')
+  && layouts.layoutById('classic-symmetry').placements.every(p => Math.abs(p.ry) === 10));
+check('old divided-entrance documents land on Classic Symmetry',
+  proj.parseProject(JSON.stringify({ layout: 'divided-entrance' })).layout === 'classic-symmetry');
 check('sets stage frames only - pillars are yours to add, not the drawing',
   layouts.LAYOUTS.every(l => l.placements.every(p => p.kind === 'frame')));
 check('frame slots stand clear of one another (an O2 spans gap+24 ft)',
@@ -392,6 +397,22 @@ check('the panel renders a scene picker', /param-scene/.test(panel)
 check('the viewer falls back to the studio', /isScene\(id\) \? id : DEFAULT_SCENE/.test(read('js/viewer.js')));
 
 console.log('\nwiring: the SET the project is staged as');
+check('the catalog is the merged pair: S Curve and S Curve Arc', (() => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(DECOR, 'models/manifest.json'), 'utf8'));
+  return manifest.models.length === 2
+    && manifest.models[0].id === 'o2tilt' && manifest.models[0].name === 'S Curve'
+    && manifest.models[1].id === 'o2tilt-arc' && manifest.models[1].name === 'S Curve Arc'
+    && !fs.existsSync(path.join(DECOR, 'models/o2tilt-classic.json'))
+    && !fs.existsSync(path.join(DECOR, 'models/o2tilt-slope.json'));
+})());
+check('old Classic and Slope documents remap onto S Curve',
+  /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
+  && /const remapId = id =>/.test(app));
+check('the built-in fallback is S Curve too',
+  /id: 'o2tilt'/.test(fs.readFileSync(path.join(DECOR, 'js/registry.js'), 'utf8'))
+  && /MODEL_NAME = 'S Curve'/.test(fs.readFileSync(
+    path.join(DECOR, 'js/objects/o2tilt.js'), 'utf8')));
 check('layouts.js and pillar.js are in the build order',
   /'js\/layouts\.js'/.test(build) && /'js\/objects\/pillar\.js'/.test(build));
 check('app carries the set into the document', /layout: layoutId/.test(app));

@@ -3,8 +3,8 @@ const MANIFEST_FILE = 'manifest.json';
 // Used when the manifest cannot be fetched (no server, bad path), so the
 // viewer still boots with something on screen instead of an empty stage.
 const BUILTIN = {
-    id: 'o2tilt-classic',
-    name: 'O2-TILT Classic',
+    id: 'o2tilt',
+    name: 'S Curve',
     environment: { theme: 'light' },
     objects: [{
         type: 'o2tilt-frame',

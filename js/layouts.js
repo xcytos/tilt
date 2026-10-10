@@ -3,7 +3,7 @@
 // feet: x runs right, z runs toward the audience (the camera sits at -z), and
 // ry turns a frame in plan, in degrees.
 //
-// A frame slot holds ONE O2-TILT, and one O2-TILT is already left + right: two
+// A frame slot holds ONE S Curve, and one S Curve is already left + right: two
 // mirrored rails of 12 ft running out from the centre gap, so the object spans
 // about gap + 24 ft on its own. Frame slots are therefore spaced ~30 ft apart
 // - far enough that two selected frames stand side by side instead of through
@@ -18,12 +18,14 @@
 // in plain Node, where three does not resolve.
 export const LAYOUTS = [
     {
+        // Merged set: the old Divided Entrance (±15°) lives here now - one
+        // gentle gateway covers the 8-15° toe-in family.
         id: 'classic-symmetry',
         name: 'Classic Symmetry',
-        subtitle: 'Balanced & timeless composition',
+        subtitle: 'Balanced gateway & timeless composition',
         placements: [
-            { kind: 'frame', x: -15, z: 0, ry: -8 },
-            { kind: 'frame', x: 15, z: 0, ry: 8 }
+            { kind: 'frame', x: -15, z: 0, ry: -10 },
+            { kind: 'frame', x: 15, z: 0, ry: 10 }
         ]
     },
     {
@@ -33,15 +35,6 @@ export const LAYOUTS = [
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -40 },
             { kind: 'frame', x: 15, z: 0, ry: 40 }
-        ]
-    },
-    {
-        id: 'divided-entrance',
-        name: 'Divided Entrance',
-        subtitle: 'Two side frames, central opening',
-        placements: [
-            { kind: 'frame', x: -15, z: 0, ry: -15 },
-            { kind: 'frame', x: 15, z: 0, ry: 15 }
         ]
     },
     {

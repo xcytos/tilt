@@ -84,7 +84,7 @@ for (const entry of entries) {
       +c.position.x.toFixed(4), +c.position.z.toFixed(4)]));
     const b = JSON.stringify(models[0].object3D.children.map(c => [
       +c.position.x.toFixed(4), +c.position.z.toFixed(4)]));
-    return entry.id === 'o2tilt-classic' ? true : a !== b;
+    return entry.id === 'o2tilt' ? true : a !== b;
   })());
   models.forEach(m => m.dispose());
 }
@@ -96,7 +96,7 @@ for (const e of entries) {
   const def = await reg.load(e.id);
   states.push(JSON.stringify(def.objects[0].params));
 }
-check('all three presets differ', new Set(states).size === states.length, `${new Set(states).size}/${states.length}`);
+check('every preset differs', new Set(states).size === states.length, `${new Set(states).size}/${states.length}`);
 
 console.log('\n4. validation rejects bad definitions');
 const bad = [

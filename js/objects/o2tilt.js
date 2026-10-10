@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const MODEL_ID = 'o2tilt';
-export const MODEL_NAME = 'O2-TILT Frame';
+export const MODEL_NAME = 'S Curve';
 export const MODEL_SUBTITLE = 'Modular Control';
 
 const POLE_MAX_HEIGHT = 8.0;

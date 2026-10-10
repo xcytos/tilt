@@ -127,6 +127,9 @@ function cleanFramePillars(raw) {
 // where a three.js import would not resolve.
 const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
+// Documents from before the merge: Divided Entrance is Classic Symmetry now.
+const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 export function parseProject(raw) {
@@ -143,8 +146,9 @@ export function parseProject(raw) {
         activeId: typeof data.activeId === 'string' ? data.activeId : null,
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
-        layout: typeof data.layout === 'string' && LAYOUT_IDS.includes(data.layout)
-            ? data.layout : null,
+        layout: typeof data.layout === 'string'
+            && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
+            ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)

@@ -718,6 +718,10 @@ activeId = firstEntry.id;
 // they were left at, and where the camera was. Anything that is no longer in
 // the catalogue is dropped.
 const knownIds = new Set(registry.list.map(e => e.id));
+// Documents from before the merge: Classic and Slope both became S Curve.
+// The id stays `o2tilt` on disk; only the old names are remapped here.
+const LEGACY_MODEL_IDS = { 'o2tilt-classic': 'o2tilt', 'o2tilt-slope': 'o2tilt' };
+const remapId = id => LEGACY_MODEL_IDS[id] || id;
 let savedDoc = null;
 try {
     savedDoc = await loadProject();
@@ -748,9 +752,12 @@ if (savedDoc) {
     if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
         && !Array.isArray(savedDoc.pillars)) {
         for (const [id, v] of Object.entries(savedDoc.pillars)) {
-            if (!knownIds.has(id) || !v || typeof v !== 'object') continue;
+            const target = remapId(id);
+            if (!knownIds.has(target) || !v || typeof v !== 'object') continue;
+            // A merged pair of old presets keeps the choice that was active.
+            if (framePillars.has(target) && id !== savedDoc.activeId) continue;
             const count = Math.max(0, Math.min(2, Math.round(Number(v.count) || 0)));
-            framePillars.set(id, {
+            framePillars.set(target, {
                 count,
                 place: count === 1 ? 'centre'
                     : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer')
@@ -759,35 +766,46 @@ if (savedDoc) {
     } else if (Number.isFinite(savedDoc.pillars)) {
         // Documents from the global-pillar days: one pair beside the frame
         // that was active.
-        const target = savedDoc.activeId && knownIds.has(savedDoc.activeId)
-            ? savedDoc.activeId
+        const active = remapId(savedDoc.activeId);
+        const target = active && knownIds.has(active)
+            ? active
             : (registry.list[0] && registry.list[0].id);
         const count = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
         if (target && count) {
             framePillars.set(target, { count, place: count === 1 ? 'centre' : 'outer' });
         }
     }
-    for (const [k, v] of Object.entries(savedDoc.places || {})) {
-        if (k.startsWith(PILLAR_ID)) continue;
-        if (Array.isArray(v)) savedPlaces.set(k, v.map(p => Object.assign({}, p)));
+    // The active frame's own numbers win when two old presets merge into one.
+    const placeEntries = Object.entries(savedDoc.places || {})
+        .sort((a, b) => (b[0] === savedDoc.activeId) - (a[0] === savedDoc.activeId));
+    for (const [k, v] of placeEntries) {
+        const key = remapId(k);
+        if (k.startsWith(PILLAR_ID) || key.startsWith(PILLAR_ID)) continue;
+        if (savedPlaces.has(key)) continue;
+        if (Array.isArray(v)) savedPlaces.set(key, v.map(p => Object.assign({}, p)));
     }
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
-        if (knownIds.has(id)) savedPresets[id] = values;
+        const target = remapId(id);
+        if (!knownIds.has(target)) continue;
+        if (!savedPresets[target] || id === savedDoc.activeId) {
+            savedPresets[target] = values;
+        }
     }
 
-    const picked = (savedDoc.overlayIds.length ? savedDoc.overlayIds : savedDoc.mounted)
-        .filter(id => knownIds.has(id));
+    const picked = [...new Set((savedDoc.overlayIds.length
+        ? savedDoc.overlayIds : savedDoc.mounted)
+        .map(remapId).filter(id => knownIds.has(id)))];
     if (savedDoc.mode === 'overlay' && picked.length) {
         mode = 'overlay';
         overlayIds = picked;
-        activeId = savedDoc.activeId && knownIds.has(savedDoc.activeId)
-            ? savedDoc.activeId
-            : picked[0];
+        const active = remapId(savedDoc.activeId);
+        activeId = active && knownIds.has(active) ? active : picked[0];
     } else if (savedDoc.mounted.length || savedDoc.activeId) {
-        const wanted = savedDoc.activeId && knownIds.has(savedDoc.activeId)
-            ? savedDoc.activeId
-            : savedDoc.mounted.find(id => knownIds.has(id));
+        const active = remapId(savedDoc.activeId);
+        const wanted = active && knownIds.has(active)
+            ? active
+            : savedDoc.mounted.map(remapId).find(id => knownIds.has(id));
         if (wanted) {
             mode = 'single';
             activeId = wanted;

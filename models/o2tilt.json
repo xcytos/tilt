@@ -1,6 +1,6 @@
 {
-  "id": "o2tilt-classic",
-  "name": "O2-TILT Classic",
+  "id": "o2tilt",
+  "name": "S Curve",
   "environment": { "theme": "light" },
   "objects": [
     {
