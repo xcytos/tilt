@@ -597,7 +597,7 @@ check('pillars take free placement on top of their anchor', (() => {
 check('both placement blocks offer a reset', (() => {
   return (panel.match(/Reset placement/g) || []).length >= 2
     && /onPlaceChange && onPlaceChange\(key, idx, \{ x: 0, z: 0, ry: 0 \}\)/.test(panel)
-    && /offset: \{ x: 0, z: 0, ry: 0 \}\);/.test(panel);
+    && /offset: \{ x: 0, z: 0, ry: 0 \} \}\);/.test(panel);
 })());
 check("a pillar's look hides behind one gear inside Pillars",
   /function gearIcon\(/.test(panel) && /'Look'/.test(panel)
