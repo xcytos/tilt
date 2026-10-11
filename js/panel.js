@@ -358,6 +358,22 @@ export function createPanel(opts) {
             refs[prop] = { input: built.input };
             wrap.appendChild(built.wrap);
         }
+
+        // Back to the SET's own numbers: zero the free override, let the
+        // drawing speak again.
+        const reset = document.createElement('button');
+        reset.type = 'button';
+        reset.className = 'mt-0.5 w-full text-[11px] px-2 py-1 rounded border '
+            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
+        reset.textContent = 'Reset placement';
+        reset.title = 'Zero X / Depth / Turn - back to the SET drawing';
+        reset.addEventListener('click', () => {
+            onPlaceChange && onPlaceChange(key, idx, { x: 0, z: 0, ry: 0 });
+        });
+        live.buttons.push(reset);
+        wrap.appendChild(reset);
+
         const slot = placeRows.get(key + ':' + idx) || {};
         Object.assign(slot, refs);
         placeRows.set(key + ':' + idx, slot);
@@ -533,6 +549,22 @@ export function createPanel(opts) {
             live.selects.push(built.input);
             box.appendChild(built.wrap);
         }
+
+        // Back to the bare anchor: the pair stands where the place option
+        // puts it, no nudge.
+        const resetP = document.createElement('button');
+        resetP.type = 'button';
+        resetP.className = 'mt-0.5 w-full text-[11px] px-2 py-1 rounded border '
+            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
+        resetP.textContent = 'Reset placement';
+        resetP.title = 'Zero the X / Depth / Turn offset';
+        resetP.addEventListener('click', () => {
+            onFramePillarsChange && onFramePillarsChange(id,
+                { offset: { x: 0, z: 0, ry: 0 } });
+        });
+        live.buttons.push(resetP);
+        box.appendChild(resetP);
 
         wrap.appendChild(box);
         return wrap;
