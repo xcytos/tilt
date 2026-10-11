@@ -421,6 +421,17 @@ check('the catalog is the one S Curve - Arc is the Swing Pan slider now', (() =>
 check('old Classic, Slope and Arc documents remap onto S Curve',
   /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
   && /'o2tilt-arc': 'o2tilt'/.test(app));
+check('every SET keeps a front look - frame turns are mirrored pairs', (() => {
+  // A frame never turns its back on the audience: ry comes in +x/-x pairs.
+  return layouts.LAYOUTS.every(l => {
+    const f = l.placements.filter(p => p.kind === 'frame');
+    if (f.length % 2) return f.every(p => Math.abs(p.ry) < 1e-9);
+    for (let i = 0; i < f.length; i += 2) {
+      if (Math.abs(f[i].ry + f[i + 1].ry) > 1e-9) return false;
+    }
+    return true;
+  });
+})());
 check('every SET carries its own shape sliders, all five different', (() => {
   const keys = ['gap', 'pan', 'pitch', 'decline'];
   return layouts.LAYOUTS.length === 5

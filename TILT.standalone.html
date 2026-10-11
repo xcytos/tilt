@@ -945,18 +945,21 @@ const LAYOUTS = [
         subtitle: 'Front-back placement for dimension',
         params: { gap: 4, pan: 15, pitch: 0, decline: 25 },
         placements: [
-            { kind: 'frame', x: -15, z: -4, ry: -15 },
-            { kind: 'frame', x: 15, z: 5, ry: 10 }
+            { kind: 'frame', x: -15, z: -4, ry: -12 },
+            { kind: 'frame', x: 15, z: 5, ry: 12 }
         ]
     },
     {
         id: 'diagonal-flow',
         name: 'Diagonal Flow',
-        subtitle: 'Dynamic angled composition',
+        subtitle: 'Diagonal line, faces to the audience',
+        // The slant is in the DEPTH, not in a turn: one frame steps forward,
+        // the other back, and both stay mirrored to the audience like every
+        // other SET. (Both frames used to share +30 - a corridor, not a set.)
         params: { gap: 3, pan: 30, pitch: 12, decline: 0 },
         placements: [
-            { kind: 'frame', x: -15, z: -3, ry: 30 },
-            { kind: 'frame', x: 15, z: 3, ry: 30 }
+            { kind: 'frame', x: -15, z: 4, ry: -10 },
+            { kind: 'frame', x: 15, z: -4, ry: 10 }
         ]
     },
     {
