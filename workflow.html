@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>TILT Workflow - control map</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b1020">
+<script>
+    // Same theme key as home and editor, decided before first paint.
+    (function () {
+        var saved = null;
+        try { saved = localStorage.getItem('o2tilt-theme'); } catch (e) { /* private mode */ }
+        var dark = saved ? saved === 'dark'
+            : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+    })();
+</script>
+<style>
+    :root {
+        --bg: #f6f7f9; --card: #ffffff; --ink: #16181d; --muted: #5c6470;
+        --line: #e3e6eb; --accent: #0ea5e9; --gold: #b8912a; --code: #eef1f5;
+    }
+    html.dark {
+        --bg: #0b1020; --card: #121828; --ink: #e8eaf0; --muted: #97a0b0;
+        --line: #232b40; --accent: #38bdf8; --gold: #d4af37; --code: #0e1424;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font: 15px/1.55 Inter, system-ui, sans-serif;
+        padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    }
+    header {
+        position: sticky; top: 0; z-index: 5; backdrop-filter: blur(8px);
+        background: color-mix(in srgb, var(--bg) 86%, transparent);
+        border-bottom: 1px solid var(--line);
+        padding: 0.7rem 1rem; padding-top: calc(0.7rem + env(safe-area-inset-top));
+    }
+    .bar { max-width: 980px; margin: 0 auto; display: flex; align-items: center; gap: 0.75rem; }
+    .wordmark { font-weight: 800; letter-spacing: 0.06em; color: var(--ink); text-decoration: none; }
+    .wordmark span { color: var(--gold); }
+    .tag { font-size: 12px; color: var(--muted); }
+    main { max-width: 980px; margin: 0 auto; padding: 1.2rem 1rem 4rem; }
+    h1 { font-size: 1.35rem; margin: 0.4rem 0 0.2rem; }
+    h2 {
+        font-size: 1.05rem; margin: 2rem 0 0.6rem; padding-top: 1rem;
+        border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 0.95rem; margin: 0 0 0.4rem; }
+    p.lead { color: var(--muted); margin: 0.2rem 0 1rem; max-width: 62ch; }
+    .grid { display: grid; gap: 0.8rem; grid-template-columns: 1fr; }
+    @media (min-width: 860px) { .grid.two { grid-template-columns: 1fr 1fr; } }
+    .card {
+        background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+        padding: 0.9rem 1rem;
+    }
+    .card h3 { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+    .card dl { margin: 0.4rem 0 0; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.7rem; }
+    .card dt {
+        font-size: 11px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.06em; color: var(--muted); padding-top: 0.15rem; white-space: nowrap;
+    }
+    .card dd { margin: 0; font-size: 13.5px; }
+    code, .mono {
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--code); border-radius: 4px; padding: 0.08em 0.35em;
+    }
+    .pill {
+        display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px;
+        padding: 0.1em 0.55em; border: 1px solid var(--line); color: var(--muted);
+    }
+    .pill.doc { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+    table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+    th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .flow {
+        background: var(--code); border-radius: 10px; padding: 0.8rem 1rem;
+        font: 12.5px/1.7 ui-monospace, Menlo, monospace; overflow-x: auto; white-space: pre;
+    }
+    ol.principles { padding-left: 1.2rem; margin: 0.4rem 0 0; }
+    ol.principles li { margin: 0.35rem 0; }
+    a { color: var(--accent); }
+    footer { color: var(--muted); font-size: 12.5rem; margin-top: 3rem; }
+    footer { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+    <div class="bar">
+        <a class="wordmark" href="./">TILT<span>.</span></a>
+        <span class="tag">Workflow &mdash; control map, derived from the code</span>
+        <a href="./" style="margin-left:auto;font-size:13px;">Home</a>
+    </div>
+</header>
+<main>
+
+<h1>How every control connects</h1>
+<p class="lead">
+    One page per control group: what the buttons and sliders do, which function
+    they call, what they write into the project document, and how they relate to
+    the rest of the app. Cite these names in prompts (&ldquo;change how
+    <code>setLayout</code> clears places&rdquo;) and we talk about the same line.
+</p>
+
+<h2>1. Principles the whole app obeys</h2>
+<div class="card">
+    <ol class="principles">
+        <li><strong>One document, one scene.</strong> Everything you see is rebuilt from a single JSON document. <code>buildDoc()</code> in <code>js/app.js</code> is the only writer; <code>parseProject()</code> in <code>js/project.js</code> is the only reader/validator.</li>
+        <li><strong>One reconciler.</strong> <code>syncScene()</code> is the only path that mounts models, converts the SET, spaces the stage and repaints the panel. Buttons never patch the stage directly &mdash; they change state, then ask for a sync or a rebuild.</li>
+        <li><strong>One writer of coordinates.</strong> <code>applyPlaces()</code> writes every frame&rsquo;s position. Pillars have no free coordinates: <code>frameAnchorOf()</code> + <code>derivePillarPlace()</code> put them on their frame&rsquo;s anchor, so a pillar can never disagree with its frame.</li>
+        <li><strong>Pure data at the bottom.</strong> <code>layouts.js</code>, <code>colorways.js</code>, <code>recipes.js</code>, <code>version.js</code> import nothing (no three.js), so the project parser runs in plain Node and the tests can too.</li>
+        <li><strong>Presets are per thing.</strong> Slider values live per model id (<code>presets</code>), per SET shape (<code>setPresets</code>), per frame&rsquo;s pillars (<code>framePillars</code>), per frame placement (<code>places</code>). Nothing global hides inside a per-object control.</li>
+        <li><strong>Colour has precedence.</strong> The RGB dial (<code>fabricColor</code>) beats the palette chip (<code>colorway</code>). Theme resets the fabric; <code>applyColorway()</code> runs after <code>applyPrimaryTheme()</code> so colour always wins.</li>
+        <li><strong>Old files keep working.</strong> Legacy ids remap on load (<code>LEGACY_MODEL_IDS</code>, <code>LEGACY_LAYOUT</code>); junk falls back to defaults instead of erroring.</li>
+    </ol>
+</div>
+
+<h2>2. Control groups (panel order)</h2>
+
+<div class="grid two">
+
+<div class="card">
+    <h3>Mode row <span class="pill">Single / Overlay</span></h3>
+    <dl>
+        <dt>Does</dt><dd>Single = one frame on stage. Overlay = several mounted at once, each toggleable in the list.</dd>
+        <dt>Code</dt><dd><code>setMode(next)</code> &rarr; <code>syncScene()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">mode</span> <span class="pill doc">mounted</span> <span class="pill doc">overlayIds</span></dd>
+        <dt>Relates</dt><dd>Catalog toggles only appear in Overlay. Both modes share the same SET, scene and colour state.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Catalog select / frame list</h3>
+    <dl>
+        <dt>Does</dt><dd>Picks the active frame (<code>activeId</code>); in Overlay, the eye icon mounts/unmounts others.</dd>
+        <dt>Code</dt><dd><code>activate(id)</code>, <code>toggleOverlay(id, on)</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">activeId</span> <span class="pill doc">mounted</span> <span class="pill doc">overlayIds</span></dd>
+        <dt>Relates</dt><dd>Legacy ids (<code>o2tilt-classic</code>, <code>o2tilt-slope</code>, <code>o2tilt-arc</code>) remap to <code>o2tilt</code> at boot. One catalog entry remains: <strong>S Curve</strong>.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Four sliders <span class="pill">Center Gap &middot; Swing Pan &middot; Pitch &middot; Decline</span></h3>
+    <dl>
+        <dt>Does</dt><dd>The S Curve&rsquo;s whole shape: gap width, arc swing, rail tilt, slope. Arc and Slope are <em>dials now, not objects</em>.</dd>
+        <dt>Code</dt><dd><code>onParamsChange(partial, targets)</code> &rarr; <code>m.setParams()</code> + <code>scheduleRebuild()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">presets[id]</span> and, while a SET is active, <span class="pill doc">setPresets[setId]</span></dd>
+        <dt>Relates</dt><dd>Same-id instances share one control row. With a SET active, the four numbers are saved onto that SET &mdash; switch away and back and they return. Clamped to the schema ranges in <code>PARAMS</code>.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Curtains toggle + fabric colour</h3>
+    <dl>
+        <dt>Does</dt><dd>Shows/hides the drapes; under it: five board palettes, the RGB dial (0&ndash;255 &times;3), and <strong>Add colour</strong>.</dd>
+        <dt>Code</dt><dd>toggle &rarr; params path; chips &rarr; <code>setColorway(id)</code>; dial &rarr; <code>setFabricColor(hex)</code>; button &rarr; <code>addFabricColor()</code>; all repaint via <code>applyColorway()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">colorway</span> <span class="pill doc">fabricColor</span> <span class="pill doc">extraColors</span></dd>
+        <dt>Relates</dt><dd><code>fabricColor</code> (dial) overrides the palette; a palette tap or a Look clears it. Add colour <em>appends</em> a swatch (max 12) &mdash; the five boards are never edited. Colour re-applies after every theme change.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Looks row <span class="pill">5 recipes</span></h3>
+    <dl>
+        <dt>Does</dt><dd>One tap: SET + room + palette together. The chip matching the current three fields lights up.</dd>
+        <dt>Code</dt><dd><code>setRecipe(id)</code> &rarr; one <code>syncScene()</code></dd>
+        <dt>Doc</dt><dd>writes <span class="pill doc">layout</span> <span class="pill doc">scene</span> <span class="pill doc">colorway</span>; clears <span class="pill doc">fabricColor</span></dd>
+        <dt>Relates</dt><dd>A Look is never stored of its own &mdash; remembered through the three fields. Editing any one of them un-lights the chip (<code>recipeState()</code>).</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>SET row <span class="pill">5 sets</span></h3>
+    <dl>
+        <dt>Does</dt><dd>Picks the composition: placement drawing <em>plus</em> that SET&rsquo;s own four shape sliders.</dd>
+        <dt>Code</dt><dd><code>setLayout(id)</code> &rarr; clears frame places &rarr; <code>syncScene()</code> &rarr; <code>applySetParams(id)</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">layout</span> <span class="pill doc">setPresets</span>; frame <span class="pill doc">places</span> are re-derived from the drawing</dd>
+        <dt>Relates</dt><dd>Conversion happens <em>before</em> spacing (sliders land, then <code>applyPlaces()</code>). Saved <code>setPresets[id]</code> beats the drawing&rsquo;s defaults. Pillars keep their per-frame settings and re-anchor. Old <code>divided-entrance</code> lands on Classic Symmetry.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Scene row</h3>
+    <dl>
+        <dt>Does</dt><dd>The room around the set (Studio, White Room, Ballroom, Garden, Terrace).</dd>
+        <dt>Code</dt><dd><code>setScene(id)</code> &rarr; <code>viewer.setScene()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">scene</span></dd>
+        <dt>Relates</dt><dd>A scene swap never moves a frame &mdash; only the world. Scene + colour + SET is exactly what a Look bundles.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Position block <span class="pill">per frame</span></h3>
+    <dl>
+        <dt>Does</dt><dd>X / Depth / Turn numbers for this one frame instance (no dragging).</dd>
+        <dt>Code</dt><dd><code>setPlace(key, index, patch)</code> &rarr; <code>savedPlaces</code> &rarr; <code>applyPlaces()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">places</span></dd>
+        <dt>Relates</dt><dd>Free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillar keys are refused here &mdash; pillars follow frames.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Pillar settings <span class="pill">gear &middot; per frame</span></h3>
+    <dl>
+        <dt>Does</dt><dd>0&ndash;2 pillars beside this frame, anchored Centre / Inner ends / Outer ends.</dd>
+        <dt>Code</dt><dd><code>setFramePillars(id, patch)</code> &rarr; <code>syncPillarsFor()</code> rebuilds <code>pillar:&lt;frameId&gt;</code> instances</dd>
+        <dt>Doc</dt><dd><span class="pill doc">framePillars</span></dd>
+        <dt>Relates</dt><dd>Inner ends put the complete pair at the gap-side stand (x &plusmn;1.5 at gap 3) even while the frame pans. Overlay rows re-capture pillar places between the two <code>applyPlaces()</code> passes so pillars travel with frames.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Advanced (gear) &amp; theme</h3>
+    <dl>
+        <dt>Does</dt><dd>Pole walls, sleeve height (frame); light/dark room (footer toggle).</dd>
+        <dt>Code</dt><dd>params path; <code>onThemeChange</code> &rarr; <code>viewer.setTheme()</code></dd>
+        <dt>Doc</dt><dd><span class="pill doc">presets</span> <span class="pill doc">view.theme</span></dd>
+        <dt>Relates</dt><dd>Theme sets a default fabric; your colour re-applies right after (<code>applyColorway</code> post-theme), so a palette or dial choice survives dark mode.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Reset project &amp; version</h3>
+    <dl>
+        <dt>Does</dt><dd>Reset empties the session (places, pillars, presets, SET states, swatches) but keeps the project shell. Footer stamp reads <code>js/version.js</code>.</dd>
+        <dt>Code</dt><dd><code>resetProject()</code>; same string printed by <code>tools/serve.mjs</code> at start-up</dd>
+        <dt>Doc</dt><dd>clears the fields above; keeps <span class="pill doc">name</span></dd>
+        <dt>Relates</dt><dd><code>bash serve.sh backup</code> snapshots the database regardless of what the panel holds.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Homepage (index.html)</h3>
+    <dl>
+        <dt>Does</dt><dd>Project list (name, updated, sort), create, duplicate, rename, import JSON, delete. Cards open the editor with <code>?p=&lt;id&gt;</code>.</dd>
+        <dt>Code</dt><dd><code>home/home.js</code> (classic script) &rarr; <code>/api/projects</code></dd>
+        <dt>Doc</dt><dd>one SQLite row per project (<code>tools/store.mjs</code>)</dd>
+        <dt>Relates</dt><dd>Without <code>?p=</code> the editor falls back to the local session file &mdash; same document shape, no server.</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h3>Server, PWA, standalone</h3>
+    <dl>
+        <dt>Does</dt><dd><code>serve.sh start|stop|restart|status|logs|backup</code>; installable app (manifest + worker + Install button); one-file <code>TILT.standalone.html</code> for <code>file://</code>.</dd>
+        <dt>Code</dt><dd><code>tools/serve.mjs</code>, <code>tools/api.mjs</code>, <code>sw.js</code></dd>
+        <dt>Doc</dt><dd>SQLite in <code>data/</code> (never served, never cached)</dd>
+        <dt>Relates</dt><dd>The worker caches assets only &mdash; <code>/api/</code> and <code>project.json</code> always hit the server, so offline never serves stale projects.</dd>
+    </dl>
+</div>
+
+</div>
+
+<h2>3. The one loop: what a click actually runs</h2>
+<div class="flow">panel event (guard: ignored while busy)
+  &rarr; app.js setter            e.g. setLayout / setColorway / setPlace
+  &rarr; state fields updated     layoutId, colorwayId, fabricColor, savedPlaces...
+  &rarr; scheduleSave()           debounce &rarr; buildDoc() &rarr; API &rarr; SQLite
+  &rarr; syncScene() or scheduleRebuild()
+       1  syncPresets()          mount/unmount models, applySaved(presets[id])
+       2  applySetParams()       SET shape (setPresets[id] &gt; drawing defaults)
+       3  defaultPlaces()        SET drawing fills gaps; savedPlaces win
+       4  applyPlaces()          ONE writer of frame coordinates
+       5  refreshPillarPlaces()  pillars re-derive from frame anchors
+       6  applyPlaces()          again, so pillars and frames land together
+       7  frameScene()           camera framing
+       8  applyPrimaryTheme() then applyColorway()    colour beats theme
+       9  panel.refresh(...)     force when the SET converted the sliders</div>
+
+<h2>4. Who wins when two controls disagree</h2>
+<div class="card" style="padding:0.4rem 0;">
+<table>
+    <thead><tr><th>Contest</th><th>Winner</th><th>Why (code)</th></tr></thead>
+    <tbody>
+        <tr><td>RGB dial vs palette chip</td><td><code>fabricColor</code></td><td><code>fabricHex()</code> returns the dial first; chip tap clears the dial</td></tr>
+        <tr><td>Your colour vs theme</td><td>Your colour</td><td><code>applyColorway()</code> runs after <code>applyPrimaryTheme()</code> every sync</td></tr>
+        <tr><td>SET switch: saved numbers vs drawing defaults</td><td><code>setPresets[id]</code></td><td><code>applySetParams()</code> reads saved state first, drawing second</td></tr>
+        <tr><td>SET switch vs free position numbers</td><td>The SET</td><td><code>setLayout()</code> deletes frame <code>places</code>; the drawing re-derives them</td></tr>
+        <tr><td>Pillar settings vs frame position</td><td>The frame</td><td>pillars have no coordinates of their own &mdash; anchors only</td></tr>
+        <tr><td>Look tap vs individual rows</td><td>The Look</td><td><code>setRecipe()</code> writes scene + colour + SET in one sync, clears the dial</td></tr>
+        <tr><td>Saved document vs defaults</td><td>The document</td><td><code>parseProject()</code> validates; only junk falls back</td></tr>
+        <tr><td>Old ids (classic/slope/arc/divided)</td><td>The merge</td><td><code>LEGACY_MODEL_IDS</code> / <code>LEGACY_LAYOUT</code> remap at boot</td></tr>
+    </tbody>
+</table>
+</div>
+
+<h2>5. Document shape (what Save writes)</h2>
+<div class="card" style="padding:0.4rem 0;">
+<table>
+    <thead><tr><th>Field</th><th>Means</th><th>Written by</th></tr></thead>
+    <tbody>
+        <tr><td><code>mode</code>, <code>activeId</code>, <code>mounted</code>, <code>overlayIds</code></td><td>which frames stand</td><td>mode row, catalog</td></tr>
+        <tr><td><code>layout</code></td><td>active SET (or null = free)</td><td>SET row, Looks</td></tr>
+        <tr><td><code>setPresets</code></td><td>the four shape sliders, per SET</td><td>sliders while a SET is active</td></tr>
+        <tr><td><code>presets</code></td><td>all slider values, per model id</td><td>any params change</td></tr>
+        <tr><td><code>framePillars</code></td><td>count + place per frame</td><td>pillar gear</td></tr>
+        <tr><td><code>places</code></td><td>X/Depth/Turn per frame</td><td>position blocks, SET drawings</td></tr>
+        <tr><td><code>scene</code></td><td>the room</td><td>scene row, Looks</td></tr>
+        <tr><td><code>colorway</code>, <code>fabricColor</code>, <code>extraColors</code></td><td>palette, dial override, saved swatches</td><td>chips, dial, Add colour</td></tr>
+        <tr><td><code>view</code></td><td>camera + theme</td><td>every sync (live camera)</td></tr>
+    </tbody>
+</table>
+</div>
+
+<h2>6. Using this page in prompts</h2>
+<div class="card">
+    <p style="margin-top:0;">
+        Name the control and, when you can, the code face of it &mdash; then the change is unambiguous:
+    </p>
+    <ul style="margin:0.4rem 0 0;padding-left:1.2rem;">
+        <li>&ldquo;In <code>applySetParams</code>, also carry fabric advanced settings&hellip;&rdquo;</li>
+        <li>&ldquo;The SET row should preview the drawing before committing &mdash; touch <code>setLayout</code>.&rdquo;</li>
+        <li>&ldquo;Add colour should ask for a name &mdash; panel <code>fabricBlock</code> + <code>addFabricColor</code>.&rdquo;</li>
+        <li>&ldquo;Pillars should follow <code>frameAnchorOf</code> even in All-at-once.&rdquo; (they already do &mdash; cite it and I&rsquo;ll check that path)</li>
+    </ul>
+    <p style="margin-bottom:0;">
+        Anything in <span class="pill doc">doc pills</span> is persistent state; anything named with <code>()</code> is a function you can point at. If a control is not on this page, it does not exist in the code yet &mdash; that is a feature request, and a good prompt.
+    </p>
+</div>
+
+<footer>
+    Derived from the code as of <span class="mono">js/version.js</span> v0.5.0 &mdash;
+    commits <span class="mono">dc9c948</span>&hellip;<span class="mono">d287389</span>.
+    Source of truth: <span class="mono">js/app.js</span>, <span class="mono">js/panel.js</span>,
+    <span class="mono">js/project.js</span>.
+</footer>
+
+</main>
+<script>
+    // Live reload, same contract as the other pages - only over http.
+    (function () {
+        if (!/^https?:$/.test(location.protocol)) return;
+        try {
+            var es = new EventSource('/__events');
+            es.onmessage = function (e) {
+                if (e.data === 'reload') location.reload();
+            };
+            es.onerror = function () { if (es.readyState === 2) es.close(); };
+        } catch (e) { /* served by something else - no reload */ }
+    })();
+</script>
+</body>
+</html>

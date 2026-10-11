@@ -115,6 +115,18 @@ check('the grid reflows from one column upwards', /minmax\(152px, 1fr\)/.test(ho
 check('the action sheet rises from the bottom', /slide-up/.test(homeCss));
 
 // --------------------------------------------------------------- 5. editor
+console.log('\nworkflow: the control map page');
+check('workflow.html exists and names the real code faces', (() => {
+  const wf = read('workflow.html');
+  return fs.existsSync(path.join(DECOR, 'workflow.html'))
+    && /applySetParams/.test(wf) && /applyPlaces/.test(wf)
+    && /setPresets/.test(wf) && /fabricColor/.test(wf)
+    && /syncScene/.test(wf) && /extraColors/.test(wf)
+    && /href=".\/"/.test(wf);
+})());
+check('the homepage links the workflow page, the server watches it',
+  /workflow\.html/.test(html) && /'workflow\.html'/.test(serveSrc));
+
 console.log('\nlaunch: version stamp and database backup');
 check('serve.sh offers a backup beside start/stop/status/logs', (() => {
   const sh = read('serve.sh');
