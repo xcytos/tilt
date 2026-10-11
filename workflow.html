@@ -111,7 +111,7 @@
         <li><strong>One writer of coordinates.</strong> <code>applyPlaces()</code> writes every frame&rsquo;s position. Pillars have no free coordinates: <code>frameAnchorOf()</code> + <code>derivePillarPlace()</code> put them on their frame&rsquo;s anchor, so a pillar can never disagree with its frame.</li>
         <li><strong>Pure data at the bottom.</strong> <code>layouts.js</code>, <code>colorways.js</code>, <code>recipes.js</code>, <code>version.js</code> import nothing (no three.js), so the project parser runs in plain Node and the tests can too.</li>
         <li><strong>Presets are per thing.</strong> Slider values live per model id (<code>presets</code>), per SET shape (<code>setPresets</code>), per frame&rsquo;s pillars (<code>framePillars</code>), per frame placement (<code>places</code>). Nothing global hides inside a per-object control.</li>
-        <li><strong>Colour has precedence.</strong> The RGB dial (<code>fabricColor</code>) beats the palette chip (<code>colorway</code>). Theme resets the fabric; <code>applyColorway()</code> runs after <code>applyPrimaryTheme()</code> so colour always wins.</li>
+        <li><strong>Colour has precedence.</strong> The colour pad (<code>fabricColor</code>) beats the palette chip (<code>colorway</code>). Theme resets the fabric; <code>applyColorway()</code> runs after <code>applyPrimaryTheme()</code> so colour always wins.</li>
         <li><strong>Old files keep working.</strong> Legacy ids remap on load (<code>LEGACY_MODEL_IDS</code>, <code>LEGACY_LAYOUT</code>); junk falls back to defaults instead of erroring.</li>
     </ol>
 </div>
@@ -143,20 +143,20 @@
 <div class="card">
     <h3>S Curve group <span class="pill">open &middot; Center Gap &middot; Swing Pan &middot; Pitch &middot; Decline</span></h3>
     <dl>
-        <dt>Does</dt><dd>The S Curve&rsquo;s whole shape - its own group, open by default, separate from free Placement and from Pillars: gap width, arc swing, rail tilt, slope. Arc and Slope are <em>dials now, not objects</em>.</dd>
+        <dt>Does</dt><dd>The S Curve&rsquo;s whole shape - open by default, compact mobile sliders - plus the placement sliders (X / Depth / Turn) under a Placement sub-label. Arc and Slope are <em>dials now, not objects</em>.</dd>
         <dt>Code</dt><dd><code>onParamsChange(partial, targets)</code> &rarr; <code>m.setParams()</code> + <code>scheduleRebuild()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">presets[id]</span> and, while a SET is active, <span class="pill doc">setPresets[setId]</span></dd>
-        <dt>Relates</dt><dd>Same-id instances share one control row. With a SET active, the four numbers are saved onto that SET &mdash; switch away and back and they return. Clamped to the schema ranges in <code>PARAMS</code>. The S Curve group sits above Placement and Pillars; all three are one-frame subjects kept apart.</dd>
+        <dt>Relates</dt><dd>Same-id instances share one control row. With a SET active, the four numbers are saved onto that SET &mdash; switch away and back and they return. Clamped to the schema ranges in <code>PARAMS</code>. Pillars stay a separate group below.</dd>
     </dl>
 </div>
 
 <div class="card">
     <h3>Curtains toggle + fabric colour</h3>
     <dl>
-        <dt>Does</dt><dd>Shows/hides the drapes; under it: five board palettes, the folded <strong>Custom colour (RGB)</strong> fold, and <strong>Add colour</strong>. The RGB sliders stay hidden until Add colour opens the fold; <strong>Save swatch</strong> inside keeps the dialled colour.</dd>
+        <dt>Does</dt><dd>Shows/hides the drapes; under it: five board palettes, the folded <strong>Custom colour</strong> fold, and <strong>Add colour</strong>. Inside: the native colour pad (a real wheel on the phone) + hex readout; the fold stays shut until Add colour opens it; <strong>Save swatch</strong> keeps the dialled colour.</dd>
         <dt>Code</dt><dd>toggle &rarr; params path; chips &rarr; <code>setColorway(id)</code>; dial &rarr; <code>setFabricColor(hex)</code>; button &rarr; <code>addFabricColor()</code>; all repaint via <code>applyColorway()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">colorway</span> <span class="pill doc">fabricColor</span> <span class="pill doc">extraColors</span></dd>
-        <dt>Relates</dt><dd><code>fabricColor</code> (dial) overrides the palette; a palette tap or a Look clears it. Add colour opens the fold, Save swatch <em>appends</em> (max 12) &mdash; the five boards are never edited. Colour re-applies after every theme change. <code>applyLive</code> still drives the dial whether the fold is open or shut.</dd>
+        <dt>Relates</dt><dd><code>fabricColor</code> (pad) overrides the palette; a palette tap or a Look clears it. Add colour opens the fold, Save swatch <em>appends</em> (max 12) &mdash; the five boards are never edited. Colour re-applies after every theme change. <code>applyLive</code> still drives the pad whether the fold is open or shut.</dd>
     </dl>
 </div>
 
@@ -171,12 +171,12 @@
 </div>
 
 <div class="card">
-    <h3>Placement group <span class="pill">per frame</span></h3>
+    <h3>Placement sliders <span class="pill">inside S Curve</span></h3>
     <dl>
         <dt>Does</dt><dd>X / Depth / Turn numbers for this one frame instance (no dragging).</dd>
         <dt>Code</dt><dd><code>setPlace(key, index, patch)</code> &rarr; <code>savedPlaces</code> &rarr; <code>applyPlaces()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">places</span></dd>
-        <dt>Relates</dt><dd>Position holds only this frame&rsquo;s numbers; free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillars are their own group below &mdash; one subject, one box each.</dd>
+        <dt>Relates</dt><dd>Overrides the SET&rsquo;s drawing; switching SET clears them (frames only). Pillars are their own group below &mdash; one subject, one box each.</dd>
     </dl>
 </div>
 
@@ -253,7 +253,7 @@
 <table>
     <thead><tr><th>Contest</th><th>Winner</th><th>Why (code)</th></tr></thead>
     <tbody>
-        <tr><td>RGB dial vs palette chip</td><td><code>fabricColor</code></td><td><code>fabricHex()</code> returns the dial first; chip tap clears the dial</td></tr>
+        <tr><td>Colour pad vs palette chip</td><td><code>fabricColor</code></td><td><code>fabricHex()</code> returns the pad first; chip tap clears it</td></tr>
         <tr><td>Your colour vs theme</td><td>Your colour</td><td><code>applyColorway()</code> runs after <code>applyPrimaryTheme()</code> every sync</td></tr>
         <tr><td>SET switch: saved numbers vs drawing defaults</td><td><code>setPresets[id]</code></td><td><code>applySetParams()</code> reads saved state first, drawing second</td></tr>
         <tr><td>SET switch vs free position numbers</td><td>The SET</td><td><code>setLayout()</code> deletes frame <code>places</code>; the drawing re-derives them</td></tr>

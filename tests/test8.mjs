@@ -525,7 +525,7 @@ check('Add colour appends a swatch and never edits the boards', (() => {
 check('the RGB dial lives under Curtains, not in its own row', (() => {
   const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
   return /schema\.params\.fabric/.test(p) && /function fabricBlock\(/.test(p)
-    && /onRgbChange/.test(p) && /input\.setAttribute\('aria-label', 'Curtain /.test(p)
+    && /onRgbChange/.test(p) && /\.setAttribute\('aria-label', 'Curtain colour dial'\)/.test(p)
     && !/host\.appendChild\(colorwayBlock\(\)\)/.test(p);
 })());
 check('a custom colour reaches the stage, and a Look or chip clears it',

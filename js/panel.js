@@ -12,11 +12,13 @@ const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1
 const fmt = (value, unit) =>
     (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
 
-function blockShell(key, label) {
+function blockShell(key, label, compact) {
     const wrap = document.createElement('div');
-    wrap.className = 'mb-3';
+    wrap.className = compact ? 'mb-1.5' : 'mb-3';
     const head = document.createElement('div');
-    head.className = 'flex justify-between text-xs mb-1';
+    head.className = compact
+        ? 'flex justify-between text-[11px] mb-0.5'
+        : 'flex justify-between text-xs mb-1';
     const labelEl = document.createElement('label');
     labelEl.className = LABEL_CLS;
     labelEl.textContent = label;
@@ -29,8 +31,8 @@ function blockShell(key, label) {
     return { wrap, value };
 }
 
-function rangeBlock(key, p, current) {
-    const { wrap, value } = blockShell(key, p.label);
+function rangeBlock(key, p, current, compact) {
+    const { wrap, value } = blockShell(key, p.label, compact);
     const input = document.createElement('input');
     input.type = 'range';
     input.id = `param-${key}`;
@@ -38,9 +40,37 @@ function rangeBlock(key, p, current) {
     input.max = p.max;
     input.step = p.step;
     input.value = current;
+    input.className = 'w-full h-5 accent-sky-500 cursor-pointer touch-none';
     value.textContent = fmt(current, p.unit);
     wrap.appendChild(input);
     return { wrap, input, value };
+}
+
+// One placement slider: X, Depth or Turn as a full-width track - modern,
+// thumb-sized, and it updates the stage while the finger moves.
+function placeRangeBlock(key, label, prop, value, min, max, step, unit) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-1.5';
+    const head = document.createElement('div');
+    head.className = 'flex justify-between text-[11px] mb-0.5';
+    const labelEl = document.createElement('label');
+    labelEl.className = LABEL_CLS + ' text-[11px]';
+    labelEl.textContent = label;
+    labelEl.htmlFor = `param-${key}`;
+    const val = document.createElement('span');
+    val.className = VALUE_CLS + ' text-[11px]';
+    val.textContent = fmt(value, unit);
+    head.append(labelEl, val);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `param-${key}`;
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(Math.round(value * 100) / 100);
+    input.className = 'w-full h-5 accent-sky-500 cursor-pointer touch-none';
+    wrap.append(head, input);
+    return { wrap, input, value: val };
 }
 
 function toggleBlock(key, p, current) {
@@ -230,9 +260,9 @@ export function createPanel(opts) {
             }
         }
 
-        // The SET's four sliders are one subject - the S Curve - open by
-        // default because they are what the hand reaches for first. Free
-        // position (Placement) and pillars stay separate groups below.
+        // The S Curve is one open group: the four shape sliders plus where
+        // this frame stands (X / Depth / Turn as tracks). Open by default -
+        // it is what the hand reaches for first. Pillars stay below.
         if (shapeRanges.length) {
             const details = document.createElement('details');
             details.open = true;
@@ -243,8 +273,10 @@ export function createPanel(opts) {
                 + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
             summary.textContent = 'S Curve';
             const bodyEl = document.createElement('div');
-            bodyEl.className = 'px-2 pb-2 space-y-1';
+            bodyEl.className = 'px-2 pb-2';
             for (const [k, p] of shapeRanges) bodyEl.appendChild(addRange(k, p));
+            const place = (currentPlaces[key] || [])[idx];
+            if (place) bodyEl.appendChild(positionBlock(key, idx, place));
             details.append(summary, bodyEl);
             inner.appendChild(details);
         }
@@ -284,21 +316,6 @@ export function createPanel(opts) {
             inner.appendChild(details);
         }
 
-        // Position: where THIS frame instance stands - numbers, not dragging.
-        const placement = document.createElement('details');
-        placement.className = 'mt-3 rounded-md border border-dashed '
-            + 'border-gray-300 dark:border-zinc-600';
-        const psum = document.createElement('summary');
-        psum.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-            + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-        psum.textContent = 'Placement';
-        const pbody = document.createElement('div');
-        pbody.className = 'px-2 pb-2';
-        const place = (currentPlaces[key] || [])[idx];
-        if (place) pbody.appendChild(positionBlock(key, idx, place));
-        placement.append(psum, pbody);
-        inner.appendChild(placement);
-
         // Pillars: one group per frame, gone until the frame has some.
         // Count, place and the pillar's look all live here - the pillar's
         // own accordion section no longer exists.
@@ -309,50 +326,41 @@ export function createPanel(opts) {
         return root;
     }
 
-    // One frame instance's coordinates: numbers, not dragging.
+    // Where this frame stands, as sliders: X, Depth and Turn on full-width
+    // tracks inside the S Curve group - no bare number boxes. The stage
+    // follows the thumb; applyLive parks it when a finger is on the track.
     function positionBlock(key, idx, place) {
         const wrap = document.createElement('div');
-        wrap.className = 'mb-2';
+        wrap.className = 'mt-1.5 pt-1.5 border-t border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
 
         const title = document.createElement('div');
-        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
-            + 'text-gray-500 dark:text-zinc-400 mb-1';
-        title.textContent = 'Position';
+        title.className = 'text-[10px] font-bold uppercase tracking-wider '
+            + 'text-gray-400 dark:text-zinc-500 mb-1';
+        title.textContent = 'Placement';
         wrap.appendChild(title);
 
-        const row = document.createElement('div');
-        row.className = 'grid grid-cols-3 gap-2';
         const refs = {};
-        for (const [label, prop, step] of [
-            ['X', 'x', 0.5], ['Depth', 'z', 0.5], ['Turn', 'ry', 1]
+        for (const [label, prop, min, max, step, unit] of [
+            ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Depth', 'z', -40, 40, 0.5, ' ft'],
+            ['Turn', 'ry', -90, 90, 1, '°']
         ]) {
-            const cell = document.createElement('label');
-            cell.className = 'block text-[11px] text-gray-500 dark:text-zinc-400';
-            cell.textContent = label;
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.step = String(step);
-            input.value = String(Math.round(place[prop] * 100) / 100);
-            input.className = 'w-full mt-0.5 text-sm px-1.5 py-1 rounded-md border '
-                + 'border-gray-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 '
-                + 'text-gray-800 dark:text-zinc-100 tabular-nums';
-            input.addEventListener('change', e => {
+            const built = placeRangeBlock(`${key}-pos-${prop}`, label, prop,
+                place[prop], min, max, step, unit);
+            built.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
-                if (!Number.isFinite(v)) {
-                    e.target.value = String(Math.round(place[prop] * 100) / 100);
-                    return;
-                }
+                if (!Number.isFinite(v)) return;
+                built.value.textContent = fmt(v, unit);
                 onPlaceChange && onPlaceChange(key, idx, { [prop]: v });
             });
-            cell.appendChild(input);
-            row.appendChild(cell);
-            live.selects.push(input);
-            refs[prop] = { input };
+            live.selects.push(built.input);
+            refs[prop] = { input: built.input };
+            wrap.appendChild(built.wrap);
         }
         const slot = placeRows.get(key + ':' + idx) || {};
         Object.assign(slot, refs);
         placeRows.set(key + ':' + idx, slot);
-        wrap.appendChild(row);
         return wrap;
     }
 
@@ -684,59 +692,39 @@ export function createPanel(opts) {
             + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
         rgbSum.textContent = 'Custom colour (RGB)';
         const rgb = document.createElement('div');
-        rgb.className = 'space-y-1 px-2 pb-2';
+        rgb.className = 'px-2 pb-2';
         const head = document.createElement('div');
-        head.className = 'flex items-center gap-2 mb-1';
-        const swatch = document.createElement('span');
-        swatch.className = 'w-4 h-4 rounded-full border border-black/10 shrink-0';
-        swatch.style.background = hexText(eff);
+        head.className = 'flex items-center gap-3 mb-2';
+
+        // The native colour pad: a real wheel on every phone, no three
+        // fiddly channel sliders to fight with. The hex label keeps the
+        // exact value readable; the fold still holds Save swatch.
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = hexText(eff);
+        colorInput.className = 'w-14 h-14 rounded-xl border border-gray-300 '
+            + 'dark:border-zinc-600 cursor-pointer bg-transparent p-0 shrink-0';
+        colorInput.setAttribute('aria-label', 'Curtain colour dial');
+        colorInput.addEventListener('input', e => {
+            const hex = parseInt(String(e.target.value).replace('#', ''), 16);
+            hexLabel.textContent = hexText(hex) + ' custom';
+            onRgbChange && onRgbChange(hex);
+        });
+        if (live.inputs) live.inputs.push(colorInput);
+
         const hexLabel = document.createElement('span');
         hexLabel.className = 'text-[11px] font-mono text-gray-500 dark:text-zinc-400';
         hexLabel.textContent = hexText(eff) + ' custom';
-        head.append(swatch, hexLabel);
+        head.append(colorInput, hexLabel);
         rgb.appendChild(head);
 
-        const vals = { r: (eff >> 16) & 255, g: (eff >> 8) & 255, b: eff & 255 };
-        const paint = () => {
-            const hex = (vals.r << 16) | (vals.g << 8) | vals.b;
-            swatch.style.background = hexText(hex);
-            hexLabel.textContent = hexText(hex) + ' custom';
+        // applyLive drives the pad without firing onRgbChange.
+        rgbDialRef = {
+            set(hex) {
+                colorInput.value = hexText(hex);
+                hexLabel.textContent = hexText(hex) + ' custom';
+            }
         };
-        const channelInputs = {};
-        const emit = () => {
-            paint();
-            onRgbChange && onRgbChange((vals.r << 16) | (vals.g << 8) | vals.b);
-        };
-        for (const name of ['R', 'G', 'B']) {
-            const key = name.toLowerCase();
-            const line = document.createElement('div');
-            line.className = 'flex items-center gap-2';
-            const lab = document.createElement('span');
-            lab.className = 'w-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-400';
-            lab.textContent = name;
-            const input = document.createElement('input');
-            input.type = 'range';
-            input.min = '0';
-            input.max = '255';
-            input.step = '1';
-            input.value = String(vals[key]);
-            input.className = 'flex-1 accent-sky-500';
-            input.setAttribute('aria-label', 'Curtain ' + name + ' channel');
-            const num = document.createElement('span');
-            num.className = 'w-8 text-right text-[11px] font-mono '
-                + 'text-gray-500 dark:text-zinc-400';
-            num.textContent = String(vals[key]);
-            input.addEventListener('input', e => {
-                const v = parseInt(e.target.value, 10);
-                vals[key] = Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 0;
-                num.textContent = String(vals[key]);
-                emit();
-            });
-            if (live.inputs) live.inputs.push(input);
-            channelInputs[key] = { input, num };
-            line.append(lab, input, num);
-            rgb.appendChild(line);
-        }
 
         // Keep the dialled colour as a new swatch - the board palettes are
         // never edited, the list only grows after them. Lives inside the
@@ -751,20 +739,6 @@ export function createPanel(opts) {
         save.addEventListener('click', () => onAddColor && onAddColor());
         live.buttons.push(save);
         rgb.appendChild(save);
-        // applyLive drives the dial without firing onRgbChange.
-        rgbDialRef = {
-            set(hex) {
-                vals.r = (hex >> 16) & 255;
-                vals.g = (hex >> 8) & 255;
-                vals.b = hex & 255;
-                for (const key of ['r', 'g', 'b']) {
-                    if (!channelInputs[key]) continue;
-                    channelInputs[key].input.value = String(vals[key]);
-                    channelInputs[key].num.textContent = String(vals[key]);
-                }
-                paint();
-            }
-        };
         rgbDetails.append(rgbSum, rgb);
         wrap.appendChild(rgbDetails);
 
