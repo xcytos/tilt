@@ -1014,6 +1014,10 @@ panel = createPanel({
         // are one row of sliders, not two rows that drift apart.
         const ids = new Set(picked.map(m => m.id));
         const list = [...mounted.values()].flat().filter(m => ids.has(m.id));
+        // While a SET is active its four shape sliders belong to that SET:
+        // come back to it and the numbers are where you left them. Collected
+        // across the instances - the per-model map dies with its own loop.
+        const shaped = {};
         for (const m of list) {
             if (!m.setParams || !m.params) continue;
             const known = {};
@@ -1023,17 +1027,12 @@ panel = createPanel({
             if (!Object.keys(known).length) continue;
             m.setParams(known);
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], known);
-        }
-        // While a SET is active its four shape sliders belong to that SET:
-        // come back to it and the numbers are where you left them.
-        if (layoutId) {
-            const shaped = {};
             for (const k of SET_SHAPE_KEYS) {
                 if (known[k] !== undefined) shaped[k] = known[k];
             }
-            if (Object.keys(shaped).length) {
-                setPresets[layoutId] = Object.assign({}, setPresets[layoutId], shaped);
-            }
+        }
+        if (layoutId && Object.keys(shaped).length) {
+            setPresets[layoutId] = Object.assign({}, setPresets[layoutId], shaped);
         }
         scheduleSave();
         scheduleRebuild();

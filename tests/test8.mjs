@@ -491,6 +491,13 @@ check('a custom colour reaches the stage, and a Look or chip clears it',
   && /fabricColor: fabricColor/.test(app)
   && /fabricColor = null;\n    applyColorway\(\)/.test(app)
   && /fabricColor = null;\n    layoutId = null;/.test(app));
+check('the SET write-through never reaches outside the instance loop', (() => {
+  const handler = app.slice(app.indexOf('onParamsChange:'), app.indexOf('onThemeChange:'));
+  const after = handler.slice(handler.indexOf('if (layoutId && Object.keys(shaped)'));
+  return /const shaped = \{\};/.test(handler)
+    && /if \(layoutId && Object\.keys\(shaped\)\.length\)/.test(handler)
+    && !/\bknown\b/.test(after);
+})());
 check('the fabric palette reaches the panel and the stage',
   /'js\/colorways\.js'/.test(build) && /colorway: colorwayId/.test(app)
   && /function applyColorway\(/.test(app) && /function setColorway\(/.test(app)
