@@ -141,22 +141,22 @@
 </div>
 
 <div class="card">
-    <h3>Four sliders <span class="pill">Center Gap &middot; Swing Pan &middot; Pitch &middot; Decline</span></h3>
+    <h3>S Curve group <span class="pill">open &middot; Center Gap &middot; Swing Pan &middot; Pitch &middot; Decline</span></h3>
     <dl>
-        <dt>Does</dt><dd>The S Curve&rsquo;s whole shape: gap width, arc swing, rail tilt, slope. Arc and Slope are <em>dials now, not objects</em>.</dd>
+        <dt>Does</dt><dd>The S Curve&rsquo;s whole shape - its own group, open by default, separate from free Placement and from Pillars: gap width, arc swing, rail tilt, slope. Arc and Slope are <em>dials now, not objects</em>.</dd>
         <dt>Code</dt><dd><code>onParamsChange(partial, targets)</code> &rarr; <code>m.setParams()</code> + <code>scheduleRebuild()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">presets[id]</span> and, while a SET is active, <span class="pill doc">setPresets[setId]</span></dd>
-        <dt>Relates</dt><dd>Same-id instances share one control row. With a SET active, the four numbers are saved onto that SET &mdash; switch away and back and they return. Clamped to the schema ranges in <code>PARAMS</code>.</dd>
+        <dt>Relates</dt><dd>Same-id instances share one control row. With a SET active, the four numbers are saved onto that SET &mdash; switch away and back and they return. Clamped to the schema ranges in <code>PARAMS</code>. The S Curve group sits above Placement and Pillars; all three are one-frame subjects kept apart.</dd>
     </dl>
 </div>
 
 <div class="card">
     <h3>Curtains toggle + fabric colour</h3>
     <dl>
-        <dt>Does</dt><dd>Shows/hides the drapes; under it: five board palettes, the RGB dial (0&ndash;255 &times;3), and <strong>Add colour</strong>.</dd>
+        <dt>Does</dt><dd>Shows/hides the drapes; under it: five board palettes, the folded <strong>Custom colour (RGB)</strong> fold, and <strong>Add colour</strong>. The RGB sliders stay hidden until Add colour opens the fold; <strong>Save swatch</strong> inside keeps the dialled colour.</dd>
         <dt>Code</dt><dd>toggle &rarr; params path; chips &rarr; <code>setColorway(id)</code>; dial &rarr; <code>setFabricColor(hex)</code>; button &rarr; <code>addFabricColor()</code>; all repaint via <code>applyColorway()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">colorway</span> <span class="pill doc">fabricColor</span> <span class="pill doc">extraColors</span></dd>
-        <dt>Relates</dt><dd><code>fabricColor</code> (dial) overrides the palette; a palette tap or a Look clears it. Add colour <em>appends</em> a swatch (max 12) &mdash; the five boards are never edited. Colour re-applies after every theme change.</dd>
+        <dt>Relates</dt><dd><code>fabricColor</code> (dial) overrides the palette; a palette tap or a Look clears it. Add colour opens the fold, Save swatch <em>appends</em> (max 12) &mdash; the five boards are never edited. Colour re-applies after every theme change. <code>applyLive</code> still drives the dial whether the fold is open or shut.</dd>
     </dl>
 </div>
 

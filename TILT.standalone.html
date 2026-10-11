@@ -2844,6 +2844,7 @@ function createPanel(opts) {
 
         const rows = {};
         const normalToggles = [];
+        const shapeRanges = [];
         const advancedRanges = [];
         const advancedToggles = [];
 
@@ -2874,11 +2875,30 @@ function createPanel(opts) {
                     (p.type === 'range' ? advancedRanges : advancedToggles)
                         .push([k, p]);
                 } else if (p.type === 'range') {
-                    inner.appendChild(addRange(k, p));
+                    shapeRanges.push([k, p]);
                 } else if (p.type === 'toggle') {
                     normalToggles.push([k, p]);
                 }
             }
+        }
+
+        // The SET's four sliders are one subject - the S Curve - open by
+        // default because they are what the hand reaches for first. Free
+        // position (Placement) and pillars stay separate groups below.
+        if (shapeRanges.length) {
+            const details = document.createElement('details');
+            details.open = true;
+            details.className = 'mt-3 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            summary.textContent = 'S Curve';
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'px-2 pb-2 space-y-1';
+            for (const [k, p] of shapeRanges) bodyEl.appendChild(addRange(k, p));
+            details.append(summary, bodyEl);
+            inner.appendChild(details);
         }
 
         if (normalToggles.length) {
@@ -3306,8 +3326,17 @@ function createPanel(opts) {
         }
         wrap.appendChild(row);
 
+        // The raw dial stays folded away until someone asks for a colour no
+        // board names: "Add colour" opens it, "Save swatch" keeps it.
+        const rgbDetails = document.createElement('details');
+        rgbDetails.className = 'mt-1 rounded-md border border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+        const rgbSum = document.createElement('summary');
+        rgbSum.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+            + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+        rgbSum.textContent = 'Custom colour (RGB)';
         const rgb = document.createElement('div');
-        rgb.className = 'space-y-1';
+        rgb.className = 'space-y-1 px-2 pb-2';
         const head = document.createElement('div');
         head.className = 'flex items-center gap-2 mb-1';
         const swatch = document.createElement('span');
@@ -3360,6 +3389,20 @@ function createPanel(opts) {
             line.append(lab, input, num);
             rgb.appendChild(line);
         }
+
+        // Keep the dialled colour as a new swatch - the board palettes are
+        // never edited, the list only grows after them. Lives inside the
+        // fold: open the dial, dial, then keep.
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'mt-2 w-full text-[11px] px-2 py-1.5 rounded border '
+            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
+        save.textContent = 'Save swatch';
+        save.title = 'Save the dialled colour as a new swatch';
+        save.addEventListener('click', () => onAddColor && onAddColor());
+        live.buttons.push(save);
+        rgb.appendChild(save);
         // applyLive drives the dial without firing onRgbChange.
         rgbDialRef = {
             set(hex) {
@@ -3374,18 +3417,21 @@ function createPanel(opts) {
                 paint();
             }
         };
-        wrap.appendChild(rgb);
+        rgbDetails.append(rgbSum, rgb);
+        wrap.appendChild(rgbDetails);
 
-        // Keep the dialled colour as a new swatch - the board palettes are
-        // never edited, the list only grows after them.
+        // Add colour = open the dial; the fold is where the work happens.
         const add = document.createElement('button');
         add.type = 'button';
         add.className = 'mt-2 w-full text-[11px] px-2 py-1.5 rounded border '
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         add.textContent = 'Add colour';
-        add.title = 'Save the dialled colour as a new swatch';
-        add.addEventListener('click', () => onAddColor && onAddColor());
+        add.title = 'Open the RGB dial for a colour no board names';
+        add.addEventListener('click', () => {
+            rgbDetails.open = true;
+            rgbSum.scrollIntoView({ block: 'nearest' });
+        });
         live.buttons.push(add);
         wrap.appendChild(add);
         return wrap;
