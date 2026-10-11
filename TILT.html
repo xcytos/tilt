@@ -18,24 +18,77 @@
         body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
         #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; overflow: hidden; }
         
-        .ui-panel {
-            position: absolute; top: calc(3.4rem + env(safe-area-inset-top)); left: 1rem; z-index: 10;
-            width: 320px; border-radius: 0.75rem;
-            display: flex; flex-direction: column; overflow: hidden;
-            transition: all 0.3s ease;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            max-width: calc(100vw - 2rem);
+        /* ---- dock: the contextual shelf and the tool bar, docked to the
+               bottom on every screen. The shelf overlays the canvas (never
+               shrinks it) so the model stays full-bleed behind the glass. */
+        #dock {
+            position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+            display: flex; flex-direction: column; align-items: stretch;
+            pointer-events: none;
+            padding-bottom: env(safe-area-inset-bottom);
         }
-        .dark .ui-panel { box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-
-        .panel-body { 
-            padding: 1.25rem; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; 
-            max-height: min(600px, calc(100vh - 11rem)); overflow-y: auto; overflow-x: hidden;
+        #shelf {
+            pointer-events: auto;
+            width: 100%; max-width: 480px; margin: 0 auto;
+            display: flex; flex-direction: column; overflow: hidden;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(15,23,42,0.10); border-bottom: 0;
+            border-radius: 16px 16px 0 0;
+            box-shadow: 0 -12px 32px rgba(0,0,0,0.18);
+            transform: translateY(0);
+            transition: transform 0.28s ease;
+        }
+        .dark #shelf {
+            background: rgba(24,24,27,0.85);
+            border-color: rgba(255,255,255,0.12);
+            box-shadow: 0 -12px 32px rgba(0,0,0,0.5);
+        }
+        #shelf.closed { transform: translateY(110%); }
+        /* grab handle, the way every sheet on a phone has one */
+        #shelf::before {
+            content: ''; flex: none;
+            width: 42px; height: 4px; border-radius: 999px;
+            background: rgba(100,116,139,0.5);
+            margin: 7px auto 0;
+        }
+        #shelf-head {
+            flex: none;
+            display: flex; align-items: center; gap: 0.25rem;
+            padding: 0.2rem 0.4rem 0.25rem 0.85rem;
+        }
+        #shelf-head > div { flex: 1 1 auto; min-width: 0; }
+        #model-name {
+            margin: 0; font-size: 14px; font-weight: 700; line-height: 1.2;
+            color: #0284c7; letter-spacing: 0.02em;
+        }
+        .dark #model-name { color: #38bdf8; }
+        #model-sub {
+            margin: 0; font-size: 9.5px; text-transform: uppercase;
+            letter-spacing: 0.14em; color: #64748b; line-height: 1.3;
+        }
+        .dark #model-sub { color: #a1a1aa; }
+        #shelf-body {
+            padding: 0.35rem 0.75rem 0.85rem;
+            max-height: min(46vh, 430px);
+            overflow-y: auto; overflow-x: hidden;
             overscroll-behavior: contain; scrollbar-width: thin;
         }
-        .panel-body.collapsed { 
-            max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border: none;
-            overflow: hidden;
+        #toolbar {
+            pointer-events: auto;
+            flex: none;
+            display: flex; gap: 0.3rem; align-items: stretch;
+            width: 100%; max-width: 480px; margin: 0 auto;
+            padding: 0.35rem 0.45rem;
+            overflow-x: auto; scroll-snap-type: x proximity;
+            -webkit-overflow-scrolling: touch;
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-top: 1px solid rgba(15,23,42,0.08);
+        }
+        .dark #toolbar {
+            background: rgba(24,24,27,0.92);
+            border-top-color: rgba(255,255,255,0.10);
         }
 
         /* ---- project bar: back, name, save status, overflow menu ---- */
@@ -145,59 +198,32 @@
         .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
         .sheet-actions .btn.primary:active { background: #0369a1; }
 
-        /* ---- phones: the controls become a compact bottom sheet ----
-           A 320px card pinned top-left is unusable on a 375px screen and it
-           sits exactly where a thumb wants to be, so below 640px the same
-           markup docks to the bottom. app.js measures it and shrinks the
-           canvas to whatever is left, so opening the controls minifies the
-           view instead of covering it. */
+        /* ---- phones: the shelf is already the bottom dock; it just gets
+               a little more room and tighter rhythm on small screens. ---- */
         @media (max-width: 640px) {
-            .ui-panel {
-                top: auto; bottom: 0; left: 0; right: 0;
-                width: 100%; max-width: none;
-                border-radius: 16px 16px 0 0;
-                padding-bottom: env(safe-area-inset-bottom);
-                box-shadow: 0 -12px 32px rgba(0,0,0,0.22);
+            #shelf-body {
+                max-height: min(52vh, 430px);
+                padding: 0.3rem 0.65rem 0.75rem;
             }
-            .dark .ui-panel { box-shadow: 0 -12px 32px rgba(0,0,0,0.55); }
-
-            /* grab handle, the way every sheet on a phone has one */
-            .ui-panel::before {
-                content: ''; flex: none;
-                width: 42px; height: 4px; border-radius: 999px;
-                background: rgba(100,116,139,0.5);
-                margin: 7px auto 0;
-            }
-
-            /* compact header */
-            .ui-panel > .flex { min-height: 44px; padding: 0.45rem 0.6rem; }
-            .ui-panel > .flex h1 { font-size: 14px; }
-
-            /* compact controls: tighter rhythm, shorter fields, same markup */
-            .panel-body {
-                padding: 0.65rem 0.75rem 0.85rem;
-                max-height: min(48vh, calc(100vh - 8rem));
-            }
-            .panel-body .mb-1 { margin-bottom: 0.15rem; }
-            .panel-body .mb-2 { margin-bottom: 0.35rem; }
-            .panel-body .mb-3 { margin-bottom: 0.5rem; }
-            .panel-body .mt-1 { margin-top: 0.25rem; }
-            .panel-body .pt-1 { padding-top: 0.25rem; }
-            .panel-body .pt-3 { padding-top: 0.5rem; }
-            .panel-body .gap-2 { gap: 0.45rem; }
-            .panel-body .gap-4 { gap: 0.65rem; }
-            .panel-body .text-xs { font-size: 11px; }
-            .panel-body .text-sm { font-size: 12.5px; }
-            .panel-body .flex-1 { min-height: 38px; }
-            .panel-body select { min-height: 38px; }
-            .panel-body .ml-auto { min-height: 36px; padding: 0 0.7rem; }
-            .panel-body input[type=range] { margin: 9px 0; }
-            .panel-body.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; }
+            #shelf-body .mb-1 { margin-bottom: 0.15rem; }
+            #shelf-body .mb-2 { margin-bottom: 0.35rem; }
+            #shelf-body .mb-3 { margin-bottom: 0.5rem; }
+            #shelf-body .mt-1 { margin-top: 0.25rem; }
+            #shelf-body .pt-1 { padding-top: 0.25rem; }
+            #shelf-body .pt-3 { padding-top: 0.5rem; }
+            #shelf-body .gap-2 { gap: 0.45rem; }
+            #shelf-body .gap-4 { gap: 0.65rem; }
+            #shelf-body .text-xs { font-size: 11px; }
+            #shelf-body .text-sm { font-size: 12.5px; }
+            #shelf-body .flex-1 { min-height: 38px; }
+            #shelf-body select { min-height: 38px; }
+            #shelf-body .ml-auto { min-height: 36px; padding: 0 0.7rem; }
+            #shelf-body input[type=range] { margin: 9px 0; }
         }
 
         /* ---- fingers: everything tappable gets a 44px target ---- */
         @media (pointer: coarse) {
-            .btn-minimize { min-width: 44px; min-height: 44px; }
+            #btn-shelf-close { min-width: 44px; min-height: 44px; }
             .custom-checkbox { width: 1.5rem; height: 1.5rem; }
             input[type=range] { margin: 14px 0; }
             input[type=range]::-webkit-slider-thumb {
@@ -212,11 +238,6 @@
             }
         }
         
-        .btn-minimize {
-            width: 28px; height: 28px; border-radius: 6px; cursor: pointer; 
-            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
-        }
-
         input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; margin: 8px 0; }
         input[type=range]:focus { outline: none; }
         input[type=range]::-webkit-slider-runnable-track { 
@@ -511,19 +532,20 @@
 
     </script>
 
-    <div class="ui-panel bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-gray-200 dark:border-zinc-700" id="ui-panel">
-        <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-zinc-700">
-            <div>
-                <h1 class="text-base font-bold text-sky-600 dark:text-sky-400 tracking-wide leading-tight" id="model-name">Model</h1>
-                <p class="text-[10px] text-gray-500 dark:text-zinc-400 uppercase tracking-widest leading-tight" id="model-sub">&nbsp;</p>
+    <div id="dock">
+        <div id="shelf">
+            <div id="shelf-head">
+                <div>
+                    <h1 id="model-name">Model</h1>
+                    <p id="model-sub">&nbsp;</p>
+                </div>
+                <button type="button" class="tb-btn" id="btn-shelf-close" aria-label="Hide tools">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                </button>
             </div>
-            <button class="btn-minimize bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border border-gray-300 dark:border-zinc-600" id="btn-minimize" aria-label="Toggle UI">
-                <svg id="icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path></svg>
-                <svg id="icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M12 5v14M5 12h14"></path></svg>
-            </button>
+            <div id="shelf-body" class="text-gray-800 dark:text-zinc-200"></div>
         </div>
-
-        <div class="panel-body text-gray-800 dark:text-zinc-200" id="panel-body"></div>
+        <div id="toolbar" aria-label="Tools"></div>
     </div>
 
     <div id="canvas-container"></div>

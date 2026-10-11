@@ -139,6 +139,17 @@ export function createPanel(opts) {
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
+    const shelfEl = document.getElementById('shelf');
+    const shelfClose = document.getElementById('btn-shelf-close');
+    // The shelf slides down out of the way; the toolbar stays put.
+    const setShelfOpen = open => {
+        if (shelfEl) shelfEl.classList.toggle('closed', !open);
+    };
+    if (shelfClose) {
+        shelfClose.addEventListener('click', () => {
+            if (shelfEl) shelfEl.classList.toggle('closed');
+        });
+    }
 
     let currentMode = mode;
     let currentGroups = groups;

@@ -15,8 +15,7 @@ import {
 } from './project.js';
 
 const container = document.getElementById('canvas-container');
-const panelBody = document.getElementById('panel-body');
-const panelEl = document.getElementById('ui-panel');
+const shelfBody = document.getElementById('shelf-body');
 const overHttp = /^https?:$/.test(location.protocol);
 
 // Where the module has got to, read by the self-check in the shell. A stall
@@ -187,19 +186,6 @@ function scheduleSave() {
 }
 
 // On a phone the controls dock to the bottom, so the view gives up exactly
-// the space the sheet is using - open it and the canvas shrinks above it,
-// collapse it and the canvas grows back. Measuring the sheet rather than
-// guessing a vh keeps the two boxes flush while it animates, and on a
-// desktop the panel simply overlays the scene as before.
-function syncSheet() {
-    if (!panelEl || !container) return;
-    const phone = window.matchMedia('(max-width: 640px)').matches;
-    const sheet = phone ? Math.round(panelEl.getBoundingClientRect().height) : 0;
-    container.style.height = sheet > 0
-        ? `${Math.max(0, window.innerHeight - sheet)}px`
-        : '';
-}
-
 // Display order always follows the manifest, not the order ticks were clicked.
 function orderIds() {
     if (mode === 'single') return activeId ? [activeId] : [];
@@ -1089,7 +1075,7 @@ if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 const firstGroup = groups()[0];
 
 panel = createPanel({
-    body: panelBody,
+    body: shelfBody,
     model: firstGroup ? firstGroup.models[0] : null,
     groups: groups(),
     mode,
@@ -1156,14 +1142,6 @@ panel = createPanel({
     onReset: guard(() => resetProject())
 });
 stage('panel');
-
-// The sheet changes height whenever the panel repaints or collapses: keep the
-// canvas in step, and the viewer's own observer re-fits the drawing buffer.
-if (typeof ResizeObserver === 'function') {
-    new ResizeObserver(() => syncSheet()).observe(panelEl);
-}
-window.addEventListener('resize', syncSheet);
-syncSheet();
 
 if (startupError) {
     panel.setError(startupError);
@@ -1245,14 +1223,6 @@ window.addEventListener('pagehide', () => {
         thumbTimer = 0;
     }
     if (dirty) flushProject(buildDoc());
-});
-
-let minimized = false;
-document.getElementById('btn-minimize').addEventListener('click', () => {
-    minimized = !minimized;
-    panelBody.classList.toggle('collapsed', minimized);
-    document.getElementById('icon-collapse').style.display = minimized ? 'none' : 'block';
-    document.getElementById('icon-expand').style.display = minimized ? 'block' : 'none';
 });
 
 viewer.start();

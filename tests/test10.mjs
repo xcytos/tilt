@@ -180,6 +180,7 @@ const appSrc = read('js/app.js');
 const projSrc = read('js/project.js');
 const editorSrc = read('js/editor.js');
 const viewerSrc = read('js/viewer.js');
+const panelSrc = read('js/panel.js');
 
 check('the shell is branded TILT', /<title>TILT<\/title>/.test(shell));
 for (const id of ['topbar', 'btn-back', 'project-title', 'project-name',
@@ -193,8 +194,10 @@ check('icon-only buttons in the bar are labelled',
 check('the bar clears the notch', /#topbar \{[^}]*env\(safe-area-inset-top\)/.test(shell));
 check('the bar buttons are 44px tap targets',
   /\.tb-btn \{[^}]*min-height: 44px/.test(shell) && /#project-title \{[^}]*min-height: 44px/.test(shell));
-check('the control panel moves below the bar',
-  /\.ui-panel \{[^}]*top: calc\([\d.]+rem \+ env\(safe-area-inset-top\)\)/.test(shell));
+check('the controls live in a bottom dock',
+  /#dock \{[^}]*position: fixed; left: 0; right: 0; bottom: 0;/.test(shell)
+  && /env\(safe-area-inset-bottom\)/.test(shell)
+  && /id="shelf-body"/.test(shell) && /id="toolbar"/.test(shell));
 check('the menu and the name sheet are styled without a CDN import',
   /#overflow \{/.test(shell) && /#sheet \{/.test(shell));
 // The bar carries a backdrop-filter, which per spec makes it a containing
@@ -268,21 +271,24 @@ check('a restored view is written straight through, without damping',
   && /this\.controls\.target, state\.target/.test(viewerSrc)
   && /this\.controls\.update\(\);/.test(viewerSrc));
 
-console.log('\neditor: the view gives up space for the sheet');
+console.log('\ndock: the shelf overlays, never shrinks the canvas');
 check('the drawing buffer follows the canvas box, not the window',
   /resize\(\) \{/.test(viewerSrc) && /clientWidth/.test(viewerSrc)
   && /this\.renderer\.setSize\(w, h\)/.test(viewerSrc));
-check('...and the box is watched, so it re-fits as the sheet moves',
+check('the box is watched, so it re-fits with the window',
   /new ResizeObserver\(\(\) => this\.resize\(\)\)/.test(viewerSrc)
   && /_watchBox\.disconnect\(\)/.test(viewerSrc));
-check('the sheet height is measured instead of guessed',
-  /function syncSheet\(\)/.test(appSrc) && /innerHeight - sheet/.test(appSrc)
-  && /getElementById\('ui-panel'\)/.test(appSrc));
-check('the canvas follows every change of the sheet',
-  /new ResizeObserver\(\(\) => syncSheet\(\)\)/.test(appSrc)
-  && /addEventListener\('resize', syncSheet\)/.test(appSrc));
+check('the dock overlays the canvas instead of measuring a sheet',
+  !/syncSheet/.test(appSrc) && !/innerHeight - sheet/.test(appSrc)
+  && /#dock \{[^}]*position: fixed/.test(shell));
+check('the canvas box stays full-bleed',
+  /#canvas-container \{[^}]*width: 100vw; height: 100vh/.test(shell));
 check('the container clips the canvas it owns',
   /#canvas-container \{[^}]*overflow: hidden/.test(shell));
+check('the shelf slides away behind a chevron',
+  /#shelf\.closed \{[^}]*translateY/.test(shell)
+  && /btn-shelf-close/.test(shell)
+  && /classList\.toggle\('closed'\)/.test(read('js/panel.js')));
 
 console.log('\neditor: it rides along in the bundle');
 const order = /export const ORDER = \[([^\]]*)\]/.exec(buildSrc);
@@ -303,17 +309,17 @@ const sheet = /@media \(max-width: 640px\) \{([\s\S]*?)\n        \}/.exec(shell)
 check('there is a phone layout', !!sheet);
 if (sheet) {
   const m = sheet[1];
-  check('the panel docks to the bottom', /\.ui-panel \{[^}]*top: auto; bottom: 0;/.test(m));
-  check('...and spans the full width',
-    /\.ui-panel \{[^}]*width: 100%; max-width: none;/.test(m));
+  check('the shelf is the bottom dock on every screen',
+    /#dock \{[^}]*bottom: 0;/.test(shell) && /#shelf \{[^}]*max-width: 480px/.test(shell));
   check('...with a sheet-shaped top edge',
-    /\.ui-panel \{[^}]*border-radius: 16px 16px 0 0;/.test(m));
-  check('the sheet clears the home indicator', /env\(safe-area-inset-bottom\)/.test(m));
-  check('the sheet cannot swallow the canvas',
-    /\.panel-body \{[^}]*max-height: min\([\d.]+vh,/.test(m));
-  check('...and it gives up exactly the space the sheet takes',
-    /\.ui-panel::before/.test(m) && /app\.js measures it/.test(shell)
-    && /\.panel-body \.flex-1 \{ min-height: 38px; \}/.test(m));
+    /#shelf \{[^}]*border-radius: 16px 16px 0 0;/.test(shell));
+  check('the dock clears the home indicator', /env\(safe-area-inset-bottom\)/.test(shell));
+  check('the shelf cannot swallow the canvas',
+    /#shelf-body \{[^}]*max-height: min\([\d.]+vh,/.test(shell));
+  check('...and it scrolls inside itself only',
+    /#shelf-body \{[^}]*overscroll-behavior: contain/.test(shell));
+  check('the phone gives the shelf a little more room',
+    /#shelf-body \{[\s\S]*?max-height: min\(52vh/.test(m));
   check('the canvas keeps the top bar clear',
     /#topbar \{[^}]*position: fixed;/.test(shell));
 }

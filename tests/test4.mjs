@@ -24,7 +24,7 @@ check('importmap is valid JSON', (() => {
   try { JSON.parse(m[1]); return true; } catch { return false; }
 })());
 check('sliders moved out of the shell', !html.includes('slider-gap') && !html.includes('toggle-fabric'));
-check('panel body is empty markup', /id="panel-body"><\/div>/.test(html));
+check('shelf body is empty markup', /id="shelf-body"><\/div>/.test(html));
 
 const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/registry.js', 'js/objects/o2tilt.js'];
 for (const f of FILES) check(`exists ${f}`, fs.existsSync(path.join(DECOR, f)));
