@@ -2845,13 +2845,43 @@ function createPanel(opts) {
     const subEl = document.getElementById('model-sub');
     const shelfEl = document.getElementById('shelf');
     const shelfClose = document.getElementById('btn-shelf-close');
-    // The shelf slides down out of the way; the toolbar stays put.
+    // The shelf slides down out of the way; the toolbar stays put - and a
+    // tap on the canvas or the Tools chip brings it back.
     const setShelfOpen = open => {
         if (shelfEl) shelfEl.classList.toggle('closed', !open);
     };
     if (shelfClose) {
-        shelfClose.addEventListener('click', () => {
-            if (shelfEl) shelfEl.classList.toggle('closed');
+        shelfClose.addEventListener('click', () => setShelfOpen(false));
+    }
+    // Placeholder chip until the real toolbar lands in Step 2: without it a
+    // collapsed shelf would have no visible way back.
+    const toolbarEl = document.getElementById('toolbar');
+    if (toolbarEl) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.id = 'tool-placeholder';
+        chip.className = 'flex-none flex items-center gap-1.5 px-3 h-11 rounded-xl '
+            + 'border text-xs font-semibold shrink-0 snap-start '
+            + 'border-sky-500 bg-sky-50 text-sky-700 '
+            + 'dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700';
+        chip.textContent = 'Tools';
+        chip.setAttribute('aria-label', 'Show tools');
+        chip.addEventListener('click', () => setShelfOpen(true));
+        toolbarEl.appendChild(chip);
+    }
+    // Tap the canvas to toggle: down when the shelf is up, up when it is
+    // down. A real orbit-drag never counts - only a still tap under 6px.
+    const canvasHost = document.getElementById('canvas-container');
+    if (canvasHost) {
+        let downX = 0, downY = 0;
+        canvasHost.addEventListener('pointerdown', e => {
+            downX = e.clientX;
+            downY = e.clientY;
+        });
+        canvasHost.addEventListener('pointerup', e => {
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+            if (!shelfEl) return;
+            setShelfOpen(shelfEl.classList.contains('closed'));
         });
     }
 

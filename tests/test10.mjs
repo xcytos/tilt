@@ -287,8 +287,12 @@ check('the container clips the canvas it owns',
   /#canvas-container \{[^}]*overflow: hidden/.test(shell));
 check('the shelf slides away behind a chevron',
   /#shelf\.closed \{[^}]*translateY/.test(shell)
-  && /btn-shelf-close/.test(shell)
-  && /classList\.toggle\('closed'\)/.test(read('js/panel.js')));
+  && /btn-shelf-close/.test(panelSrc)
+  && /setShelfOpen\(false\)/.test(panelSrc));
+check('a collapsed shelf always has a way back',
+  /tool-placeholder/.test(panelSrc)
+  && /setShelfOpen\(true\)/.test(panelSrc)
+  && /pointerup/.test(panelSrc) && /6\)/.test(panelSrc));
 
 console.log('\neditor: it rides along in the bundle');
 const order = /export const ORDER = \[([^\]]*)\]/.exec(buildSrc);
