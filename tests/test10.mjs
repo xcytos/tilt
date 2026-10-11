@@ -290,9 +290,18 @@ check('the shelf slides away behind a chevron',
   && /btn-shelf-close/.test(panelSrc)
   && /setShelfOpen\(false\)/.test(panelSrc));
 check('a collapsed shelf always has a way back',
-  /tool-placeholder/.test(panelSrc)
+  /renderToolbar\(\)/.test(panelSrc)
   && /setShelfOpen\(true\)/.test(panelSrc)
   && /pointerup/.test(panelSrc) && /6\)/.test(panelSrc));
+check('the toolbar is the five creative chips, in session order',
+  /id: 'shown'[\s\S]*id: 'sets'[\s\S]*id: 'look'[\s\S]*id: 'colour'[\s\S]*id: 'shape'[\s\S]*id: 'pillars'/.test(panelSrc)
+  && /activeTool = 'shape'/.test(panelSrc));
+check('one chip owns the shelf - the rest stay behind their own',
+  /activeTool === 'sets'[\s\S]*setBlock\(\)/.test(panelSrc)
+  && /activeTool === 'look'[\s\S]*lookBlock\(\)/.test(panelSrc)
+  && /tool === 'colour'[\s\S]*fabricBlock\(\)/.test(panelSrc)
+  && /tool === 'pillars'[\s\S]*pillarsBlock\(key\)/.test(panelSrc)
+  && /tool === 'shape'[\s\S]*positionBlock\(key, idx, place\)/.test(panelSrc));
 
 console.log('\neditor: it rides along in the bundle');
 const order = /export const ORDER = \[([^\]]*)\]/.exec(buildSrc);

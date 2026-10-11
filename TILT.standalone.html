@@ -2853,21 +2853,90 @@ function createPanel(opts) {
     if (shelfClose) {
         shelfClose.addEventListener('click', () => setShelfOpen(false));
     }
-    // Placeholder chip until the real toolbar lands in Step 2: without it a
-    // collapsed shelf would have no visible way back.
     const toolbarEl = document.getElementById('toolbar');
-    if (toolbarEl) {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.id = 'tool-placeholder';
-        chip.className = 'flex-none flex items-center gap-1.5 px-3 h-11 rounded-xl '
-            + 'border text-xs font-semibold shrink-0 snap-start '
-            + 'border-sky-500 bg-sky-50 text-sky-700 '
-            + 'dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700';
-        chip.textContent = 'Tools';
-        chip.setAttribute('aria-label', 'Show tools');
-        chip.addEventListener('click', () => setShelfOpen(true));
-        toolbarEl.appendChild(chip);
+
+    // Five chips, the order a session usually takes, plus Shown when more
+    // than one model can be on stage. Icons are tiny inline SVGs - no
+    // font, no icon font, no network.
+    const CHIP_CLS = 'flex-none flex flex-col items-center justify-center gap-0.5 '
+        + 'px-3 h-12 rounded-xl border text-[10px] font-semibold leading-none '
+        + 'snap-start shrink-0 transition-colors cursor-pointer select-none';
+    const CHIP_ON = 'border-sky-500 bg-sky-50 text-sky-700 '
+        + 'dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700';
+    const CHIP_OFF = 'border-gray-200 bg-white/60 text-gray-500 hover:border-sky-400 '
+        + 'dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-400';
+    const icon = paths => {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '18');
+        svg.setAttribute('height', '18');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', paths);
+        svg.appendChild(p);
+        return svg;
+    };
+    const TOOLS = [
+        { id: 'shown', label: 'Shown',
+          icon: icon('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z'),
+          show: () => currentMode === 'overlay' || catalog.length > 1 },
+        { id: 'sets', label: 'Sets',
+          icon: icon('M4 6h16M4 12h16M4 18h10'),
+          show: () => sets.length > 1 },
+        { id: 'look', label: 'Look',
+          icon: icon('M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z'),
+          show: () => recipes.length > 1 || scenes.length > 1 },
+        { id: 'colour', label: 'Colour',
+          icon: icon('M12 21a9 9 0 1 1 0-18c4.97 0 9 3.58 9 8 0 2.5-2 4-4 4h-2'
+              + 'a2 2 0 0 0-1.4 3.4A2 2 0 0 1 12 21z'),
+          show: () => true },
+        { id: 'shape', label: 'Shape',
+          icon: icon('M4 8h10M18 8h2M4 16h2M10 16h10'),
+          show: () => true },
+        { id: 'pillars', label: 'Pillars',
+          icon: icon('M6 21V7M12 21V7M18 21V7M4 7h16'),
+          show: () => frameGroupsOf().length > 0 }
+    ];
+
+    function renderToolbar() {
+        if (!toolbarEl) return;
+        const live0 = TOOLS.filter(t => t.show());
+        if (!live0.some(t => t.id === activeTool)) activeTool = 'shape';
+        toolbarEl.textContent = '';
+        for (const t of live0) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = CHIP_CLS + ' ' + (t.id === activeTool ? CHIP_ON : CHIP_OFF);
+            chip.setAttribute('aria-pressed', t.id === activeTool ? 'true' : 'false');
+            chip.append(t.icon, document.createTextNode(t.label));
+            chip.addEventListener('click', () => {
+                if (activeTool === t.id) {
+                    setShelfOpen(false);
+                    return;
+                }
+                activeTool = t.id;
+                setShelfOpen(true);
+                renderIfChanged(true);
+            });
+            live.buttons.push(chip);
+            toolbarEl.appendChild(chip);
+        }
+    }
+
+    function frameGroupsOf() {
+        return currentGroups.filter(g => g.id !== PILLAR_ID);
+    }
+
+    function emptyNote(text) {
+        const p = document.createElement('p');
+        p.className = 'text-xs text-gray-500 dark:text-zinc-400 px-1 py-3';
+        p.textContent = text;
+        return p;
     }
     // Tap the canvas to toggle: down when the shelf is up, up when it is
     // down. A real orbit-drag never counts - only a still tap under 6px.
@@ -2896,6 +2965,9 @@ function createPanel(opts) {
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
     let currentRecipe = recipe;
+    // Which toolbar chip owns the shelf right now. Structural: switching
+    // tools rebuilds the shelf body, never the viewer.
+    let activeTool = 'shape';
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -2940,7 +3012,10 @@ function createPanel(opts) {
 
     // One collapsible block of parameters for one preset. `targets` is the
     // preset's models, so a preset holding several objects is edited at once.
-    function section(group, collapsible, open) {
+    // `tool` picks which subject this section speaks to: shape sliders and
+    // placement for Shape, the Curtains toggle and fabric for Colour, the
+    // pillars group for Pillars.
+    function section(group, collapsible, open, tool = 'shape') {
         const key = group.id || 'active';
         const idx = typeof group.inst === 'number' ? group.inst : 0;
         const targets = (group.models || []).filter(Boolean);
@@ -2994,13 +3069,17 @@ function createPanel(opts) {
 
         if (schema && schema.params) {
             for (const [k, p] of Object.entries(schema.params)) {
+                // The Curtains toggle and the fabric belong to Colour; the
+                // sliders and the advanced gear belong to Shape.
+                if (tool === 'colour') {
+                    if (p.type === 'toggle') normalToggles.push([k, p]);
+                    continue;
+                }
                 if (p.advanced) {
                     (p.type === 'range' ? advancedRanges : advancedToggles)
                         .push([k, p]);
                 } else if (p.type === 'range') {
                     shapeRanges.push([k, p]);
-                } else if (p.type === 'toggle') {
-                    normalToggles.push([k, p]);
                 }
             }
         }
@@ -3008,7 +3087,7 @@ function createPanel(opts) {
         // The S Curve is one open group: the four shape sliders plus where
         // this frame stands (X / Depth / Turn as tracks). Open by default -
         // it is what the hand reaches for first. Pillars stay below.
-        if (shapeRanges.length) {
+        if (tool === 'shape' && shapeRanges.length) {
             const details = document.createElement('details');
             details.open = true;
             details.className = 'mt-3 rounded-md border border-dashed '
@@ -3026,7 +3105,7 @@ function createPanel(opts) {
             inner.appendChild(details);
         }
 
-        if (normalToggles.length) {
+        if (tool === 'colour' && normalToggles.length) {
             const row = document.createElement('div');
             row.className = 'flex flex-wrap gap-4 pt-1';
             for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
@@ -3040,7 +3119,7 @@ function createPanel(opts) {
 
         // One gear per frame section: the advanced numbers only. The
         // pillar's look moved into the frame's Pillars group below.
-        if (advancedRanges.length || advancedToggles.length) {
+        if (tool === 'shape' && (advancedRanges.length || advancedToggles.length)) {
             const details = document.createElement('details');
             details.className = 'mt-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -3062,9 +3141,8 @@ function createPanel(opts) {
         }
 
         // Pillars: one group per frame, gone until the frame has some.
-        // Count, place and the pillar's look all live here - the pillar's
-        // own accordion section no longer exists.
-        inner.appendChild(pillarsBlock(key));
+        // Count, place, the offset and the pillar's look all live here.
+        if (tool === 'pillars') inner.appendChild(pillarsBlock(key));
 
         const sec = { key, targets, rows, root };
         sections.push(sec);
@@ -3653,18 +3731,52 @@ function createPanel(opts) {
         sections = [];
         live = { selects: [], checks: [], buttons: [] };
 
+        renderToolbar();
+
+        // One shelf, one subject: the active chip decides what the body
+        // holds. Everything else lives behind its own chip.
         const overlay = currentMode === 'overlay';
-        if (overlay || catalog.length > 1) host.appendChild(modeBlock());
-        if (overlay) {
-            if (catalog.length > 1) host.appendChild(pickerBlock());
-        } else if (catalog.length > 1) {
-            host.appendChild(selectBlock());
+        let anything = false;
+        if (activeTool === 'shown') {
+            if (overlay || catalog.length > 1) {
+                host.appendChild(modeBlock());
+                anything = true;
+            }
+            if (overlay) {
+                if (catalog.length > 1) {
+                    host.appendChild(pickerBlock());
+                    anything = true;
+                }
+            } else if (catalog.length > 1) {
+                host.appendChild(selectBlock());
+                anything = true;
+            }
+        } else if (activeTool === 'sets') {
+            if (sets.length > 1) {
+                host.appendChild(setBlock());
+                anything = true;
+            }
+        } else if (activeTool === 'look') {
+            if (recipes.length > 1 || scenes.length > 1) {
+                host.appendChild(lookBlock());
+                anything = true;
+            }
+        } else {
+            // Frame groups get sections; pillars ride inside their frame's
+            // Pillars group, so they never get a section of their own.
+            const frameGroups = frameGroupsOf();
+            if (frameGroups.length) {
+                frameGroups.forEach((g, i) => host.appendChild(
+                    section(g, frameGroups.length > 1, i === 0, activeTool)));
+                anything = true;
+            }
         }
-        // Frame groups get sections; pillars ride inside their frame's
-        // Pillars group, so they never get a section of their own.
-        const frameGroups = currentGroups.filter(g => g.id !== PILLAR_ID);
-        frameGroups.forEach((g, i) => host.appendChild(
-            section(g, frameGroups.length > 1, i === 0)));
+        if (!anything) {
+            host.appendChild(emptyNote(
+                activeTool === 'pillars'
+                    ? 'No frames on stage - nothing to put pillars beside.'
+                    : 'Nothing here yet.'));
+        }
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
         if (subEl) {
@@ -3680,8 +3792,8 @@ function createPanel(opts) {
             host.appendChild(empty);
         }
 
-        if (recipes.length > 1 || scenes.length > 1) host.appendChild(lookBlock());
-        if (sets.length > 1) host.appendChild(setBlock());
+        // Look and Sets live behind their own chips now; only the theme
+        // footer (global, small) rides along at the bottom of every shelf.
         host.appendChild(themeFooter());
         applyBusy();
     }
