@@ -278,8 +278,10 @@ check('the drawing buffer follows the canvas box, not the window',
 check('the box is watched, so it re-fits with the window',
   /new ResizeObserver\(\(\) => this\.resize\(\)\)/.test(viewerSrc)
   && /_watchBox\.disconnect\(\)/.test(viewerSrc));
-check('the dock overlays the canvas instead of measuring a sheet',
-  !/syncSheet/.test(appSrc) && !/innerHeight - sheet/.test(appSrc)
+check('the canvas shrinks above the open dock and grows back',
+  /function syncDock\(\)/.test(appSrc) && /innerHeight - h/.test(appSrc)
+  && /onShelfChange/.test(panelSrc) && /onShelfChange: \(\) => syncDock\(\)/.test(appSrc)
+  && !/syncSheet/.test(appSrc)
   && /#dock \{[^}]*position: fixed/.test(shell));
 check('the canvas box stays full-bleed',
   /#canvas-container \{[^}]*width: 100vw; height: 100vh/.test(shell));

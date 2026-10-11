@@ -1139,9 +1139,30 @@ panel = createPanel({
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
     },
-    onReset: guard(() => resetProject())
+    onReset: guard(() => resetProject()),
+    onShelfChange: () => syncDock()
 });
 stage('panel');
+
+// The canvas lives above the dock, not under it: whenever the shelf opens,
+// closes, or reflows, the container shrinks or grows by the dock's height
+// and the viewer's own observer re-fits the drawing buffer.
+function syncDock() {
+    if (!container) return;
+    const shelf = document.getElementById('shelf');
+    const toolbar = document.getElementById('toolbar');
+    let h = toolbar ? toolbar.offsetHeight : 0;
+    if (shelf && !shelf.classList.contains('closed')) h += shelf.offsetHeight;
+    container.style.height = h > 0
+        ? `${Math.max(0, window.innerHeight - h)}px`
+        : '';
+}
+if (typeof ResizeObserver === 'function') {
+    const dockEl = document.getElementById('dock');
+    if (dockEl) new ResizeObserver(() => syncDock()).observe(dockEl);
+}
+window.addEventListener('resize', syncDock);
+syncDock();
 
 if (startupError) {
     panel.setError(startupError);

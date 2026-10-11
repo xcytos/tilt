@@ -2838,7 +2838,8 @@ function createPanel(opts) {
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
-        onSetChange, onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
+        onSetChange, onFramePillarsChange, onPlaceChange, onReset,
+        onShelfChange, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -2849,6 +2850,9 @@ function createPanel(opts) {
     // tap on the canvas or the Tools chip brings it back.
     const setShelfOpen = open => {
         if (shelfEl) shelfEl.classList.toggle('closed', !open);
+        // The canvas gives up the dock's space while the shelf is up, and
+        // takes it back the moment it drops.
+        onShelfChange && onShelfChange(open);
     };
     if (shelfClose) {
         shelfClose.addEventListener('click', () => setShelfOpen(false));
@@ -5316,9 +5320,30 @@ panel = createPanel({
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
     },
-    onReset: guard(() => resetProject())
+    onReset: guard(() => resetProject()),
+    onShelfChange: () => syncDock()
 });
 stage('panel');
+
+// The canvas lives above the dock, not under it: whenever the shelf opens,
+// closes, or reflows, the container shrinks or grows by the dock's height
+// and the viewer's own observer re-fits the drawing buffer.
+function syncDock() {
+    if (!container) return;
+    const shelf = document.getElementById('shelf');
+    const toolbar = document.getElementById('toolbar');
+    let h = toolbar ? toolbar.offsetHeight : 0;
+    if (shelf && !shelf.classList.contains('closed')) h += shelf.offsetHeight;
+    container.style.height = h > 0
+        ? `${Math.max(0, window.innerHeight - h)}px`
+        : '';
+}
+if (typeof ResizeObserver === 'function') {
+    const dockEl = document.getElementById('dock');
+    if (dockEl) new ResizeObserver(() => syncDock()).observe(dockEl);
+}
+window.addEventListener('resize', syncDock);
+syncDock();
 
 if (startupError) {
     panel.setError(startupError);

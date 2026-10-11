@@ -134,7 +134,8 @@ export function createPanel(opts) {
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
-        onSetChange, onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
+        onSetChange, onFramePillarsChange, onPlaceChange, onReset,
+        onShelfChange, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -145,6 +146,9 @@ export function createPanel(opts) {
     // tap on the canvas or the Tools chip brings it back.
     const setShelfOpen = open => {
         if (shelfEl) shelfEl.classList.toggle('closed', !open);
+        // The canvas gives up the dock's space while the shelf is up, and
+        // takes it back the moment it drops.
+        onShelfChange && onShelfChange(open);
     };
     if (shelfClose) {
         shelfClose.addEventListener('click', () => setShelfOpen(false));
