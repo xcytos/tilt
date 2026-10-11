@@ -2708,9 +2708,6 @@ class Viewer {
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
 const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
 const CHECK_CLS = 'custom-checkbox';
-const FIELD_CLS = 'w-full text-sm px-2 py-1.5 rounded-md border border-gray-300 '
-    + 'dark:border-zinc-600 bg-white/70 dark:bg-zinc-800/70 '
-    + 'text-gray-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-sky-400';
 const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1';
 
 const fmt = (value, unit) =>
@@ -3296,28 +3293,20 @@ function createPanel(opts) {
         box.appendChild(row);
 
         if (cfg.count > 0) {
-            const placeSel = document.createElement('select');
-            placeSel.id = 'param-pillars-place';
-            placeSel.className = FIELD_CLS;
-            placeSel.setAttribute('aria-label', 'Pillar place');
-            const options = cfg.count === 1
-                ? [['centre', 'Centre of the O2']]
-                : [['outer', 'Outer ends of each module'],
-                   ['inner', 'Inner ends (beside the gap)']];
-            for (const [val, text] of options) {
-                const opt = document.createElement('option');
-                opt.value = val;
-                opt.textContent = text;
-                placeSel.appendChild(opt);
-            }
-            placeSel.value = options.some(o => o[0] === cfg.place)
-                ? cfg.place : options[0][0];
-            placeSel.addEventListener('change', e => {
-                onFramePillarsChange && onFramePillarsChange(id, { place: e.target.value });
-            });
-            placeSel.style.marginTop = '0.5rem';
-            live.selects.push(placeSel);
-            box.appendChild(placeSel);
+            const placeWrap = document.createElement('div');
+            placeWrap.id = 'param-pillars-place';
+            placeWrap.className = 'mt-2';
+            const items = cfg.count === 1
+                ? [{ id: 'centre', name: 'Centre of the O2' }]
+                : [{ id: 'outer', name: 'Outer ends' },
+                   { id: 'inner', name: 'Inner (beside the gap)' }];
+            const active = items.some(o => o.id === cfg.place)
+                ? cfg.place : items[0].id;
+            const { row } = chipRow(items, active,
+                v => onFramePillarsChange && onFramePillarsChange(id, { place: v }),
+                o => o.id, o => o.name);
+            placeWrap.appendChild(row);
+            box.appendChild(placeWrap);
         }
 
         // The pillar's look, from the pillar model beside this frame. Its
@@ -3419,22 +3408,15 @@ function createPanel(opts) {
     }
 
     function selectBlock() {
-        const shell = blockShell('model', 'Model');
-        shell.value.remove();
-        const select = document.createElement('select');
-        select.id = 'param-model';
-        select.className = FIELD_CLS;
-        for (const entry of catalog) {
-            const opt = document.createElement('option');
-            opt.value = entry.id;
-            opt.textContent = entry.name;
-            select.appendChild(opt);
-        }
-        select.value = activeId_ || (catalog[0] && catalog[0].id);
-        select.addEventListener('change', e => onSelect && onSelect(e.target.value));
-        shell.wrap.appendChild(select);
-        live.selects.push(select);
-        return shell.wrap;
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.id = 'param-model';
+        wrap.appendChild(heading('Model'));
+        const { row } = chipRow(catalog, activeId_,
+            id => onSelect && onSelect(id),
+            e => e.id, e => e.name);
+        wrap.appendChild(row);
+        return wrap;
     }
 
     // The arrangement the frames and pillars are dropped into. "None" hands
@@ -3442,25 +3424,28 @@ function createPanel(opts) {
     function setBlock() {
         const wrap = document.createElement('div');
         wrap.className = 'mb-3';
+        // The id stays where the old select's consumers expect it.
+        wrap.id = 'param-set';
         wrap.appendChild(heading('Set'));
-        const select = document.createElement('select');
-        select.id = 'param-set';
-        select.className = FIELD_CLS;
-        const none = document.createElement('option');
-        none.value = '';
-        none.textContent = 'None (free placement)';
-        select.appendChild(none);
-        for (const s of sets) {
-            const opt = document.createElement('option');
-            opt.value = s.id;
-            opt.textContent = s.name;
-            select.appendChild(opt);
-        }
-        select.value = currentSet || '';
-        select.addEventListener('change', e => onSetChange && onSetChange(e.target.value));
-        live.selects.push(select);
-        setSelectRef = select;
-        wrap.appendChild(select);
+        const { row, btns } = chipRow(
+            [{ id: '', name: 'None (free placement)' }].concat(sets),
+            currentSet || '',
+            id => onSetChange && onSetChange(id),
+            s => s.id || '', s => s.name);
+        // applyLive drives the lit chip without a rebuild.
+        setSelectRef = {
+            // A real setter: applyLive assigns `.value`, the way it always
+            // drove the old <select>.
+            set value(v) {
+                const id = v || '';
+                for (const [cid, btn] of btns) {
+                    const on = cid === id;
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.className = chipCls(on);
+                }
+            }
+        };
+        wrap.appendChild(row);
         const hit0 = currentSet ? sets.find(s => s.id === currentSet) : null;
         const note = document.createElement('p');
         note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
@@ -3478,25 +3463,32 @@ function createPanel(opts) {
     // tap, and the room is also choosable on its own as chips underneath.
     // The two used to be twin rows in separate sections - same five items,
     // same job - so they share one heading now.
+    // One look for every choice row in the app: a modern inset chip, lit
+    // when active. SETs, models, rooms, pillar places - same face.
+    const chipCls = on => 'px-2.5 py-1.5 rounded-lg border text-xs transition-colors '
+        + (on
+            ? 'border-sky-500 ring-1 ring-sky-400 font-semibold bg-sky-50 dark:bg-sky-900/30'
+            : 'border-gray-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/70 '
+                + 'hover:border-sky-400 text-gray-600 dark:text-zinc-300');
+
     function chipRow(items, activeId, onPick, keyOf, labelOf) {
         const row = document.createElement('div');
         row.className = 'flex flex-wrap gap-2';
+        const btns = new Map();
         for (const item of items) {
             const id = keyOf(item);
             const btn = document.createElement('button');
             btn.type = 'button';
-            const on = id === activeId;
-            btn.className = 'px-2 py-1.5 rounded-lg border text-xs transition-colors '
-                + (on
-                    ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
-                    : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+            const on = id === (activeId || '');
+            btn.className = chipCls(on);
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
             btn.textContent = labelOf(item);
             btn.addEventListener('click', () => onPick(id));
             live.buttons.push(btn);
+            btns.set(id, btn);
             row.appendChild(btn);
         }
-        return row;
+        return { row, btns };
     }
 
     function lookBlock() {
@@ -3504,10 +3496,10 @@ function createPanel(opts) {
         wrap.className = 'mb-3';
         wrap.appendChild(heading('Look'));
         if (recipes.length > 1) {
-            const row = chipRow(recipes, currentRecipe,
+            const { row, btns } = chipRow(recipes, currentRecipe,
                 id => onRecipeChange && onRecipeChange(id),
                 r => r.id, r => r.name);
-            [...row.children].forEach((btn, i) => recipeBtns.set(recipes[i].id, btn));
+            for (const [id, btn] of btns) recipeBtns.set(id, btn);
             wrap.appendChild(row);
         }
         if (scenes.length > 1) {
@@ -3516,10 +3508,10 @@ function createPanel(opts) {
                 + 'tracking-wider text-gray-500 dark:text-zinc-400';
             lab.textContent = 'Room';
             wrap.appendChild(lab);
-            const row = chipRow(scenes, currentScene,
+            const { row, btns } = chipRow(scenes, currentScene,
                 id => onSceneChange && onSceneChange(id),
                 x => x.id, x => x.name);
-            [...row.children].forEach((btn, i) => sceneChips.set(scenes[i].id, btn));
+            for (const [id, btn] of btns) sceneChips.set(id, btn);
             wrap.appendChild(row);
         }
         return wrap;
