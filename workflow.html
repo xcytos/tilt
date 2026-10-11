@@ -183,9 +183,9 @@
 <div class="card">
     <h3>Pillars group <span class="pill">per frame &middot; hidden until Show</span></h3>
     <dl>
-        <dt>Does</dt><dd>One group per frame, gone while the frame has no pillars. The <strong>Show</strong> check turns 0&ndash;2 pillars on/off; inside: count stepper, place (Centre / Inner ends / Outer ends), and a <strong>Look</strong> gear with the pillar&rsquo;s own sliders. The pillar&rsquo;s old accordion section is gone - count, place and look are one subject.</dd>
-        <dt>Code</dt><dd><code>pillarsBlock(id)</code>; <code>setFramePillars(id, patch)</code> &rarr; <code>syncPillarsFor()</code> rebuilds <code>pillar:&lt;frameId&gt;</code> instances; look sliders emit against the pillar instances (both move together)</dd>
-        <dt>Doc</dt><dd><span class="pill doc">framePillars</span> + <span class="pill doc">presets</span> (pillar look)</dd>
+        <dt>Does</dt><dd>One group per frame, gone while the frame has no pillars. The <strong>Show</strong> check turns 0&ndash;2 pillars on/off; inside: count stepper, place (Centre / Inner ends / Outer ends), a <strong>Look</strong> gear, and <strong>Placement</strong> sliders (X / Depth / Turn) as free numbers on top of the anchor. The pillar&rsquo;s old accordion section is gone - count, place, look and placement are one subject.</dd>
+        <dt>Code</dt><dd><code>pillarsBlock(id)</code>; <code>setFramePillars(id, patch)</code> accepts <code>offset: {x, z, ry}</code> &rarr; <code>refreshPillarPlaces()</code> adds the offset to the derived anchor; look sliders emit against the pillar instances (both move together)</dd>
+        <dt>Doc</dt><dd><span class="pill doc">framePillars</span> (count, place, offset) + <span class="pill doc">presets</span> (pillar look)</dd>
         <dt>Relates</dt><dd>Inner ends put the complete pair at the gap-side stand (x &plusmn;1.5 at gap 3) even while the frame pans. Overlay rows re-capture pillar places between the two <code>applyPlaces()</code> passes so pillars travel with frames. Render skips pillar groups&rsquo; own sections entirely (<code>g.id !== PILLAR_ID</code>).</dd>
     </dl>
 </div>

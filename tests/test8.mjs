@@ -587,6 +587,13 @@ check("the pillar options live inside the frame's own Pillars group",
   && /framePillars: framePillarsPlain\(\)/.test(app)
   && /check\.checked = cfg\.count > 0/.test(panel)
   && /param-pillars-on/.test(panel));
+check('pillars take free placement on top of their anchor', (() => {
+  return /offset\.x \+ \(off\.x \|\| 0\)|spot\.x \+ \(off\.x \|\| 0\)/.test(app)
+    && /placeRangeBlock\(`pillar-pos-\$\{prop\}`/.test(panel)
+    && /offset: Object\.assign\(\{\}, off, \{ \[prop\]: v \}\)/.test(panel)
+    && /patch\.offset && typeof patch\.offset === 'object'/.test(app)
+    && /offset: \{/.test(read('js/project.js'));
+})());
 check("a pillar's look hides behind one gear inside Pillars",
   /function gearIcon\(/.test(panel) && /'Look'/.test(panel)
   && /emit\(\{ \[k\]: v \}, pg\.models\)/.test(panel));

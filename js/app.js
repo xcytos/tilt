@@ -341,12 +341,18 @@ function pillarKey(frameId) {
 }
 
 function framePillarsFor(id) {
-    return framePillars.get(id) || { count: 0, place: 'outer' };
+    const cfg = framePillars.get(id) || { count: 0, place: 'outer' };
+    return Object.assign({}, cfg, {
+        offset: cfg.offset || { x: 0, z: 0, ry: 0 }
+    });
 }
 
 function framePillarsPlain() {
-    return Object.fromEntries([...framePillars]
-        .map(([id, c]) => [id, { count: c.count, place: c.place }]));
+    return Object.fromEntries([...framePillars].map(([id, c]) => [id, {
+        count: c.count,
+        place: c.place,
+        offset: Object.assign({ x: 0, z: 0, ry: 0 }, c.offset || {})
+    }]));
 }
 
 async function syncPillarsFor(frameId) {
@@ -492,10 +498,17 @@ function refreshPillarPlaces() {
         const frames = mounted.get(frameId) || [];
         const cfg = framePillarsFor(frameId);
         const per = Math.max(0, Math.min(2, cfg.count)) || 1;
+        const off = cfg.offset || { x: 0, z: 0, ry: 0 };
         const arr = models.map((m, i) => {
             const frame = frames[Math.floor(i / per)] || frames[0] || null;
             const spot = derivePillarPlace(frame, cfg.place, i % per, per);
-            return { x: spot.x, z: spot.z, ry: 0 };
+            // The anchor first, then this frame's pillar offset - free
+            // numbers on top of where the pair stands by default.
+            return {
+                x: spot.x + (off.x || 0),
+                z: spot.z + (off.z || 0),
+                ry: off.ry || 0
+            };
         });
         const prev = savedPlaces.get(key);
         if (!prev || prev.length !== arr.length
@@ -845,16 +858,30 @@ function setFramePillars(id, patch) {
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     const cur = framePillarsFor(id);
     let count = cur.count, place = cur.place;
+    const offset = Object.assign({ x: 0, z: 0, ry: 0 }, cur.offset || {});
     if (patch.count !== undefined) {
         count = Math.max(0, Math.min(2, Math.round(Number(patch.count) || 0)));
     }
     if (patch.place !== undefined && ['centre', 'inner', 'outer'].includes(patch.place)) {
         place = patch.place;
     }
+    if (patch.offset && typeof patch.offset === 'object' && !Array.isArray(patch.offset)) {
+        const numv = (v, lo, hi) => Number.isFinite(Number(v))
+            ? Math.max(lo, Math.min(hi, Number(v))) : null;
+        for (const [axis, range] of [['x', [-200, 200]], ['z', [-200, 200]],
+            ['ry', [-360, 360]]]) {
+            if (patch.offset[axis] === undefined) continue;
+            const v = numv(patch.offset[axis], range[0], range[1]);
+            if (v !== null) offset[axis] = v;
+        }
+    }
     if (count === 1) place = 'centre';
     if (count === 2 && place === 'centre') place = 'outer';
-    if (count === cur.count && place === cur.place) return false;
-    framePillars.set(id, { count, place });
+    if (count === cur.count && place === cur.place
+        && offset.x === (cur.offset && cur.offset.x || 0)
+        && offset.z === (cur.offset && cur.offset.z || 0)
+        && offset.ry === (cur.offset && cur.offset.ry || 0)) return false;
+    framePillars.set(id, { count, place, offset });
     // A new count gets a fresh set of anchors.
     if (count !== cur.count) savedPlaces.delete(pillarKey(id));
     if (panel) panel.refresh({ framePillars: framePillarsPlain() }, true);
@@ -976,10 +1003,17 @@ if (savedDoc) {
             // A merged pair of old presets keeps the choice that was active.
             if (framePillars.has(target) && id !== savedDoc.activeId) continue;
             const count = Math.max(0, Math.min(2, Math.round(Number(v.count) || 0)));
+            const rawOff = v.offset && typeof v.offset === 'object'
+                && !Array.isArray(v.offset) ? v.offset : {};
             framePillars.set(target, {
                 count,
                 place: count === 1 ? 'centre'
-                    : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer')
+                    : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'),
+                offset: {
+                    x: Number.isFinite(Number(rawOff.x)) ? Number(rawOff.x) : 0,
+                    z: Number.isFinite(Number(rawOff.z)) ? Number(rawOff.z) : 0,
+                    ry: Number.isFinite(Number(rawOff.ry)) ? Number(rawOff.ry) : 0
+                }
             });
         }
     } else if (Number.isFinite(savedDoc.pillars)) {
@@ -991,7 +1025,10 @@ if (savedDoc) {
             : (registry.list[0] && registry.list[0].id);
         const count = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
         if (target && count) {
-            framePillars.set(target, { count, place: count === 1 ? 'centre' : 'outer' });
+            framePillars.set(target, {
+                count, place: count === 1 ? 'centre' : 'outer',
+                offset: { x: 0, z: 0, ry: 0 }
+            });
         }
     }
     // The active frame's own numbers win when two old presets merge into one.

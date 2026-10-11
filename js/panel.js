@@ -506,6 +506,34 @@ export function createPanel(opts) {
             box.appendChild(details);
         }
 
+        // Free numbers on top of the anchor: X / Depth / Turn for the pair,
+        // same compact tracks as the frame's own placement. The offset is
+        // added to wherever the place option puts them.
+        const posTitle = document.createElement('div');
+        posTitle.className = 'mt-1.5 mb-1 text-[10px] font-bold uppercase '
+            + 'tracking-wider text-gray-400 dark:text-zinc-500';
+        posTitle.textContent = 'Placement';
+        box.appendChild(posTitle);
+        const off = cfg.offset || { x: 0, z: 0, ry: 0 };
+        for (const [label, prop, min, max, step, unit] of [
+            ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Depth', 'z', -40, 40, 0.5, ' ft'],
+            ['Turn', 'ry', -90, 90, 1, '°']
+        ]) {
+            const built = placeRangeBlock(`pillar-pos-${prop}`, label, prop,
+                off[prop] || 0, min, max, step, unit);
+            built.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                built.value.textContent = fmt(v, unit);
+                onFramePillarsChange && onFramePillarsChange(id, {
+                    offset: Object.assign({}, off, { [prop]: v })
+                });
+            });
+            live.selects.push(built.input);
+            box.appendChild(built.wrap);
+        }
+
         wrap.appendChild(box);
         return wrap;
     }

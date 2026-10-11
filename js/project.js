@@ -114,9 +114,16 @@ function cleanFramePillars(raw) {
     for (const [id, v] of Object.entries(raw)) {
         if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(id)
             || !v || typeof v !== 'object' || Array.isArray(v)) continue;
+        const rawOff = v.offset && typeof v.offset === 'object' && !Array.isArray(v.offset)
+            ? v.offset : {};
         out[id] = {
             count: Math.round(clampN(v.count, 0, 2, 0)),
-            place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'
+            place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
+            offset: {
+                x: clampN(rawOff.x, -200, 200, 0),
+                z: clampN(rawOff.z, -200, 200, 0),
+                ry: clampN(rawOff.ry, -360, 360, 0)
+            }
         };
         keys++;
     }
