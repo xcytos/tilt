@@ -190,13 +190,10 @@ export function createPanel(opts) {
             inner = root;
         }
 
-        const isPillar = group.id === PILLAR_ID;
         const rows = {};
         const normalToggles = [];
         const advancedRanges = [];
         const advancedToggles = [];
-        const gearRanges = [];
-        const gearToggles = [];
 
         // Renders one control and wires it to `emit`, so the schema stays the
         // only source of truth for what the panel shows.
@@ -221,12 +218,7 @@ export function createPanel(opts) {
 
         if (schema && schema.params) {
             for (const [k, p] of Object.entries(schema.params)) {
-                // A pillar's look lives behind one settings icon; everything
-                // else is laid out plainly. The pillar is configured through
-                // its frame's section - count and place - never by numbers.
-                if (isPillar) {
-                    (p.type === 'range' ? gearRanges : gearToggles).push([k, p]);
-                } else if (p.advanced) {
+                if (p.advanced) {
                     (p.type === 'range' ? advancedRanges : advancedToggles)
                         .push([k, p]);
                 } else if (p.type === 'range') {
@@ -249,11 +241,9 @@ export function createPanel(opts) {
             }
         }
 
-        // One gear per section: the pillar's look and the frame's advanced
-        // numbers used to be two dashed boxes with the same face - one
-        // Settings group carries both, labelled inside.
-        if (gearRanges.length || gearToggles.length
-            || advancedRanges.length || advancedToggles.length) {
+        // One gear per frame section: the advanced numbers only. The
+        // pillar's look moved into the frame's Pillars group below.
+        if (advancedRanges.length || advancedToggles.length) {
             const details = document.createElement('details');
             details.className = 'mt-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -263,59 +253,36 @@ export function createPanel(opts) {
             summary.append(gearIcon(), document.createTextNode('Settings'));
             const gearBody = document.createElement('div');
             gearBody.className = 'px-2 pb-2';
-            const sub = text => {
-                const el = document.createElement('div');
-                el.className = 'mt-1 mb-0.5 text-[10px] font-bold uppercase '
-                    + 'tracking-wider text-gray-400 dark:text-zinc-500';
-                el.textContent = text;
-                return el;
-            };
-            if (gearRanges.length || gearToggles.length) {
-                gearBody.appendChild(sub('Pillars'));
-                for (const [k, p] of gearRanges) gearBody.appendChild(addRange(k, p));
-                if (gearToggles.length) {
-                    const row = document.createElement('div');
-                    row.className = 'flex flex-wrap gap-4 pt-1';
-                    for (const [k, p] of gearToggles) row.appendChild(addToggle(k, p));
-                    gearBody.appendChild(row);
-                }
-            }
-            if (advancedRanges.length || advancedToggles.length) {
-                if (gearRanges.length || gearToggles.length) {
-                    gearBody.appendChild(sub('Frame'));
-                }
-                for (const [k, p] of advancedRanges) gearBody.appendChild(addRange(k, p));
-                if (advancedToggles.length) {
-                    const row = document.createElement('div');
-                    row.className = 'flex flex-wrap gap-4 pt-1';
-                    for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
-                    gearBody.appendChild(row);
-                }
+            for (const [k, p] of advancedRanges) gearBody.appendChild(addRange(k, p));
+            if (advancedToggles.length) {
+                const row = document.createElement('div');
+                row.className = 'flex flex-wrap gap-4 pt-1';
+                for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
+                gearBody.appendChild(row);
             }
             details.append(summary, gearBody);
             inner.appendChild(details);
         }
 
-        // Position: where THIS frame instance stands - numbers, not
-        // dragging. Pillars never appear here: they follow their frame.
-        if (!isPillar) {
-            // Position and pillar placement are one subject - where this
-            // frame's pieces stand - so they share one Placement group.
-            const placement = document.createElement('details');
-            placement.className = 'mt-3 rounded-md border border-dashed '
-                + 'border-gray-300 dark:border-zinc-600';
-            const psum = document.createElement('summary');
-            psum.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-            psum.textContent = 'Placement';
-            const pbody = document.createElement('div');
-            pbody.className = 'px-2 pb-2';
-            const place = (currentPlaces[key] || [])[idx];
-            if (place) pbody.appendChild(positionBlock(key, idx, place));
-            pbody.appendChild(framePillarsBlock(key));
-            placement.append(psum, pbody);
-            inner.appendChild(placement);
-        }
+        // Position: where THIS frame instance stands - numbers, not dragging.
+        const placement = document.createElement('details');
+        placement.className = 'mt-3 rounded-md border border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+        const psum = document.createElement('summary');
+        psum.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+            + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+        psum.textContent = 'Placement';
+        const pbody = document.createElement('div');
+        pbody.className = 'px-2 pb-2';
+        const place = (currentPlaces[key] || [])[idx];
+        if (place) pbody.appendChild(positionBlock(key, idx, place));
+        placement.append(psum, pbody);
+        inner.appendChild(placement);
+
+        // Pillars: one group per frame, gone until the frame has some.
+        // Count, place and the pillar's look all live here - the pillar's
+        // own accordion section no longer exists.
+        inner.appendChild(pillarsBlock(key));
 
         const sec = { key, targets, rows, root };
         sections.push(sec);
@@ -392,20 +359,45 @@ export function createPanel(opts) {
         return svg;
     }
 
-    // This frame's own pillars: how many stand beside it (0-2, per instance)
-    // and where the pair anchors - the centre of its O2, the outer ends of
-    // its modules, or the complete inner ends beside the gap.
-    function framePillarsBlock(id) {
+    // This frame's own pillars, as one group that only exists while the
+    // frame has any: the check, the count (1-2), where the pair anchors,
+    // and the pillar's look - which used to be a whole accordion section
+    // of its own. Count, place and look are one subject: pillars.
+    function pillarsBlock(id) {
         const cfg = currentFramePillars[id] || { count: 0, place: 'outer' };
         const wrap = document.createElement('div');
-        wrap.className = 'mt-3 pt-2 border-t border-dashed '
-            + 'border-gray-300 dark:border-zinc-600';
+        wrap.className = 'mt-3';
 
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between';
         const title = document.createElement('div');
         title.className = 'text-[11px] font-semibold uppercase tracking-wider '
-            + 'text-gray-500 dark:text-zinc-400 mb-1';
+            + 'text-gray-500 dark:text-zinc-400';
         title.textContent = 'Pillars';
-        wrap.appendChild(title);
+        head.appendChild(title);
+
+        const check = document.createElement('input');
+        check.type = 'checkbox';
+        check.id = 'param-pillars-on';
+        check.className = 'w-4 h-4 accent-sky-500 cursor-pointer';
+        check.checked = cfg.count > 0;
+        check.addEventListener('change', e => {
+            onFramePillarsChange && onFramePillarsChange(id,
+                { count: e.target.checked ? Math.max(1, cfg.count) : 0 });
+        });
+        live.checks.push(check);
+        const lab = document.createElement('label');
+        lab.className = 'flex items-center gap-2 text-xs cursor-pointer '
+            + 'text-gray-600 dark:text-zinc-300';
+        lab.append(check, document.createTextNode('Show'));
+        head.appendChild(lab);
+        wrap.appendChild(head);
+
+        if (cfg.count === 0) return wrap;
+
+        const box = document.createElement('div');
+        box.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
 
         const row = document.createElement('div');
         row.className = 'flex items-center gap-2';
@@ -430,7 +422,7 @@ export function createPanel(opts) {
         value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
         value.textContent = String(cfg.count);
         row.append(step(-1), value, step(1));
-        wrap.appendChild(row);
+        box.appendChild(row);
 
         if (cfg.count > 0) {
             const placeSel = document.createElement('select');
@@ -454,8 +446,39 @@ export function createPanel(opts) {
             });
             placeSel.style.marginTop = '0.5rem';
             live.selects.push(placeSel);
-            wrap.appendChild(placeSel);
+            box.appendChild(placeSel);
         }
+
+        // The pillar's look, from the pillar model beside this frame. Its
+        // sliders emit against the pillar instances, so both pillars move
+        // together - same as the old standalone section.
+        const pg = currentGroups.find(g => g.id === PILLAR_ID && g.owner === id);
+        const pm = pg && pg.models && pg.models[0];
+        if (pm && pm.params) {
+            const details = document.createElement('details');
+            details.className = 'mt-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            summary.append(gearIcon(), document.createTextNode('Look'));
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'px-2 pb-2';
+            for (const [k, p] of Object.entries(pm.params)) {
+                if (p.type !== 'range') continue;
+                const built = rangeBlock(`pillar-${k}`, p, pm.state[k]);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    built.value.textContent = fmt(v, p.unit);
+                    emit({ [k]: v }, pg.models);
+                });
+                bodyEl.appendChild(built.wrap);
+            }
+            details.append(summary, bodyEl);
+            box.appendChild(details);
+        }
+
+        wrap.appendChild(box);
         return wrap;
     }
 
@@ -812,10 +835,11 @@ export function createPanel(opts) {
         } else if (catalog.length > 1) {
             host.appendChild(selectBlock());
         }
-        // Every group on stage gets a section - the frame (with its own
-        // pillar options), then each pillar with its look behind a gear.
-        currentGroups.forEach((g, i) => host.appendChild(
-            section(g, currentGroups.length > 1, i === 0)));
+        // Frame groups get sections; pillars ride inside their frame's
+        // Pillars group, so they never get a section of their own.
+        const frameGroups = currentGroups.filter(g => g.id !== PILLAR_ID);
+        frameGroups.forEach((g, i) => host.appendChild(
+            section(g, frameGroups.length > 1, i === 0)));
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
         if (subEl) {

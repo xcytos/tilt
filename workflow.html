@@ -176,24 +176,24 @@
         <dt>Does</dt><dd>X / Depth / Turn numbers for this one frame instance (no dragging).</dd>
         <dt>Code</dt><dd><code>setPlace(key, index, patch)</code> &rarr; <code>savedPlaces</code> &rarr; <code>applyPlaces()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">places</span></dd>
-        <dt>Relates</dt><dd>Position numbers and the pillar count/place share one <strong>Placement</strong> details group - one subject, one box. Free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillar keys are refused here &mdash; pillars follow frames.</dd>
+        <dt>Relates</dt><dd>Position holds only this frame&rsquo;s numbers; free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillars are their own group below &mdash; one subject, one box each.</dd>
     </dl>
 </div>
 
 <div class="card">
-    <h3>Settings gear <span class="pill">per frame</span></h3>
+    <h3>Pillars group <span class="pill">per frame &middot; hidden until Show</span></h3>
     <dl>
-        <dt>Does</dt><dd>0&ndash;2 pillars beside this frame, anchored Centre / Inner ends / Outer ends.</dd>
-        <dt>Code</dt><dd><code>setFramePillars(id, patch)</code> &rarr; <code>syncPillarsFor()</code> rebuilds <code>pillar:&lt;frameId&gt;</code> instances</dd>
-        <dt>Doc</dt><dd><span class="pill doc">framePillars</span></dd>
-        <dt>Relates</dt><dd>Inner ends put the complete pair at the gap-side stand (x &plusmn;1.5 at gap 3) even while the frame pans. Overlay rows re-capture pillar places between the two <code>applyPlaces()</code> passes so pillars travel with frames.</dd>
+        <dt>Does</dt><dd>One group per frame, gone while the frame has no pillars. The <strong>Show</strong> check turns 0&ndash;2 pillars on/off; inside: count stepper, place (Centre / Inner ends / Outer ends), and a <strong>Look</strong> gear with the pillar&rsquo;s own sliders. The pillar&rsquo;s old accordion section is gone - count, place and look are one subject.</dd>
+        <dt>Code</dt><dd><code>pillarsBlock(id)</code>; <code>setFramePillars(id, patch)</code> &rarr; <code>syncPillarsFor()</code> rebuilds <code>pillar:&lt;frameId&gt;</code> instances; look sliders emit against the pillar instances (both move together)</dd>
+        <dt>Doc</dt><dd><span class="pill doc">framePillars</span> + <span class="pill doc">presets</span> (pillar look)</dd>
+        <dt>Relates</dt><dd>Inner ends put the complete pair at the gap-side stand (x &plusmn;1.5 at gap 3) even while the frame pans. Overlay rows re-capture pillar places between the two <code>applyPlaces()</code> passes so pillars travel with frames. Render skips pillar groups&rsquo; own sections entirely (<code>g.id !== PILLAR_ID</code>).</dd>
     </dl>
 </div>
 
 <div class="card">
     <h3>Theme (footer)</h3>
     <dl>
-        <dt>Does</dt><dd>Light/dark room. Pole walls and sleeve height live in the frame&rsquo;s Settings gear now, beside the pillar look - one gear, not two.</dd>
+        <dt>Does</dt><dd>Light/dark room. Pole walls and sleeve height live in the frame&rsquo;s Settings gear; the pillar&rsquo;s look lives in the frame&rsquo;s Pillars group.</dd>
         <dt>Code</dt><dd>params path; <code>onThemeChange</code> &rarr; <code>viewer.setTheme()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">presets</span> <span class="pill doc">view.theme</span></dd>
         <dt>Relates</dt><dd>Theme sets a default fabric; your colour re-applies right after (<code>applyColorway</code> post-theme), so a palette or dial choice survives dark mode.</dd>
@@ -274,7 +274,7 @@
         <tr><td><code>layout</code></td><td>active SET (or null = free)</td><td>SET row, Looks</td></tr>
         <tr><td><code>setPresets</code></td><td>the four shape sliders, per SET</td><td>sliders while a SET is active</td></tr>
         <tr><td><code>presets</code></td><td>all slider values, per model id</td><td>any params change</td></tr>
-        <tr><td><code>framePillars</code></td><td>count + place per frame</td><td>pillar gear</td></tr>
+        <tr><td><code>framePillars</code></td><td>count + place per frame</td><td>Pillars group (Show + Look gear)</td></tr>
         <tr><td><code>places</code></td><td>X/Depth/Turn per frame</td><td>position blocks, SET drawings</td></tr>
         <tr><td><code>scene</code></td><td>the room</td><td>scene row, Looks</td></tr>
         <tr><td><code>colorway</code>, <code>fabricColor</code>, <code>extraColors</code></td><td>palette, dial override, saved swatches</td><td>chips, dial, Add colour</td></tr>

@@ -582,12 +582,16 @@ check('two pillars can also stand at the opposite ends beside the gap',
   /place === 'inner'/.test(app) && /innerLeft/.test(app) && /innerRight/.test(app)
   && /i === 0 \? ends\.innerLeft : ends\.innerRight/.test(app)
   && /param-pillars-place/.test(panel) && /onFramePillarsChange: guard\(/.test(app));
-check("the pillar options live inside the frame's own section",
-  /function framePillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
-  && /framePillars: framePillarsPlain\(\)/.test(app));
-check("a pillar's look hides behind a settings icon",
-  /function gearIcon\(/.test(panel) && /'Settings'/.test(panel)
-  && /gearRanges/.test(panel));
+check("the pillar options live inside the frame's own Pillars group",
+  /function pillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
+  && /framePillars: framePillarsPlain\(\)/.test(app)
+  && /check\.checked = cfg\.count > 0/.test(panel)
+  && /param-pillars-on/.test(panel));
+check("a pillar's look hides behind one gear inside Pillars",
+  /function gearIcon\(/.test(panel) && /'Look'/.test(panel)
+  && /emit\(\{ \[k\]: v \}, pg\.models\)/.test(panel));
+check('pillars have no accordion section of their own',
+  /g\.id !== PILLAR_ID/.test(panel));
 check('pillars travel with their frame through the All-at-once row',
   /applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);/.test(app)
   && /for \(const k of presets\)/.test(app)
@@ -598,18 +602,20 @@ check('your numbers reach the document and come back',
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));
-check('position and pillar placement share one Placement group', (() => {
+check('Placement holds only position; Pillars is its own group', (() => {
   return /textContent = 'Placement'/.test(panel)
     && /positionBlock\(key, idx, place\)/.test(panel)
-    && /framePillarsBlock\(key\)/.test(panel);
+    && /inner\.appendChild\(pillarsBlock\(key\)\)/.test(panel)
+    && !/framePillarsBlock/.test(panel);
 })());
 check('Looks and Room are one section, not twin rows', (() => {
   return /host\.appendChild\(lookBlock\(\)\)/.test(panel)
     && !/host\.appendChild\(recipesBlock\(\)\)/.test(panel)
     && !/host\.appendChild\(sceneBlock\(\)\)/.test(panel);
 })());
-check('every group on stage gets a section, pillars included',
-  /currentGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel)
+check('frame groups get sections; pillars ride inside their frame',
+  /frameGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel)
+  && /g\.id !== PILLAR_ID/.test(panel)
   && /total: pillars\.length, owner: id/.test(app));
 
 check('panel offers the reset button', /onReset/.test(panel)
