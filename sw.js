@@ -1,7 +1,7 @@
 // TILT offline shell. The app is a static shell over a local SQLite API, so
 // the worker caches the pages, modules and icons only - never /api/ answers
 // or project.json, which are state and must always come from the server.
-const VERSION = 'tilt-v1';
+const VERSION = 'tilt-v2';
 const SHELL = [
     '/',
     '/index.html',
@@ -52,7 +52,24 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Static assets: cache first, refreshed in the background.
+    // Scripts and model data: network first. Cache-first was serving stale
+    // js/*.js after every fix - the browser kept running the old app while
+    // the update waited in the background. The cache only stands in when
+    // the server or the connection is gone.
+    if (/\.(js|json|webmanifest)$/.test(url.pathname)) {
+        event.respondWith(
+            fetch(req).then(res => {
+                if (res && res.ok) {
+                    const copy = res.clone();
+                    caches.open(VERSION).then(c => c.put(req, copy)).catch(() => {});
+                }
+                return res;
+            }).catch(() => caches.match(req))
+        );
+        return;
+    }
+
+    // Icons and pictures: cache first, refreshed in the background.
     event.respondWith(
         caches.match(req).then(hit => {
             const fresh = fetch(req).then(res => {

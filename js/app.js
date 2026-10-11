@@ -714,6 +714,7 @@ async function syncScene(forcePanel = false) {
         // numbers in place - a SET tap is a state change, not a reload.
         const shaped = applySetParams(layoutId);
         if (shaped) {
+            console.info('[set]', layoutId, shaped);
             // The shape must land on the geometry NOW, not on the next
             // slider nudge: rebuild the dirty models in place. (Slider
             // drags still rebuild per frame through scheduleRebuild.)
@@ -819,6 +820,7 @@ function setLayout(id) {
     const next = id && layoutById(id) ? id : null;
     if (next === layoutId) return false;
     layoutId = next;
+    stage('set:' + (next || 'free'));
     // Switching a SET re-derives the frames' coordinates from the new
     // drawing - that is what switching means. Pillars have no numbers of
     // their own; they follow each frame to its new anchor.

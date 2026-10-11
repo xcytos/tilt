@@ -159,6 +159,12 @@ check('the worker caches the shell but never the project state', (() => {
   return /\/api\//.test(sw) && /project\.json/.test(sw)
     && /caches\.open/.test(sw) && /'\/'/.test(sw);
 })());
+check('scripts go network-first - a fix must reach the browser on reload', (() => {
+  const sw = read('sw.js');
+  return /\\.\(js\|json\|webmanifest\)\$/.test(sw)
+    && /fetch\(req\)\.then/.test(sw)
+    && /VERSION = 'tilt-v2'/.test(sw);
+})());
 check('the server serves a webmanifest and watches the PWA files',
   /\.webmanifest/.test(serveSrc) && /'sw\.js'/.test(serveSrc)
   && /icon-192\.png/.test(serveSrc));
