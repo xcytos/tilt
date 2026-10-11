@@ -9,6 +9,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 8080);
 const PROJECT_FILE = path.join(ROOT, 'project.json');
+// The same string the panel footer shows - read from js/version.js so the
+// log and the UI can never name two different builds.
+const VERSION = (() => {
+    try {
+        const src = fs.readFileSync(path.join(ROOT, 'js/version.js'), 'utf8');
+        return /VERSION\s*=\s*'([^']+)'/.exec(src)[1] || 'dev';
+    } catch { return 'dev'; }
+})();
 const MAX_BODY = 128 * 1024;
 
 // Anything that feeds the bundle, the homepage or either shell triggers a
@@ -247,7 +255,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 server.listen(PORT, HOST, () => {
-    console.log(`TILT viewer serving ${ROOT}`);
+    console.log(`TILT v${VERSION} serving ${ROOT}`);
     console.log(`  http://localhost:${PORT}/`);
     console.log(`  http://localhost:${PORT}/TILT.html`);
     console.log(`  http://localhost:${PORT}/TILT.standalone.html`);

@@ -12,6 +12,7 @@ export const ORDER = [
     'js/colorways.js',
     'js/recipes.js',
     'js/project.js',
+    'js/version.js',
     'js/registry.js',
     'js/objects/o2tilt.js',
     'js/objects/pillar.js',

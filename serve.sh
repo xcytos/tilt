@@ -5,6 +5,7 @@
 #   bash serve.sh restart
 #   bash serve.sh status
 #   bash serve.sh logs
+#   bash serve.sh backup  snapshot data/o2tilt.db into data/backups/
 #   PORT=8090 bash serve.sh  use a different port
 set -uo pipefail
 
@@ -116,11 +117,16 @@ logs() {
     if [ -f "$LOG" ]; then tail -n 50 "$LOG"; else echo "no log yet"; fi
 }
 
+backup() {
+    python3 "$ROOT/tools/backup.py"
+}
+
 case "${1:-start}" in
     start)   start ;;
     stop)    stop ;;
     restart) stop; start ;;
     status)  status ;;
     logs)    logs ;;
-    *)       echo "usage: bash serve.sh [start|stop|restart|status|logs]"; exit 2 ;;
+    backup)  backup ;;
+    *)       echo "usage: bash serve.sh [start|stop|restart|status|logs|backup]"; exit 2 ;;
 esac

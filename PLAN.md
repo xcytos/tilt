@@ -223,6 +223,38 @@ the homepage needs no bundling, so it lives in `home/` and that invariant stays 
 
 ---
 
+## MVP refinement rounds (commits dc9c948 … M5)
+
+- **M1 — merge the duplicates** (`dc9c948`): Classic + Slope fold into one preset,
+  **S Curve** (internal id `o2tilt` kept, so nothing on disk rewrites); Arc keeps its
+  swung rail as its own object, **S Curve Arc**. Divided Entrance (±15°) merges into
+  Classic Symmetry, re-angled to a symmetric ±10° — five sets remain. Old documents
+  remap on load: Classic/Slope ids → S Curve (the active frame's places, pillars and
+  sliders win when both existed), divided-entrance → classic-symmetry.
+- **M2 — colorways** (`721b61b`): five fabric palettes from the boards (Ivory /
+  Champagne, Blush, Sage, Royal Navy, Midnight Luxe) as a Colorway row; one tap
+  recolours every curtain on stage, validated `colorway` id rides in the document.
+  `js/colorways.js` is pure data; the recolour runs after the theme because setTheme
+  resets the fabric colour.
+- **M3 — Looks** (`7fc654f`): five one-tap recipes (SET + room + palette) in a Looks
+  row above the individual controls. A Look is never stored of its own — the project
+  remembers it through the three fields the tap writes, and the chip matching the
+  current combination lights up. `js/recipes.js` is pure data.
+- **M4 — PWA** (`f4fa218`): `manifest.webmanifest` + navy/gold PNG icons, `sw.js`
+  (navigations network-first, static cache-first, `/api/` and `project.json` never
+  intercepted), Install TILT banner via beforeinstallprompt, viewport-fit=cover on
+  the editor, `.webmanifest` MIME + WATCHED entries. Registration only over http(s).
+- **M5 — launch hardening**: one version string (`js/version.js`) in the panel footer
+  and the server's start-up line; `bash serve.sh backup` snapshots the database
+  through sqlite's backup API into `data/backups/` (WAL checkpointed into the copy,
+  newest ten kept).
+
+## v2 direction (recorded, not built)
+
+- **Gamified SaaS page**: the ticket-style launch page (streaks, tiers, referral
+  rewards) is a *marketing direction* for v2 — the current stack stays a local-first
+  planner. Sketch before building; nothing here ships until the editor is in hands.
+
 ## Verification (no browser here — node only)
 
 - `tests/test9.mjs` — store unit + API integration (spawned server, `DB_PATH` in a

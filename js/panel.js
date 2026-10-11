@@ -1,4 +1,5 @@
 import { PILLAR_ID } from './objects/pillar.js';
+import { VERSION } from './version.js';
 
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
 const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
@@ -619,12 +620,19 @@ export function createPanel(opts) {
         themeInput = theme.input;
         footer.appendChild(theme.wrap);
 
+        const stamp = document.createElement('span');
+        stamp.className = 'ml-auto text-[10px] text-gray-400 dark:text-zinc-500 '
+            + 'select-none';
+        stamp.textContent = 'TILT v' + VERSION;
+        stamp.title = 'Build version';
+        footer.appendChild(stamp);
+
         if (onReset) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = 'Reset project';
             btn.title = 'Forget every saved setting and start from the defaults';
-            btn.className = 'ml-auto text-[11px] px-2 py-1 rounded border '
+            btn.className = 'text-[11px] px-2 py-1 rounded border '
                 + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
                 + 'hover:text-red-600 hover:border-red-400 transition-colors';
             btn.addEventListener('click', () => onReset());

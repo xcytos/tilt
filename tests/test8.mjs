@@ -436,6 +436,11 @@ check('the Looks reach the panel and one tap writes all three fields',
   && /onRecipeChange: guard\(/.test(app) && /recipes: RECIPES/.test(app)
   && /recipesBlock\(\)/.test(panel) && /onRecipeChange/.test(panel)
   && /recipe: recipeState\(\)/.test(app));
+check('the build carries one version, in the footer and the log',
+  /'js\/version\.js'/.test(build) && /export const VERSION = '[^']+'/.test(
+    fs.readFileSync(path.join(DECOR, 'js/version.js'), 'utf8'))
+  && /TILT v' \+ VERSION/.test(panel)
+  && /js\/version\.js/.test(fs.readFileSync(path.join(DECOR, 'tools/serve.mjs'), 'utf8')));
 check('the fabric palette reaches the panel and the stage',
   /'js\/colorways\.js'/.test(build) && /colorway: colorwayId/.test(app)
   && /function applyColorway\(/.test(app) && /function setColorway\(/.test(app)

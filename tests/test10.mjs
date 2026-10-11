@@ -115,6 +115,21 @@ check('the grid reflows from one column upwards', /minmax\(152px, 1fr\)/.test(ho
 check('the action sheet rises from the bottom', /slide-up/.test(homeCss));
 
 // --------------------------------------------------------------- 5. editor
+console.log('\nlaunch: version stamp and database backup');
+check('serve.sh offers a backup beside start/stop/status/logs', (() => {
+  const sh = read('serve.sh');
+  return /backup\)/.test(sh) && /tools\/backup\.py/.test(sh)
+    && /\[start\|stop\|restart\|status\|logs\|backup\]/.test(sh);
+})());
+check('the backup copies through sqlite, keeps ten, never opens the live file',
+  (() => {
+    const py = read('tools/backup.py');
+    return /src\.backup\(out\)/.test(py) && /kept\[:-10\]/.test(py)
+      && /os\.environ\.get\('DB_PATH'\)/.test(py);
+  })());
+check('the server announces the same version as the panel',
+  /TILT v\$\{VERSION\} serving/.test(serveSrc));
+
 console.log('\neditor: the project bar in TILT.html');
 const shell = read('TILT.html');
 
