@@ -480,6 +480,29 @@ check('a saved RGB colour survives, junk drops to the palette', (() => {
   const r = proj.parseProject(JSON.stringify({ fabricColor: 9e99 }));
   return p.fabricColor === 0x123456 && q.fabricColor === null && r.fabricColor === null;
 })());
+check('saved swatches survive, junk and overflow drop', (() => {
+  const p = proj.parseProject(JSON.stringify({ extraColors: [
+    { id: 'custom-c8e8d5', name: '#c8e8d5', fabric: 0xc8e8d5 },
+    { id: 'BAD ID', name: 'x', fabric: 1 },
+    { id: 'custom-empty', name: '   ', fabric: 2 },
+    { id: 'custom-oob', name: 'far', fabric: 9e99 },
+    { id: 'custom-c8e8d5', name: 'dupe', fabric: 3 }
+  ].concat(Array.from({ length: 20 }, (_, i) => (
+    { id: 'custom-' + i, name: 'n' + i, fabric: i }))) }));
+  return p.extraColors.length === 12
+    && p.extraColors[0].id === 'custom-c8e8d5' && p.extraColors[0].fabric === 0xc8e8d5
+    && p.extraColors[1].id === 'custom-0'
+    && p.extraColors.every(c => /^[a-z0-9-]+$/.test(c.id) && c.name);
+})());
+check('Add colour appends a swatch and never edits the boards', (() => {
+  const a = fs.readFileSync(path.join(DECOR, 'js/app.js'), 'utf8');
+  const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
+  return /function addFabricColor\(/.test(a) && /extraColors = extraColors\.concat/.test(a)
+    && /extraColors: extraColors\.slice\(\)/.test(a)
+    && /onAddColor: guard\(/.test(a)
+    && /Add colour/.test(p) && /onAddColor && onAddColor\(\)/.test(p)
+    && !/COLORWAYS\s*=/.test(a);
+})());
 check('the RGB dial lives under Curtains, not in its own row', (() => {
   const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
   return /schema\.params\.fabric/.test(p) && /function fabricBlock\(/.test(p)
@@ -489,8 +512,9 @@ check('the RGB dial lives under Curtains, not in its own row', (() => {
 check('a custom colour reaches the stage, and a Look or chip clears it',
   /function setFabricColor\(/.test(app) && /fabricHex\(\)/.test(app)
   && /fabricColor: fabricColor/.test(app)
-  && /fabricColor = null;\n    applyColorway\(\)/.test(app)
-  && /fabricColor = null;\n    layoutId = null;/.test(app));
+  && /fabricColor = nextFabric;/.test(app)
+  && /colorwayId = r\.colorway;\n    fabricColor = null;/.test(app)
+  && /fabricColor = null;\n    extraColors = \[\];/.test(app));
 check('the SET write-through never reaches outside the instance loop', (() => {
   const handler = app.slice(app.indexOf('onParamsChange:'), app.indexOf('onThemeChange:'));
   const after = handler.slice(handler.indexOf('if (layoutId && Object.keys(shaped)'));

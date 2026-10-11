@@ -49,6 +49,14 @@ let colorwayId = DEFAULT_COLORWAY;
 // is tapped again. null means "use the palette".
 let fabricColor = null;
 
+// Swatches you saved yourself with Add colour - appended after the boards,
+// never replacing them.
+let extraColors = [];
+
+function allFabrics() {
+    return COLORWAYS.concat(extraColors);
+}
+
 // What the stage is actually wearing.
 function fabricHex() {
     if (Number.isFinite(fabricColor)) return fabricColor;
@@ -107,6 +115,7 @@ function buildDoc() {
         scene: sceneId,
         colorway: colorwayId,
         fabricColor: fabricColor,
+        extraColors: extraColors.slice(),
         layout: layoutId,
         pillars: framePillarsPlain(),
         places: Object.fromEntries([...savedPlaces]
@@ -554,14 +563,50 @@ function applyColorway() {
 }
 
 function setColorway(id) {
-    const next = colorwayById(id) ? id : DEFAULT_COLORWAY;
-    if (next === colorwayId && fabricColor === null) return false;
-    colorwayId = next;
-    fabricColor = null;
+    // Board palettes clear the dial; your own swatches wear their colour.
+    const extra = extraColors.find(c => c.id === id);
+    const board = colorwayById(id);
+    if (!board && !extra) return false;
+    const nextFabric = extra ? extra.fabric : null;
+    if (board && board.id === colorwayId && fabricColor === null) return false;
+    if (extra && fabricColor === nextFabric) return false;
+    if (board) colorwayId = board.id;
+    fabricColor = nextFabric;
     applyColorway();
     if (panel) {
         panel.refresh({
             colorway: colorwayId, fabricColor: fabricColor, recipe: recipeState()
+        }, true);
+    }
+    scheduleSave();
+    return true;
+}
+
+// Add colour: keep the dialled colour as a new swatch. The five board
+// palettes are never edited - the list only grows after them.
+function addFabricColor() {
+    const hex = fabricHex();
+    if (!Number.isFinite(hex)) return false;
+    const existing = allFabrics().find(c => c.fabric === hex);
+    if (existing) {
+        // Already on a chip - make sure it is the one being worn.
+        if (fabricColor !== hex) {
+            fabricColor = hex;
+            applyColorway();
+            scheduleSave();
+        }
+        return false;
+    }
+    const tag = hex.toString(16).padStart(6, '0');
+    const id = 'custom-' + tag;
+    if (extraColors.some(c => c.id === id)) return false;
+    extraColors = extraColors.concat({ id, name: '#' + tag, fabric: hex });
+    fabricColor = hex;
+    applyColorway();
+    if (panel) {
+        panel.refresh({
+            colorways: allFabrics(), colorway: colorwayId,
+            fabricColor: fabricColor, recipe: recipeState()
         }, true);
     }
     scheduleSave();
@@ -683,6 +728,7 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 colorway: colorwayId,
+                colorways: allFabrics(),
                 fabricColor: fabricColor,
                 recipe: recipeState(),
                 set: layoutId,
@@ -813,6 +859,7 @@ async function resetProject() {
     viewer.setScene(sceneId);
     colorwayId = DEFAULT_COLORWAY;
     fabricColor = null;
+    extraColors = [];
     layoutId = null;
     framePillars.clear();
 
@@ -893,6 +940,7 @@ if (savedDoc) {
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
     if (colorwayById(savedDoc.colorway)) colorwayId = savedDoc.colorway;
     if (Number.isFinite(savedDoc.fabricColor)) fabricColor = savedDoc.fabricColor;
+    if (Array.isArray(savedDoc.extraColors)) extraColors = savedDoc.extraColors.slice();
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
     if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
         && !Array.isArray(savedDoc.pillars)) {
@@ -986,9 +1034,10 @@ panel = createPanel({
     activeId,
     scenes: SCENES,
     scene: sceneId,
-    colorways: COLORWAYS,
+    colorways: allFabrics(),
     colorway: colorwayId,
     fabricColor: fabricColor,
+    onAddColor: guard(() => addFabricColor()),
     recipes: RECIPES,
     recipe: recipeState(),
     sets: LAYOUTS,
@@ -1149,7 +1198,7 @@ stage('started');
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
     scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
-    setFabricColor, setRecipe,
+    setFabricColor, addFabricColor, setRecipe,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
@@ -1159,6 +1208,7 @@ window.O2 = {
     get scene() { return sceneId; },
     get colorway() { return colorwayId; },
     get fabricColor() { return fabricColor; },
+    get extraColors() { return extraColors.slice(); },
     get layout() { return layoutId; },
     get framePillars() { return framePillarsPlain(); },
     get places() { return placesFor(); },

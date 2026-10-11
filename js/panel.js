@@ -103,8 +103,8 @@ export function createPanel(opts) {
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onColorwayChange, onRgbChange, onRecipeChange, onSetChange,
-        onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
+        onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
+        onSetChange, onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -629,6 +629,19 @@ export function createPanel(opts) {
             rgb.appendChild(line);
         }
         wrap.appendChild(rgb);
+
+        // Keep the dialled colour as a new swatch - the board palettes are
+        // never edited, the list only grows after them.
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'mt-2 w-full text-[11px] px-2 py-1.5 rounded border '
+            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
+            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
+        add.textContent = 'Add colour';
+        add.title = 'Save the dialled colour as a new swatch';
+        add.addEventListener('click', () => onAddColor && onAddColor());
+        live.buttons.push(add);
+        wrap.appendChild(add);
         return wrap;
     }
 

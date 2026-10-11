@@ -134,6 +134,25 @@ const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 // The four shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
 const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline'];
+// Colours you saved yourself: appended after the board palettes, never
+// replacing them. Capped so a document cannot grow a paint shop.
+function cleanExtras(raw) {
+    const out = [];
+    if (!Array.isArray(raw)) return out;
+    for (const v of raw) {
+        if (out.length >= 12) break;
+        if (!v || typeof v !== 'object') continue;
+        if (typeof v.id !== 'string' || !/^[a-z0-9-]{1,32}$/.test(v.id)) continue;
+        const name = typeof v.name === 'string' ? v.name.trim().slice(0, 24) : '';
+        if (!name) continue;
+        const fabric = Number(v.fabric);
+        if (!Number.isFinite(fabric) || fabric < 0 || fabric > 0xffffff) continue;
+        if (out.some(c => c.id === v.id)) continue;
+        out.push({ id: v.id, name, fabric: Math.round(fabric) });
+    }
+    return out;
+}
+
 function cleanSetPresets(raw) {
     const out = {};
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
@@ -167,6 +186,7 @@ export function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         colorway: COLORWAY_IDS.includes(data.colorway) ? data.colorway : DEFAULT_COLORWAY,
         setPresets: cleanSetPresets(data.setPresets),
+        extraColors: cleanExtras(data.extraColors),
         // A raw curtain colour from the RGB dial; null means "use the
         // palette". Validated here, clamped by the panel's own dial.
         fabricColor: Number.isFinite(data.fabricColor) && data.fabricColor >= 0
