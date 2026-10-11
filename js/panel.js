@@ -100,10 +100,10 @@ export function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, places = {},
-        colorways = [], colorway = '',
+        colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
-        onSceneChange, onColorwayChange, onRecipeChange, onSetChange,
+        onSceneChange, onColorwayChange, onRgbChange, onRecipeChange, onSetChange,
         onFramePillarsChange, onPlaceChange, onReset, themeIsDark = false
     } = opts;
 
@@ -119,6 +119,7 @@ export function createPanel(opts) {
     let currentFramePillars = framePillars;
     let currentPlaces = places;
     let currentColorway = colorway;
+    let currentFabricColor = fabricColor;
     let currentRecipe = recipe;
 
     let sections = [];
@@ -230,6 +231,11 @@ export function createPanel(opts) {
             row.className = 'flex flex-wrap gap-4 pt-1';
             for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
             inner.appendChild(row);
+            // The Curtains toggle owns the fabric: palettes and the RGB dial
+            // live under it, not in a row of their own.
+            if (schema && schema.params && schema.params.fabric) {
+                inner.appendChild(fabricBlock());
+            }
         }
 
         if (gearRanges.length || gearToggles.length) {
@@ -527,18 +533,30 @@ export function createPanel(opts) {
         return wrap;
     }
 
-    // Fabric palettes from the boards: one tap recolours every curtain on
-    // stage. The pillar's stone stays stone in every palette.
-    function colorwayBlock() {
+    // What the stage is actually wearing: the RGB dial's colour when one
+    // was dialled, else the palette chip's fabric.
+    const effectiveFabric = () => {
+        if (Number.isFinite(currentFabricColor)) return currentFabricColor;
+        const hit = colorways.find(c => c.id === currentColorway);
+        return hit ? hit.fabric : 0xf2e8d5;
+    };
+    const hexText = v => '#' + (v >>> 0).toString(16).padStart(6, '0');
+
+    // The curtain's colour, under the Curtains toggle where it belongs: the
+    // board palettes plus a raw RGB dial for the colour no board names.
+    function fabricBlock() {
         const wrap = document.createElement('div');
-        wrap.className = 'mb-3';
-        wrap.appendChild(heading('Colorway'));
+        wrap.className = 'mt-2 pt-2 border-t border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+        wrap.appendChild(heading('Fabric colour'));
+        const eff = effectiveFabric();
+
         const row = document.createElement('div');
-        row.className = 'flex flex-wrap gap-2';
+        row.className = 'flex flex-wrap gap-2 mb-2';
         for (const c of colorways) {
             const btn = document.createElement('button');
             btn.type = 'button';
-            const on = c.id === currentColorway;
+            const on = c.fabric === eff;
             btn.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg border text-xs '
                 + 'transition-colors ' + (on
                     ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
@@ -546,7 +564,7 @@ export function createPanel(opts) {
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
             const chip = document.createElement('span');
             chip.className = 'w-4 h-4 rounded-full border border-black/10 shrink-0';
-            chip.style.background = '#' + c.fabric.toString(16).padStart(6, '0');
+            chip.style.background = hexText(c.fabric);
             const label = document.createElement('span');
             label.textContent = c.name;
             btn.append(chip, label);
@@ -557,6 +575,60 @@ export function createPanel(opts) {
             row.appendChild(btn);
         }
         wrap.appendChild(row);
+
+        const rgb = document.createElement('div');
+        rgb.className = 'space-y-1';
+        const head = document.createElement('div');
+        head.className = 'flex items-center gap-2 mb-1';
+        const swatch = document.createElement('span');
+        swatch.className = 'w-4 h-4 rounded-full border border-black/10 shrink-0';
+        swatch.style.background = hexText(eff);
+        const hexLabel = document.createElement('span');
+        hexLabel.className = 'text-[11px] font-mono text-gray-500 dark:text-zinc-400';
+        hexLabel.textContent = hexText(eff) + ' custom';
+        head.append(swatch, hexLabel);
+        rgb.appendChild(head);
+
+        const vals = { r: (eff >> 16) & 255, g: (eff >> 8) & 255, b: eff & 255 };
+        const paint = () => {
+            const hex = (vals.r << 16) | (vals.g << 8) | vals.b;
+            swatch.style.background = hexText(hex);
+            hexLabel.textContent = hexText(hex) + ' custom';
+        };
+        const emit = () => {
+            paint();
+            onRgbChange && onRgbChange((vals.r << 16) | (vals.g << 8) | vals.b);
+        };
+        for (const name of ['R', 'G', 'B']) {
+            const key = name.toLowerCase();
+            const line = document.createElement('div');
+            line.className = 'flex items-center gap-2';
+            const lab = document.createElement('span');
+            lab.className = 'w-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-400';
+            lab.textContent = name;
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = '0';
+            input.max = '255';
+            input.step = '1';
+            input.value = String(vals[key]);
+            input.className = 'flex-1 accent-sky-500';
+            input.setAttribute('aria-label', 'Curtain ' + name + ' channel');
+            const num = document.createElement('span');
+            num.className = 'w-8 text-right text-[11px] font-mono '
+                + 'text-gray-500 dark:text-zinc-400';
+            num.textContent = String(vals[key]);
+            input.addEventListener('input', e => {
+                const v = parseInt(e.target.value, 10);
+                vals[key] = Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 0;
+                num.textContent = String(vals[key]);
+                emit();
+            });
+            if (live.inputs) live.inputs.push(input);
+            line.append(lab, input, num);
+            rgb.appendChild(line);
+        }
+        wrap.appendChild(rgb);
         return wrap;
     }
 
@@ -650,6 +722,7 @@ export function createPanel(opts) {
             currentScene || '',
             currentSet || '',
             currentColorway || '',
+            currentFabricColor === null ? 'none' : String(currentFabricColor),
             currentRecipe || '',
             JSON.stringify(currentFramePillars),
             JSON.stringify(currentPlaces),
@@ -691,7 +764,6 @@ export function createPanel(opts) {
         if (recipes.length > 1) host.appendChild(recipesBlock());
         if (sets.length > 1) host.appendChild(setBlock());
         if (scenes.length > 1) host.appendChild(sceneBlock());
-        if (colorways.length > 1) host.appendChild(colorwayBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -719,6 +791,7 @@ export function createPanel(opts) {
             if (next.scene !== undefined) currentScene = next.scene;
             if (next.set !== undefined) currentSet = next.set;
             if (next.colorway !== undefined) currentColorway = next.colorway;
+            if (next.fabricColor !== undefined) currentFabricColor = next.fabricColor;
             if (next.recipe !== undefined) currentRecipe = next.recipe;
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;

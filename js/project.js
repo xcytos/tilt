@@ -167,6 +167,10 @@ export function parseProject(raw) {
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         colorway: COLORWAY_IDS.includes(data.colorway) ? data.colorway : DEFAULT_COLORWAY,
         setPresets: cleanSetPresets(data.setPresets),
+        // A raw curtain colour from the RGB dial; null means "use the
+        // palette". Validated here, clamped by the panel's own dial.
+        fabricColor: Number.isFinite(data.fabricColor) && data.fabricColor >= 0
+            && data.fabricColor <= 0xffffff ? Math.round(data.fabricColor) : null,
         layout: typeof data.layout === 'string'
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,

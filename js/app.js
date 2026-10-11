@@ -45,6 +45,16 @@ let overlayIds = [];
 let sceneId = DEFAULT_SCENE;
 // The fabric palette every curtain on stage wears - one tap in the panel.
 let colorwayId = DEFAULT_COLORWAY;
+// A raw colour from the RGB dial overrides the palette until a palette chip
+// is tapped again. null means "use the palette".
+let fabricColor = null;
+
+// What the stage is actually wearing.
+function fabricHex() {
+    if (Number.isFinite(fabricColor)) return fabricColor;
+    const hit = colorwayById(colorwayId);
+    return hit ? hit.fabric : null;
+}
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
 // coordinates that are yours - one entry per instance, per group - for the
 // frames. Pillars have no coordinates of their own: `framePillars` holds
@@ -96,6 +106,7 @@ function buildDoc() {
         activeId,
         scene: sceneId,
         colorway: colorwayId,
+        fabricColor: fabricColor,
         layout: layoutId,
         pillars: framePillarsPlain(),
         places: Object.fromEntries([...savedPlaces]
@@ -535,19 +546,35 @@ function setPlace(key, index, patch) {
 // with setColorway; the pillar's stone stays stone. The composition root
 // calls this after the theme, because setTheme resets the fabric colour.
 function applyColorway() {
-    const hit = colorwayById(colorwayId);
-    if (!hit) return;
+    const hex = fabricHex();
+    if (!Number.isFinite(hex)) return;
     for (const models of mounted.values()) {
-        for (const m of models) if (m.setColorway) m.setColorway(hit.fabric);
+        for (const m of models) if (m.setColorway) m.setColorway(hex);
     }
 }
 
 function setColorway(id) {
     const next = colorwayById(id) ? id : DEFAULT_COLORWAY;
-    if (next === colorwayId) return false;
+    if (next === colorwayId && fabricColor === null) return false;
     colorwayId = next;
+    fabricColor = null;
     applyColorway();
-    if (panel) panel.refresh({ colorway: colorwayId, recipe: recipeState() }, true);
+    if (panel) {
+        panel.refresh({
+            colorway: colorwayId, fabricColor: fabricColor, recipe: recipeState()
+        }, true);
+    }
+    scheduleSave();
+    return true;
+}
+
+// The RGB dial: a raw curtain colour, clamped to the dial's own 0-255 x3.
+// No panel repaint here - a re-render mid-drag would eat the slider.
+function setFabricColor(hex) {
+    const next = Math.max(0, Math.min(0xffffff, Math.round(Number(hex) || 0)));
+    if (next === fabricColor) return false;
+    fabricColor = next;
+    applyColorway();
     scheduleSave();
     return true;
 }
@@ -568,6 +595,7 @@ function setRecipe(id) {
     sceneId = r.scene;
     viewer.setScene(sceneId);
     colorwayId = r.colorway;
+    fabricColor = null;
     if (r.set !== layoutId) {
         // Switching a SET re-derives the frames' coordinates from the new
         // drawing - same rule as setLayout.
@@ -655,6 +683,7 @@ async function syncScene(forcePanel = false) {
                 activeId,
                 scene: sceneId,
                 colorway: colorwayId,
+                fabricColor: fabricColor,
                 recipe: recipeState(),
                 set: layoutId,
                 framePillars: framePillarsPlain(),
@@ -783,6 +812,7 @@ async function resetProject() {
     sceneId = DEFAULT_SCENE;
     viewer.setScene(sceneId);
     colorwayId = DEFAULT_COLORWAY;
+    fabricColor = null;
     layoutId = null;
     framePillars.clear();
 
@@ -862,6 +892,7 @@ if (savedDoc) {
     }
     if (savedDoc.scene && isScene(savedDoc.scene)) sceneId = savedDoc.scene;
     if (colorwayById(savedDoc.colorway)) colorwayId = savedDoc.colorway;
+    if (Number.isFinite(savedDoc.fabricColor)) fabricColor = savedDoc.fabricColor;
     if (savedDoc.layout && layoutById(savedDoc.layout)) layoutId = savedDoc.layout;
     if (savedDoc.pillars && typeof savedDoc.pillars === 'object'
         && !Array.isArray(savedDoc.pillars)) {
@@ -957,6 +988,7 @@ panel = createPanel({
     scene: sceneId,
     colorways: COLORWAYS,
     colorway: colorwayId,
+    fabricColor: fabricColor,
     recipes: RECIPES,
     recipe: recipeState(),
     sets: LAYOUTS,
@@ -969,6 +1001,7 @@ panel = createPanel({
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
     onColorwayChange: guard(id => setColorway(id)),
+    onRgbChange: hex => setFabricColor(hex),
     onRecipeChange: guard(id => setRecipe(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
@@ -1117,7 +1150,7 @@ stage('started');
 window.O2 = {
     viewer, panel, registry, editor, activate, setMode, toggleOverlay, syncScene,
     scheduleRebuild, resetProject, saveNow, buildDoc, setScene, setLayout, setColorway,
-    setRecipe,
+    setFabricColor, setRecipe,
     setFramePillars, setPlace,
     get models() { return [...mounted.values()].flat(); },
     get mounted() { return [...mounted.keys()]; },
@@ -1126,6 +1159,7 @@ window.O2 = {
     get overlayIds() { return overlayIds.slice(); },
     get scene() { return sceneId; },
     get colorway() { return colorwayId; },
+    get fabricColor() { return fabricColor; },
     get layout() { return layoutId; },
     get framePillars() { return framePillarsPlain(); },
     get places() { return placesFor(); },

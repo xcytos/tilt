@@ -474,11 +474,28 @@ check('the build carries one version, in the footer and the log',
     fs.readFileSync(path.join(DECOR, 'js/version.js'), 'utf8'))
   && /TILT v' \+ VERSION/.test(panel)
   && /js\/version\.js/.test(fs.readFileSync(path.join(DECOR, 'tools/serve.mjs'), 'utf8')));
+check('a saved RGB colour survives, junk drops to the palette', (() => {
+  const p = proj.parseProject(JSON.stringify({ colorway: 'sage', fabricColor: 0x123456 }));
+  const q = proj.parseProject(JSON.stringify({ fabricColor: 'red' }));
+  const r = proj.parseProject(JSON.stringify({ fabricColor: 9e99 }));
+  return p.fabricColor === 0x123456 && q.fabricColor === null && r.fabricColor === null;
+})());
+check('the RGB dial lives under Curtains, not in its own row', (() => {
+  const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
+  return /schema\.params\.fabric/.test(p) && /function fabricBlock\(/.test(p)
+    && /onRgbChange/.test(p) && /input\.setAttribute\('aria-label', 'Curtain /.test(p)
+    && !/host\.appendChild\(colorwayBlock\(\)\)/.test(p);
+})());
+check('a custom colour reaches the stage, and a Look or chip clears it',
+  /function setFabricColor\(/.test(app) && /fabricHex\(\)/.test(app)
+  && /fabricColor: fabricColor/.test(app)
+  && /fabricColor = null;\n    applyColorway\(\)/.test(app)
+  && /fabricColor = null;\n    layoutId = null;/.test(app));
 check('the fabric palette reaches the panel and the stage',
   /'js\/colorways\.js'/.test(build) && /colorway: colorwayId/.test(app)
   && /function applyColorway\(/.test(app) && /function setColorway\(/.test(app)
   && /onColorwayChange: guard\(/.test(app)
-  && /colorwayBlock\(\)/.test(panel) && /onColorwayChange/.test(panel));
+  && /onColorwayChange/.test(panel));
 check('the built-in fallback is S Curve too',
   /id: 'o2tilt'/.test(fs.readFileSync(path.join(DECOR, 'js/registry.js'), 'utf8'))
   && /MODEL_NAME = 'S Curve'/.test(fs.readFileSync(
