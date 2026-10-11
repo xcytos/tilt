@@ -131,6 +131,24 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
+// The four shape sliders, remembered per SET so each drawing keeps the look
+// you left it with. Ranges are clamped in app.js, which owns the schema.
+const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline'];
+function cleanSetPresets(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    for (const [id, v] of Object.entries(raw)) {
+        if (!LAYOUT_IDS.includes(id) || !v || typeof v !== 'object') continue;
+        const shape = {};
+        for (const k of DOC_SET_SHAPE_KEYS) {
+            const n = Number(v[k]);
+            if (Number.isFinite(n)) shape[k] = n;
+        }
+        if (Object.keys(shape).length) out[id] = shape;
+    }
+    return out;
+}
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 export function parseProject(raw) {
@@ -148,6 +166,7 @@ export function parseProject(raw) {
         view: cleanView(data.view),
         scene: typeof data.scene === 'string' && SCENE_RE.test(data.scene) ? data.scene : null,
         colorway: COLORWAY_IDS.includes(data.colorway) ? data.colorway : DEFAULT_COLORWAY,
+        setPresets: cleanSetPresets(data.setPresets),
         layout: typeof data.layout === 'string'
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,

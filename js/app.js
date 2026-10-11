@@ -3,7 +3,7 @@ import { createPanel } from './panel.js';
 import { createEditor } from './editor.js';
 import { Registry } from './registry.js';
 import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
-import { LAYOUTS, layoutById } from './layouts.js';
+import { LAYOUTS, LAYOUT_IDS, layoutById } from './layouts.js';
 import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
 import { RECIPES, recipeById, recipeFor } from './recipes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
@@ -63,6 +63,21 @@ let rebuildQueued = false;
 // stage - unmounting one does not throw its settings away. Written to the
 // project file on a debounce so dragging a slider does not hammer the disk.
 const savedPresets = {};
+// Each SET remembers its own four shape sliders (Center Gap, Swing Pan,
+// Pitch, Decline): switching a SET is a conversion, not a nudge.
+const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline'];
+let setPresets = Object.create(null);
+
+function setPresetsPlain() {
+    const out = {};
+    for (const [id, v] of Object.entries(setPresets)) {
+        if (!LAYOUT_IDS.includes(id) || !v) continue;
+        const shape = {};
+        for (const k of SET_SHAPE_KEYS) if (Number.isFinite(v[k])) shape[k] = v[k];
+        if (Object.keys(shape).length) out[id] = shape;
+    }
+    return out;
+}
 let saveTimer = 0;
 let projectName = '';
 let dirty = false;
@@ -90,7 +105,8 @@ function buildDoc() {
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
-        presets: savedPresets
+        presets: savedPresets,
+        setPresets: setPresetsPlain()
     };
 }
 
@@ -570,6 +586,32 @@ function setRecipe(id) {
     return syncScene();
 }
 
+// The active SET's saved shape - or the drawing's own defaults when it has
+// never been touched - lands on every frame. That is what makes switching
+// a SET a real conversion of the object, not only a new row of coordinates.
+function applySetParams(id) {
+    const lay = id ? layoutById(id) : null;
+    const src = (id && setPresets[id]) || (lay && lay.params) || null;
+    if (!src) return false;
+    const patch = {};
+    for (const k of SET_SHAPE_KEYS) {
+        const meta = PARAMS[k];
+        const v = Number(src[k]);
+        if (!meta || !Number.isFinite(v)) continue;
+        patch[k] = Math.max(meta.min, Math.min(meta.max, v));
+    }
+    if (!Object.keys(patch).length) return false;
+    for (const [key, models] of mounted) {
+        if (key.startsWith(PILLAR_ID)) continue;
+        for (const m of models) {
+            if (!m.setParams) continue;
+            m.setParams(patch);
+            savedPresets[m.id] = Object.assign({}, savedPresets[m.id], patch);
+        }
+    }
+    return true;
+}
+
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
 // repaints the controls even when nothing structural changed (used after a
 // project reset).
@@ -588,6 +630,10 @@ async function syncScene(forcePanel = false) {
                 activeId = fallback ? fallback.id : null;
             }
         }
+
+        // Convert first, space second: the new SET's sliders must already
+        // be on the frames when the row is laid out and the panel repaints.
+        if (applySetParams(layoutId)) forcePanel = true;
 
         defaultPlaces();
         // Frames first, then the pillars re-derive from where their frames
@@ -729,6 +775,7 @@ async function resetProject() {
     }
     dirty = false;
     for (const id of Object.keys(savedPresets)) delete savedPresets[id];
+    setPresets = Object.create(null);
 
     mode = 'single';
     activeId = registry.list[0].id;
@@ -784,7 +831,9 @@ activeId = firstEntry.id;
 const knownIds = new Set(registry.list.map(e => e.id));
 // Documents from before the merge: Classic and Slope both became S Curve.
 // The id stays `o2tilt` on disk; only the old names are remapped here.
-const LEGACY_MODEL_IDS = { 'o2tilt-classic': 'o2tilt', 'o2tilt-slope': 'o2tilt' };
+const LEGACY_MODEL_IDS = {
+    'o2tilt-classic': 'o2tilt', 'o2tilt-slope': 'o2tilt', 'o2tilt-arc': 'o2tilt'
+};
 const remapId = id => LEGACY_MODEL_IDS[id] || id;
 let savedDoc = null;
 try {
@@ -856,6 +905,11 @@ if (savedDoc) {
         if (!savedPresets[target] || id === savedDoc.activeId) {
             savedPresets[target] = values;
         }
+    }
+    // The parser already validated the shape; syncScene applies it to the
+    // frames the moment the SET's row is built.
+    if (savedDoc.setPresets && typeof savedDoc.setPresets === 'object') {
+        setPresets = Object.assign(Object.create(null), savedDoc.setPresets);
     }
 
     const picked = [...new Set((savedDoc.overlayIds.length
@@ -936,6 +990,17 @@ panel = createPanel({
             if (!Object.keys(known).length) continue;
             m.setParams(known);
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], known);
+        }
+        // While a SET is active its four shape sliders belong to that SET:
+        // come back to it and the numbers are where you left them.
+        if (layoutId) {
+            const shaped = {};
+            for (const k of SET_SHAPE_KEYS) {
+                if (known[k] !== undefined) shaped[k] = known[k];
+            }
+            if (Object.keys(shaped).length) {
+                setPresets[layoutId] = Object.assign({}, setPresets[layoutId], shaped);
+            }
         }
         scheduleSave();
         scheduleRebuild();

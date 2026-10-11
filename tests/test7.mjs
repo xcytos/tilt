@@ -103,7 +103,8 @@ const o2 = await import(pathToFileURL(o2File).href);
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', o2.createO2TiltModel, o2.PARAMS);
 await registry.loadManifest();
-check('manifest lists the merged pair', registry.list.length === 2, `${registry.list.length}`);
+check('manifest lists the one S Curve', registry.list.length === 1
+  && registry.list[0].id === 'o2tilt', `${registry.list.length}`);
 
 const groups = [];
 let allValid = true;

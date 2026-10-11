@@ -5,12 +5,6 @@
       "name": "S Curve",
       "file": "o2tilt.json",
       "tags": ["frame", "curtain"]
-    },
-    {
-      "id": "o2tilt-arc",
-      "name": "S Curve Arc",
-      "file": "o2tilt-arc.json",
-      "tags": ["frame", "curtain"]
     }
   ]
 }

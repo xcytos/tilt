@@ -409,14 +409,47 @@ check('the panel renders a scene picker', /param-scene/.test(panel)
 check('the viewer falls back to the studio', /isScene\(id\) \? id : DEFAULT_SCENE/.test(read('js/viewer.js')));
 
 console.log('\nwiring: the SET the project is staged as');
-check('the catalog is the merged pair: S Curve and S Curve Arc', (() => {
+check('the catalog is the one S Curve - Arc is the Swing Pan slider now', (() => {
   const manifest = JSON.parse(fs.readFileSync(
     path.join(DECOR, 'models/manifest.json'), 'utf8'));
-  return manifest.models.length === 2
+  return manifest.models.length === 1
     && manifest.models[0].id === 'o2tilt' && manifest.models[0].name === 'S Curve'
-    && manifest.models[1].id === 'o2tilt-arc' && manifest.models[1].name === 'S Curve Arc'
     && !fs.existsSync(path.join(DECOR, 'models/o2tilt-classic.json'))
-    && !fs.existsSync(path.join(DECOR, 'models/o2tilt-slope.json'));
+    && !fs.existsSync(path.join(DECOR, 'models/o2tilt-slope.json'))
+    && !fs.existsSync(path.join(DECOR, 'models/o2tilt-arc.json'));
+})());
+check('old Classic, Slope and Arc documents remap onto S Curve',
+  /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
+  && /'o2tilt-arc': 'o2tilt'/.test(app));
+check('every SET carries its own shape sliders, all five different', (() => {
+  const keys = ['gap', 'pan', 'pitch', 'decline'];
+  return layouts.LAYOUTS.length === 5
+    && layouts.LAYOUTS.every(l => l.params
+      && keys.every(k => Number.isFinite(l.params[k])))
+    && new Set(layouts.LAYOUTS.map(l => JSON.stringify(l.params))).size === 5;
+})());
+check('per-SET slider state round-trips, junk keys drop', (() => {
+  const p = proj.parseProject(JSON.stringify({ setPresets: {
+    'classic-symmetry': { gap: 4.5, pan: 12, junk: 99 },
+    nope: { gap: 1 },
+    'grand-entrance': 'wide'
+  }}));
+  return p.setPresets['classic-symmetry'].gap === 4.5
+    && p.setPresets['classic-symmetry'].pan === 12
+    && p.setPresets['classic-symmetry'].junk === undefined
+    && !p.setPresets.nope && !p.setPresets['grand-entrance'];
+})());
+check('a SET switch converts the sliders before the row is spaced', (() => {
+  const doc = proj.parseProject(JSON.stringify({
+    layout: 'grand-entrance',
+    setPresets: { 'grand-entrance': { gap: 5, pan: 33, pitch: 4, decline: 7 } }
+  }));
+  return doc.layout === 'grand-entrance'
+    && doc.setPresets['grand-entrance'].pan === 33
+    && /function applySetParams\(/.test(app)
+    && /if \(applySetParams\(layoutId\)\) forcePanel = true;/.test(app)
+    && /setPresets\[layoutId\] = Object\.assign/.test(app)
+    && /setPresets: setPresetsPlain\(\)/.test(app);
 })());
 check('old Classic and Slope documents remap onto S Curve',
   /'o2tilt-classic': 'o2tilt'/.test(app) && /'o2tilt-slope': 'o2tilt'/.test(app)
