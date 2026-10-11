@@ -29,6 +29,10 @@ const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 // place - the tilt lives in this joint, like a set-screw EMT coupling on
 // a pipe-and-rail build.
 const JOINT_RADIUS = RAIL_RADIUS * 1.25;
+// The stands stand behind the fabric, not through it: from the front the
+// drape hides the poles and base plates. Far enough back to clear the
+// deepest pleat, close enough to still read as one system.
+const STAND_SETBACK = 0.3;
 const JOINT_LEN = 0.55;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -313,6 +317,11 @@ export function createO2TiltModel(initial = {}) {
         const ptsR = getStructuralPoints(state, true, FABRIC_RES_X);
         const panRad = state.pan * (Math.PI / 180);
 
+        // Which way is the back of the set: the fabric's own normal, flipped
+        // to the side away from the audience. Stands step behind it so the
+        // drape hides them from the front.
+        const backRef = new THREE.Vector3(Math.sin(panRad), 0, Math.cos(panRad));
+
         ensureTubeGeometry();
 
         for (const j of joints) root.remove(j);
@@ -335,7 +344,20 @@ export function createO2TiltModel(initial = {}) {
                 const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
                 const innerH = railY - sleeveH;
 
-                stand.group.position.set(p.x, 0, p.z);
+                // Behind the fabric: along this point's pleat normal, on the
+                // side the audience never sees.
+                const jPrev = pts[Math.max(0, idx - 1)];
+                const jNext = pts[Math.min(pts.length - 1, idx + 1)];
+                const tan = jNext.clone().sub(jPrev);
+                tan.y = 0;
+                if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
+                tan.normalize();
+                const back = new THREE.Vector3(-tan.z, 0, tan.x);
+                if (back.dot(backRef) < 0) back.negate();
+                const bx = p.x + back.x * STAND_SETBACK;
+                const bz = p.z + back.z * STAND_SETBACK;
+
+                stand.group.position.set(bx, 0, bz);
                 stand.group.rotation.y = turn * panRad;
                 stand.sleeve.position.set(0, 0, 0);
                 stand.sleeve.scale.set(1, sleeveH, 1);
@@ -344,17 +366,18 @@ export function createO2TiltModel(initial = {}) {
                 stand.inner.visible = innerH > INNER_HIDE;
                 stand.height = railY;
 
-                bases[i].position.set(p.x, 0, p.z);
+                bases[i].position.set(bx, 0, bz);
                 bases[i].rotation.y = turn * panRad;
 
                 // The coupling sleeve: a short fat tube seated on the stand
                 // top and running with the rail, so the rail can be pitched
-                // and locked inside it.
-                const jPrev = pts[Math.max(0, idx - 1)];
-                const jNext = pts[Math.min(pts.length - 1, idx + 1)];
+                // and locked inside it. It rides half the setback back, wide
+                // enough to swallow the gap to the rail.
                 const joint = new THREE.Mesh(jointGeo, matJoint);
                 joint.castShadow = true;
-                joint.position.copy(p);
+                joint.position.set(
+                    p.x + back.x * STAND_SETBACK * 0.5, p.y,
+                    p.z + back.z * STAND_SETBACK * 0.5);
                 joint.quaternion.setFromUnitVectors(Y_AXIS, jNext.clone().sub(jPrev).normalize());
                 root.add(joint);
                 joints.push(joint);

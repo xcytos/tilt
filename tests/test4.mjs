@@ -145,6 +145,19 @@ const standIndex = g => Number(g.name.slice(-1));
         s.every(g => part(g, 'stand-sleeve').geometry.type === 'ExtrudeGeometry'));
   check('stands stand on the floor',
         s.every(g => g.position.y === 0 && part(g, 'stand-sleeve').position.y === 0));
+  check('stands step behind the fabric, off the rail line by the setback', (() => {
+    const st = model.state;
+    const ptsL = mod.getStructuralPoints(st, false, 300);
+    const ptsR = mod.getStructuralPoints(st, true, 300);
+    return s.every(g => {
+      const pts = g.name.startsWith('stand-L') ? ptsL : ptsR;
+      const i = Number(g.name.slice(-1));
+      const idx = Math.floor((i / 2) * 300);
+      const p = pts[idx];
+      const dist = Math.hypot(g.position.x - p.x, g.position.z - p.z);
+      return Math.abs(dist - 0.3) < 1e-6;
+    });
+  })());
 }
 
 // Default state: gap 5, decline 0, so every rail sits at the full 8 ft.
