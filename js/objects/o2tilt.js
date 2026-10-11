@@ -37,7 +37,7 @@ const JOINT_LEN = 0.55;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 export const PARAMS = {
-    gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 6,   step: 0.1, value: 3,  unit: ' ft' },
+    gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 10,  step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: 0, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 20,  step: 1,   value: 0,  unit: '°' },
     decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },

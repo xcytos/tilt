@@ -85,22 +85,6 @@ function toggleBlock(key, p, current) {
     return { wrap, input };
 }
 
-function themeBlock(isDark, onChange) {
-    const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.id = 'toggle-theme';
-    input.className = CHECK_CLS;
-    input.checked = isDark;
-    input.addEventListener('change', e => onChange(e.target.checked));
-    const span = document.createElement('span');
-    span.className = 'font-medium tracking-wide';
-    span.textContent = 'Dark Mode';
-    wrap.append(input, span);
-    return { wrap, input };
-}
-
 function heading(text) {
     const el = document.createElement('div');
     el.className = HEADING_CLS;
@@ -129,9 +113,9 @@ export function createPanel(opts) {
         framePillars = {}, places = {},
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
-        onSelect, onToggle, onModeChange, onParamsChange, onThemeChange,
+        onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
-        onSetChange, onFramePillarsChange, onPlaceChange, onReset,
+        onSetChange, onFramePillarsChange, onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
 
@@ -280,7 +264,6 @@ export function createPanel(opts) {
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
-    let themeInput = null;
     let liveTheme = themeIsDark;
     let lastSignature = null;
 
@@ -450,15 +433,19 @@ export function createPanel(opts) {
     // tracks inside the S Curve group - no bare number boxes. The stage
     // follows the thumb; applyLive parks it when a finger is on the track.
     function positionBlock(key, idx, place) {
-        const wrap = document.createElement('div');
-        wrap.className = 'mt-1.5 pt-1.5 border-t border-dashed '
+        // Folded by default: the four shape sliders are what the hand
+        // reaches for; placement comes after, and the chevron opens it.
+        const wrap = document.createElement('details');
+        wrap.className = 'mt-1.5 border-t border-dashed '
             + 'border-gray-300 dark:border-zinc-600';
-
-        const title = document.createElement('div');
-        title.className = 'text-[10px] font-bold uppercase tracking-wider '
-            + 'text-gray-400 dark:text-zinc-500 mb-1';
-        title.textContent = 'Placement';
-        wrap.appendChild(title);
+        const summary = document.createElement('summary');
+        summary.className = 'cursor-pointer select-none py-1.5 text-[10px] '
+            + 'font-bold uppercase tracking-wider '
+            + 'text-gray-400 dark:text-zinc-500';
+        summary.textContent = 'Placement';
+        wrap.appendChild(summary);
+        const body = document.createElement('div');
+        body.className = 'pt-1';
 
         const refs = {};
         for (const [label, prop, min, max, step, unit] of [
@@ -476,7 +463,7 @@ export function createPanel(opts) {
             });
             live.selects.push(built.input);
             refs[prop] = { input: built.input };
-            wrap.appendChild(built.wrap);
+            body.appendChild(built.wrap);
         }
 
         // Back to the SET's own numbers: zero the free override, let the
@@ -492,7 +479,8 @@ export function createPanel(opts) {
             onPlaceChange && onPlaceChange(key, idx, { x: 0, z: 0, ry: 0 });
         });
         live.buttons.push(reset);
-        wrap.appendChild(reset);
+        body.appendChild(reset);
+        wrap.appendChild(body);
 
         const slot = placeRows.get(key + ':' + idx) || {};
         Object.assign(slot, refs);
@@ -966,33 +954,18 @@ export function createPanel(opts) {
         return wrap;
     }
 
+    // Dark mode and Reset live in the top bar's three-dot menu now - they
+    // are app actions, not stage tools. The shelf keeps only the stamp.
     function themeFooter() {
         const footer = document.createElement('div');
-        footer.className = 'flex items-center gap-4 pt-3 mt-1 border-t '
+        footer.className = 'flex items-center pt-3 mt-1 border-t '
             + 'border-gray-200 dark:border-zinc-700';
-        const theme = themeBlock(liveTheme, isDark => onThemeChange && onThemeChange(isDark));
-        themeInput = theme.input;
-        footer.appendChild(theme.wrap);
-
         const stamp = document.createElement('span');
         stamp.className = 'ml-auto text-[10px] text-gray-400 dark:text-zinc-500 '
             + 'select-none';
         stamp.textContent = 'TILT v' + VERSION;
         stamp.title = 'Build version';
         footer.appendChild(stamp);
-
-        if (onReset) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = 'Reset project';
-            btn.title = 'Forget every saved setting and start from the defaults';
-            btn.className = 'text-[11px] px-2 py-1 rounded border '
-                + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
-                + 'hover:text-red-600 hover:border-red-400 transition-colors';
-            btn.addEventListener('click', () => onReset());
-            live.buttons.push(btn);
-            footer.appendChild(btn);
-        }
         return footer;
     }
 
@@ -1223,7 +1196,6 @@ export function createPanel(opts) {
         },
         setTheme(isDark) {
             liveTheme = isDark;
-            if (themeInput) themeInput.checked = isDark;
         },
         // Re-read model state into the inputs without rebuilding the DOM, so an
         // external param change never collapses an open accordion.

@@ -361,6 +361,7 @@ try {
 console.log('\nwiring: the app restores and rewrites the project');
 const app = read('js/app.js');
 const panel = read('js/panel.js');
+const editor = read('js/editor.js');
 const shell = read('TILT.html');
 const build = read('tools/build.mjs');
 const server = read('tools/serve.mjs');
@@ -391,7 +392,7 @@ check('mounting, mode switches and selection all save',
   && /async function toggleOverlay\([\s\S]*?scheduleSave\(\)/.test(app));
 check('app can reset the project',
   /async function resetProject\(\)/.test(app) && /clearProject\(\)/.test(app)
-  && /onReset: guard\(/.test(app));
+  && /onReset: \(\) => resetProject\(\)/.test(app));
 check('a reset repaints the panel',
   /return syncScene\(true\);/.test(app) && /forcePanel/.test(app));
 check('the project is exposed for inspection', /resetProject/.test(app)
@@ -630,9 +631,12 @@ check('frame groups get sections; pillars ride inside their frame',
   && /g\.id !== PILLAR_ID/.test(panel)
   && /total: pillars\.length, owner: id/.test(app));
 
-check('panel offers the reset button', /onReset/.test(panel)
-  && /Reset project/.test(panel));
-check('the reset button is disabled while busy', /live\.buttons\.push\(btn\)/.test(panel));
+check('reset lives in the top bar menu, not the panel',
+  !/Reset project/.test(panel)
+  && /act: 'reset'/.test(editor)
+  && /onReset && onReset\(\)/.test(editor));
+check('the theme toggle lives in the top bar menu',
+  /act: 'theme'/.test(editor) && /onToggleTheme && onToggleTheme\(isDark\)/.test(editor));
 
 console.log('\nwiring: live reload in the shell');
 check('the shell opens the event stream', /EventSource\('\/__events'\)/.test(shell));

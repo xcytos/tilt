@@ -1139,7 +1139,6 @@ panel = createPanel({
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
     },
-    onReset: guard(() => resetProject()),
     onShelfChange: () => syncDock()
 });
 stage('panel');
@@ -1229,7 +1228,13 @@ editor = createEditor({
     // otherwise be the state from before the last edit.
     onExport: async () => { await saveNow(); exportDoc(); },
     onSaveAs: () => saveAsProject(),
-    onReset: () => resetProject()
+    onReset: () => resetProject(),
+    isDark: viewer.isDark,
+    onToggleTheme: isDarkNow => {
+        viewer.setTheme(isDarkNow);
+        if (panel) panel.setTheme(isDarkNow);
+        scheduleSave();
+    }
 });
 stage('editor');
 

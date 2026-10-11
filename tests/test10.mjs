@@ -249,13 +249,14 @@ check('reset keeps a named project and clears its document',
 console.log('\neditor: the bar itself');
 check('the menu is built from one list',
   /const MENU = \[/.test(editorSrc) && /act: 'saveas'/.test(editorSrc)
-  && /act: 'duplicate'/.test(editorSrc) && /hasProject \?/.test(editorSrc));
+  && /act: 'duplicate'/.test(editorSrc) && /hasProject \?/.test(editorSrc)
+  && /act: 'theme'/.test(editorSrc) && /act: 'reset'/.test(editorSrc));
 check('renaming opens a name sheet', /function promptName\(/.test(editorSrc)
   && /setName\(trimmed\)/.test(editorSrc));
 check('actions report failure instead of throwing',
   /catch \(err\)/.test(editorSrc) && /flash\('Could not reach the server'\)/.test(editorSrc));
 check('the bar degrades to no-ops if the shell is older',
-  /return \{ setName\(\) \{\}, setStatus\(\) \{\}, flash\(\) \{\}, promptName: async \(\) => null \};/
+  /return \{ setName\(\) \{\}, setStatus\(\) \{\}, flash\(\) \{\}, promptName: async \(\) => null, setTheme\(\) \{\} \};/
     .test(editorSrc));
 
 console.log('\neditor: the viewer can save and restore a view');

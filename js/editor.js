@@ -6,8 +6,10 @@ export function createEditor(opts) {
     const {
         hasProject = false,
         name = '',
-        onHome, onSave, onRename, onDuplicate, onExport, onSaveAs, onReset
+        onHome, onSave, onRename, onDuplicate, onExport, onSaveAs, onReset,
+        onToggleTheme, isDark: isDark0 = false
     } = opts || {};
+    let isDark = isDark0;
 
     const bar = document.getElementById('topbar');
     const back = document.getElementById('btn-back');
@@ -30,7 +32,7 @@ export function createEditor(opts) {
             window.__tiltWired = 'stub: missing '
                 + Object.keys(missing).filter(k => !missing[k]).join(', ');
         }
-        return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null };
+        return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null, setTheme() {} };
     }
 
     const STATUS_TEXT = { saving: 'Saving…', saved: 'Saved', offline: 'Offline' };
@@ -70,16 +72,17 @@ export function createEditor(opts) {
     }
 
     // ------------------------------------------------------------ the menu
-    const MENU = [
-        { act: 'save', label: 'Save now' },
-        { act: 'rename', label: 'Rename' },
-        hasProject ? { act: 'duplicate', label: 'Duplicate' } : null,
-        { act: 'export', label: 'Export file' },
-        !hasProject ? { act: 'saveas', label: 'Save as project' } : null,
-        { sep: true },
-        { act: 'reset', label: 'Reset to defaults', danger: true },
-        { act: 'home', label: 'All projects' }
-    ];
+        const MENU = [
+            { act: 'save', label: 'Save now' },
+            { act: 'rename', label: 'Rename' },
+            hasProject ? { act: 'duplicate', label: 'Duplicate' } : null,
+            { act: 'export', label: 'Export file' },
+            !hasProject ? { act: 'saveas', label: 'Save as project' } : null,
+            { sep: true },
+            { act: 'theme', label: isDark ? 'Dark mode: On' : 'Dark mode: Off' },
+            { act: 'reset', label: 'Reset to defaults', danger: true },
+            { act: 'home', label: 'All projects' }
+        ];
 
     function closeMenu() {
         if (!menuOpen) return;
@@ -187,6 +190,11 @@ export function createEditor(opts) {
             if (act === 'save') return void (onSave && onSave());
             if (act === 'export') return void (onExport && onExport());
             if (act === 'reset') return void (onReset && onReset());
+            if (act === 'theme') {
+                isDark = !isDark;
+                onToggleTheme && onToggleTheme(isDark);
+                return;
+            }
 
             if (act === 'rename') {
                 const next = await promptName(currentName);
@@ -234,5 +242,7 @@ export function createEditor(opts) {
     // "the bar answers", and an early flag would claim it before it is true.
     if (typeof window !== 'undefined') window.__tiltWired = true;
 
-    return { setName, setStatus, flash, promptName };
+    function setTheme(dark) { isDark = !!dark; }
+
+    return { setName, setStatus, flash, promptName, setTheme };
 }
