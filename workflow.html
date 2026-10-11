@@ -161,47 +161,27 @@
 </div>
 
 <div class="card">
-    <h3>Looks row <span class="pill">5 recipes</span></h3>
+    <h3>Look section <span class="pill">Looks chips + Room chips</span></h3>
     <dl>
-        <dt>Does</dt><dd>One tap: SET + room + palette together. The chip matching the current three fields lights up.</dd>
-        <dt>Code</dt><dd><code>setRecipe(id)</code> &rarr; one <code>syncScene()</code></dd>
-        <dt>Doc</dt><dd>writes <span class="pill doc">layout</span> <span class="pill doc">scene</span> <span class="pill doc">colorway</span>; clears <span class="pill doc">fabricColor</span></dd>
-        <dt>Relates</dt><dd>A Look is never stored of its own &mdash; remembered through the three fields. Editing any one of them un-lights the chip (<code>recipeState()</code>).</dd>
+        <dt>Does</dt><dd>One section for the whole mood: five Look chips (SET + room + palette in one tap) and, under a Room sub-label, the five rooms as chips. The twin Scene select is gone - same five items, same job, one heading.</dd>
+        <dt>Code</dt><dd><code>lookBlock()</code> / <code>chipRow()</code>; Look &rarr; <code>setRecipe(id)</code>, Room &rarr; <code>setScene(id)</code></dd>
+        <dt>Doc</dt><dd>Look writes <span class="pill doc">layout</span> <span class="pill doc">scene</span> <span class="pill doc">colorway</span> and clears <span class="pill doc">fabricColor</span>; Room writes <span class="pill doc">scene</span> only</dd>
+        <dt>Relates</dt><dd>A Look is never stored of its own &mdash; remembered through the three fields; editing any one un-lights the chip (<code>recipeState()</code>). Room chips update in place through <code>applyLive</code>. A scene swap never moves a frame.</dd>
     </dl>
 </div>
 
 <div class="card">
-    <h3>SET row <span class="pill">5 sets</span></h3>
-    <dl>
-        <dt>Does</dt><dd>Picks the composition: placement drawing <em>plus</em> that SET&rsquo;s own four shape sliders.</dd>
-        <dt>Code</dt><dd><code>setLayout(id)</code> &rarr; clears frame places &rarr; <code>syncScene()</code> &rarr; <code>applySetParams(id)</code></dd>
-        <dt>Doc</dt><dd><span class="pill doc">layout</span> <span class="pill doc">setPresets</span>; frame <span class="pill doc">places</span> are re-derived from the drawing</dd>
-        <dt>Relates</dt><dd>Conversion happens <em>before</em> spacing (sliders land, then <code>applyPlaces()</code>). Saved <code>setPresets[id]</code> beats the drawing&rsquo;s defaults. Pillars keep their per-frame settings and re-anchor. Old <code>divided-entrance</code> lands on Classic Symmetry.</dd>
-    </dl>
-</div>
-
-<div class="card">
-    <h3>Scene row</h3>
-    <dl>
-        <dt>Does</dt><dd>The room around the set (Studio, White Room, Ballroom, Garden, Terrace).</dd>
-        <dt>Code</dt><dd><code>setScene(id)</code> &rarr; <code>viewer.setScene()</code></dd>
-        <dt>Doc</dt><dd><span class="pill doc">scene</span></dd>
-        <dt>Relates</dt><dd>A scene swap never moves a frame &mdash; only the world. Scene + colour + SET is exactly what a Look bundles.</dd>
-    </dl>
-</div>
-
-<div class="card">
-    <h3>Position block <span class="pill">per frame</span></h3>
+    <h3>Placement group <span class="pill">per frame</span></h3>
     <dl>
         <dt>Does</dt><dd>X / Depth / Turn numbers for this one frame instance (no dragging).</dd>
         <dt>Code</dt><dd><code>setPlace(key, index, patch)</code> &rarr; <code>savedPlaces</code> &rarr; <code>applyPlaces()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">places</span></dd>
-        <dt>Relates</dt><dd>Free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillar keys are refused here &mdash; pillars follow frames.</dd>
+        <dt>Relates</dt><dd>Position numbers and the pillar count/place share one <strong>Placement</strong> details group - one subject, one box. Free numbers override the SET&rsquo;s drawing; switching SET clears them (frames only). Pillar keys are refused here &mdash; pillars follow frames.</dd>
     </dl>
 </div>
 
 <div class="card">
-    <h3>Pillar settings <span class="pill">gear &middot; per frame</span></h3>
+    <h3>Settings gear <span class="pill">per frame</span></h3>
     <dl>
         <dt>Does</dt><dd>0&ndash;2 pillars beside this frame, anchored Centre / Inner ends / Outer ends.</dd>
         <dt>Code</dt><dd><code>setFramePillars(id, patch)</code> &rarr; <code>syncPillarsFor()</code> rebuilds <code>pillar:&lt;frameId&gt;</code> instances</dd>
@@ -211,9 +191,9 @@
 </div>
 
 <div class="card">
-    <h3>Advanced (gear) &amp; theme</h3>
+    <h3>Theme (footer)</h3>
     <dl>
-        <dt>Does</dt><dd>Pole walls, sleeve height (frame); light/dark room (footer toggle).</dd>
+        <dt>Does</dt><dd>Light/dark room. Pole walls and sleeve height live in the frame&rsquo;s Settings gear now, beside the pillar look - one gear, not two.</dd>
         <dt>Code</dt><dd>params path; <code>onThemeChange</code> &rarr; <code>viewer.setTheme()</code></dd>
         <dt>Doc</dt><dd><span class="pill doc">presets</span> <span class="pill doc">view.theme</span></dd>
         <dt>Relates</dt><dd>Theme sets a default fabric; your colour re-applies right after (<code>applyColorway</code> post-theme), so a palette or dial choice survives dark mode.</dd>

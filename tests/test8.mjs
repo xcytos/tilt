@@ -404,8 +404,11 @@ check('app carries the scene choice into the document',
 check('the viewer swaps the world, not the models', /viewer\.setScene\(id\)/.test(app));
 check('the panel gets the scene list and the callback',
   /scenes: SCENES/.test(app) && /onSceneChange: guard\(/.test(app));
-check('the panel renders a scene picker', /param-scene/.test(panel)
-  && /onSceneChange/.test(panel));
+check('the room lives as chips inside the Look section', (() => {
+  return /function lookBlock\(/.test(panel) && /function chipRow\(/.test(panel)
+    && /sceneChips\.set/.test(panel) && /onSceneChange && onSceneChange\(id\)/.test(panel)
+    && !/param-scene/.test(panel) && !/function sceneBlock\(/.test(panel);
+})());
 check('the viewer falls back to the studio', /isScene\(id\) \? id : DEFAULT_SCENE/.test(read('js/viewer.js')));
 
 console.log('\nwiring: the SET the project is staged as');
@@ -483,7 +486,7 @@ check('every Look is complete and lands on real ids', (() => {
 check('the Looks reach the panel and one tap writes all three fields',
   /'js\/recipes\.js'/.test(build) && /function setRecipe\(/.test(app)
   && /onRecipeChange: guard\(/.test(app) && /recipes: RECIPES/.test(app)
-  && /recipesBlock\(\)/.test(panel) && /onRecipeChange/.test(panel)
+  && /lookBlock\(\)/.test(panel) && /onRecipeChange/.test(panel)
   && /recipe: recipeState\(\)/.test(app));
 check('the build carries one version, in the footer and the log',
   /'js\/version\.js'/.test(build) && /export const VERSION = '[^']+'/.test(
@@ -583,7 +586,7 @@ check("the pillar options live inside the frame's own section",
   /function framePillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
   && /framePillars: framePillarsPlain\(\)/.test(app));
 check("a pillar's look hides behind a settings icon",
-  /function gearIcon\(/.test(panel) && /Pillar settings/.test(panel)
+  /function gearIcon\(/.test(panel) && /'Settings'/.test(panel)
   && /gearRanges/.test(panel));
 check('pillars travel with their frame through the All-at-once row',
   /applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);/.test(app)
@@ -595,6 +598,16 @@ check('your numbers reach the document and come back',
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));
+check('position and pillar placement share one Placement group', (() => {
+  return /textContent = 'Placement'/.test(panel)
+    && /positionBlock\(key, idx, place\)/.test(panel)
+    && /framePillarsBlock\(key\)/.test(panel);
+})());
+check('Looks and Room are one section, not twin rows', (() => {
+  return /host\.appendChild\(lookBlock\(\)\)/.test(panel)
+    && !/host\.appendChild\(recipesBlock\(\)\)/.test(panel)
+    && !/host\.appendChild\(sceneBlock\(\)\)/.test(panel);
+})());
 check('every group on stage gets a section, pillars included',
   /currentGroups\.forEach\(\(g, i\) => host\.appendChild\(/.test(panel)
   && /total: pillars\.length, owner: id/.test(app));

@@ -129,6 +129,7 @@ export function createPanel(opts) {
     let sceneSelectRef = null;
     let rgbDialRef = null;
     const recipeBtns = new Map();
+    const sceneChips = new Map();
     const colorChips = new Map();
     const placeRows = new Map();
 
@@ -248,56 +249,72 @@ export function createPanel(opts) {
             }
         }
 
-        if (gearRanges.length || gearToggles.length) {
+        // One gear per section: the pillar's look and the frame's advanced
+        // numbers used to be two dashed boxes with the same face - one
+        // Settings group carries both, labelled inside.
+        if (gearRanges.length || gearToggles.length
+            || advancedRanges.length || advancedToggles.length) {
             const details = document.createElement('details');
             details.className = 'mt-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
             const summary = document.createElement('summary');
             summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
                 + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-            summary.append(gearIcon(), document.createTextNode('Pillar settings'));
+            summary.append(gearIcon(), document.createTextNode('Settings'));
             const gearBody = document.createElement('div');
             gearBody.className = 'px-2 pb-2';
-            for (const [k, p] of gearRanges) gearBody.appendChild(addRange(k, p));
-            if (gearToggles.length) {
-                const row = document.createElement('div');
-                row.className = 'flex flex-wrap gap-4 pt-1';
-                for (const [k, p] of gearToggles) row.appendChild(addToggle(k, p));
-                gearBody.appendChild(row);
+            const sub = text => {
+                const el = document.createElement('div');
+                el.className = 'mt-1 mb-0.5 text-[10px] font-bold uppercase '
+                    + 'tracking-wider text-gray-400 dark:text-zinc-500';
+                el.textContent = text;
+                return el;
+            };
+            if (gearRanges.length || gearToggles.length) {
+                gearBody.appendChild(sub('Pillars'));
+                for (const [k, p] of gearRanges) gearBody.appendChild(addRange(k, p));
+                if (gearToggles.length) {
+                    const row = document.createElement('div');
+                    row.className = 'flex flex-wrap gap-4 pt-1';
+                    for (const [k, p] of gearToggles) row.appendChild(addToggle(k, p));
+                    gearBody.appendChild(row);
+                }
+            }
+            if (advancedRanges.length || advancedToggles.length) {
+                if (gearRanges.length || gearToggles.length) {
+                    gearBody.appendChild(sub('Frame'));
+                }
+                for (const [k, p] of advancedRanges) gearBody.appendChild(addRange(k, p));
+                if (advancedToggles.length) {
+                    const row = document.createElement('div');
+                    row.className = 'flex flex-wrap gap-4 pt-1';
+                    for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
+                    gearBody.appendChild(row);
+                }
             }
             details.append(summary, gearBody);
-            inner.appendChild(details);
-        }
-
-        // Everything the panel shows must come from the schema; "advanced" is
-        // just a flag on a param, not a separate hardcoded list.
-        if (advancedRanges.length || advancedToggles.length) {
-            const details = document.createElement('details');
-            details.className = 'mt-2 rounded-md border border-dashed '
-                + 'border-gray-300 dark:border-zinc-600';
-            const summary = document.createElement('summary');
-            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-            summary.textContent = 'Advanced';
-            const bodyEl = document.createElement('div');
-            bodyEl.className = 'px-2 pb-2';
-            for (const [k, p] of advancedRanges) bodyEl.appendChild(addRange(k, p));
-            if (advancedToggles.length) {
-                const row = document.createElement('div');
-                row.className = 'flex flex-wrap gap-4 pt-1';
-                for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
-                bodyEl.appendChild(row);
-            }
-            details.append(summary, bodyEl);
             inner.appendChild(details);
         }
 
         // Position: where THIS frame instance stands - numbers, not
         // dragging. Pillars never appear here: they follow their frame.
         if (!isPillar) {
+            // Position and pillar placement are one subject - where this
+            // frame's pieces stand - so they share one Placement group.
+            const placement = document.createElement('details');
+            placement.className = 'mt-3 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const psum = document.createElement('summary');
+            psum.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+            psum.textContent = 'Placement';
+            const pbody = document.createElement('div');
+            pbody.className = 'px-2 pb-2';
             const place = (currentPlaces[key] || [])[idx];
-            if (place) inner.appendChild(positionBlock(key, idx, place));
-            inner.appendChild(framePillarsBlock(key));
+            if (place) pbody.appendChild(positionBlock(key, idx, place));
+            pbody.appendChild(framePillarsBlock(key));
+            placement.append(psum, pbody);
+            inner.appendChild(placement);
         }
 
         const sec = { key, targets, rows, root };
@@ -308,8 +325,7 @@ export function createPanel(opts) {
     // One frame instance's coordinates: numbers, not dragging.
     function positionBlock(key, idx, place) {
         const wrap = document.createElement('div');
-        wrap.className = 'mt-3 pt-2 border-t border-dashed '
-            + 'border-gray-300 dark:border-zinc-600';
+        wrap.className = 'mb-2';
 
         const title = document.createElement('div');
         title.className = 'text-[11px] font-semibold uppercase tracking-wider '
@@ -520,33 +536,54 @@ export function createPanel(opts) {
     }
 
 
-    // Looks: a whole project in one tap - SET, room and fabric palette
-    // together. The chip matching the current three fields lights up; the
-    // parts stay editable underneath.
-    function recipesBlock() {
-        const wrap = document.createElement('div');
-        wrap.className = 'mb-3';
-        wrap.appendChild(heading('Looks'));
+    // One section for the whole mood: a Look is SET + room + palette in one
+    // tap, and the room is also choosable on its own as chips underneath.
+    // The two used to be twin rows in separate sections - same five items,
+    // same job - so they share one heading now.
+    function chipRow(items, activeId, onPick, keyOf, labelOf) {
         const row = document.createElement('div');
         row.className = 'flex flex-wrap gap-2';
-        for (const r of recipes) {
+        for (const item of items) {
+            const id = keyOf(item);
             const btn = document.createElement('button');
             btn.type = 'button';
-            const on = r.id === currentRecipe;
+            const on = id === activeId;
             btn.className = 'px-2 py-1.5 rounded-lg border text-xs transition-colors '
                 + (on
                     ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
                     : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            btn.textContent = r.name;
-            btn.addEventListener('click', () => {
-                onRecipeChange && onRecipeChange(r.id);
-            });
+            btn.textContent = labelOf(item);
+            btn.addEventListener('click', () => onPick(id));
             live.buttons.push(btn);
-            recipeBtns.set(r.id, btn);
             row.appendChild(btn);
         }
-        wrap.appendChild(row);
+        return row;
+    }
+
+    function lookBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        wrap.appendChild(heading('Look'));
+        if (recipes.length > 1) {
+            const row = chipRow(recipes, currentRecipe,
+                id => onRecipeChange && onRecipeChange(id),
+                r => r.id, r => r.name);
+            [...row.children].forEach((btn, i) => recipeBtns.set(recipes[i].id, btn));
+            wrap.appendChild(row);
+        }
+        if (scenes.length > 1) {
+            const lab = document.createElement('div');
+            lab.className = 'mt-2 mb-1 text-[11px] font-semibold uppercase '
+                + 'tracking-wider text-gray-500 dark:text-zinc-400';
+            lab.textContent = 'Room';
+            wrap.appendChild(lab);
+            const row = chipRow(scenes, currentScene,
+                id => onSceneChange && onSceneChange(id),
+                x => x.id, x => x.name);
+            [...row.children].forEach((btn, i) => sceneChips.set(scenes[i].id, btn));
+            wrap.appendChild(row);
+        }
         return wrap;
     }
 
@@ -682,27 +719,6 @@ export function createPanel(opts) {
     // The room the set stands in. Kept next to the display controls rather
     // than in the model sections: a scene belongs to the project, not to a
     // preset.
-    function sceneBlock() {
-        const wrap = document.createElement('div');
-        wrap.className = 'mb-3';
-        wrap.appendChild(heading('Scene'));
-        const select = document.createElement('select');
-        select.id = 'param-scene';
-        select.className = FIELD_CLS;
-        for (const s of scenes) {
-            const opt = document.createElement('option');
-            opt.value = s.id;
-            opt.textContent = s.name;
-            select.appendChild(opt);
-        }
-        select.value = currentScene || (scenes[0] && scenes[0].id) || '';
-        select.addEventListener('change', e => onSceneChange && onSceneChange(e.target.value));
-        live.selects.push(select);
-        sceneSelectRef = select;
-        wrap.appendChild(select);
-        return wrap;
-    }
-
     // Which presets are mounted. In overlay mode this is how models get in and
     // out of the scene; the accordions below only appear for what is mounted.
     function pickerBlock() {
@@ -782,6 +798,7 @@ export function createPanel(opts) {
         sceneSelectRef = null;
         rgbDialRef = null;
         recipeBtns.clear();
+        sceneChips.clear();
         colorChips.clear();
         placeRows.clear();
         host.textContent = '';
@@ -814,9 +831,8 @@ export function createPanel(opts) {
             host.appendChild(empty);
         }
 
-        if (recipes.length > 1) host.appendChild(recipesBlock());
+        if (recipes.length > 1 || scenes.length > 1) host.appendChild(lookBlock());
         if (sets.length > 1) host.appendChild(setBlock());
-        if (scenes.length > 1) host.appendChild(sceneBlock());
         host.appendChild(themeFooter());
         applyBusy();
     }
@@ -877,6 +893,14 @@ export function createPanel(opts) {
                 if (sceneSelectRef) {
                     sceneSelectRef.value = currentScene
                         || (scenes[0] && scenes[0].id) || '';
+                }
+                for (const [id, btn] of sceneChips) {
+                    const on = id === currentScene;
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.className = 'px-2 py-1.5 rounded-lg border text-xs '
+                        + 'transition-colors ' + (on
+                            ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                            : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
                 }
             }
             if (next.recipe !== undefined) {
