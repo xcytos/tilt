@@ -447,7 +447,12 @@ check('a SET switch converts the sliders before the row is spaced', (() => {
   return doc.layout === 'grand-entrance'
     && doc.setPresets['grand-entrance'].pan === 33
     && /function applySetParams\(/.test(app)
-    && /if \(applySetParams\(layoutId\)\) forcePanel = true;/.test(app)
+    && /const shaped = applySetParams\(layoutId\);/.test(app)
+    && /panel\.applyLive\(\{\s*set: layoutId/.test(app)
+    // the conversion rebuilds the geometry in the same sync, and a partly
+    // tweaked SET still converts every slider
+    && /if \(m\.dirty && m\.build\) m\.build\(\);/.test(app)
+    && /Object\.assign\(\{\}, \(lay && lay\.params\) \|\| \{\},/.test(app)
     && /setPresets\[layoutId\] = Object\.assign/.test(app)
     && /setPresets: setPresetsPlain\(\)/.test(app);
 })());
@@ -515,6 +520,17 @@ check('a custom colour reaches the stage, and a Look or chip clears it',
   && /fabricColor = nextFabric;/.test(app)
   && /colorwayId = r\.colorway;\n    fabricColor = null;/.test(app)
   && /fabricColor = null;\n    extraColors = \[\];/.test(app));
+check('a SET tap moves values in place - no panel rebuild under the finger', (() => {
+  const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
+  return /applyLive\(next = \{\}\)/.test(p)
+    && /setSelectRef\.value/.test(p) && /rgbDialRef\.set/.test(p)
+    && /placeRows\.get/.test(p)
+    // the signature no longer carries value-level fields
+    && !/currentSet \|\|''/.test(p.replace(/\s+/g, ''))
+    && !/JSON\.stringify\(currentPlaces\)/.test(p)
+    && /panel\.applyLive\(\{ places: placesFor\(\) \}\)/.test(app)
+    && /panel\.applyLive\(\{ scene: sceneId/.test(app);
+})());
 check('the SET write-through never reaches outside the instance loop', (() => {
   const handler = app.slice(app.indexOf('onParamsChange:'), app.indexOf('onThemeChange:'));
   const after = handler.slice(handler.indexOf('if (layoutId && Object.keys(shaped)'));

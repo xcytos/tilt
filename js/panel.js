@@ -121,6 +121,16 @@ export function createPanel(opts) {
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
     let currentRecipe = recipe;
+    // Add colour swaps this list without a structural render.
+    let currentColorways = colorways;
+    // Live refs for applyLive: value-level updates never rebuild the DOM.
+    let setSelectRef = null;
+    let setNoteRef = null;
+    let sceneSelectRef = null;
+    let rgbDialRef = null;
+    const recipeBtns = new Map();
+    const colorChips = new Map();
+    const placeRows = new Map();
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -309,6 +319,7 @@ export function createPanel(opts) {
 
         const row = document.createElement('div');
         row.className = 'grid grid-cols-3 gap-2';
+        const refs = {};
         for (const [label, prop, step] of [
             ['X', 'x', 0.5], ['Depth', 'z', 0.5], ['Turn', 'ry', 1]
         ]) {
@@ -333,7 +344,11 @@ export function createPanel(opts) {
             cell.appendChild(input);
             row.appendChild(cell);
             live.selects.push(input);
+            refs[prop] = { input };
         }
+        const slot = placeRows.get(key + ':' + idx) || {};
+        Object.assign(slot, refs);
+        placeRows.set(key + ':' + idx, slot);
         wrap.appendChild(row);
         return wrap;
     }
@@ -490,16 +505,17 @@ export function createPanel(opts) {
         select.value = currentSet || '';
         select.addEventListener('change', e => onSetChange && onSetChange(e.target.value));
         live.selects.push(select);
+        setSelectRef = select;
         wrap.appendChild(select);
-        if (currentSet) {
-            const hit = sets.find(s => s.id === currentSet);
-            const note = document.createElement('p');
-            note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
-            note.textContent = hit
-                ? `${hit.subtitle} - a starting point; every position below is yours to change.`
-                : '';
-            wrap.appendChild(note);
-        }
+        const hit0 = currentSet ? sets.find(s => s.id === currentSet) : null;
+        const note = document.createElement('p');
+        note.className = 'mt-1 text-[11px] text-gray-500 dark:text-zinc-400';
+        note.hidden = !hit0;
+        note.textContent = hit0
+            ? `${hit0.subtitle} - a starting point; every position below is yours to change.`
+            : '';
+        setNoteRef = note;
+        wrap.appendChild(note);
         return wrap;
     }
 
@@ -527,6 +543,7 @@ export function createPanel(opts) {
                 onRecipeChange && onRecipeChange(r.id);
             });
             live.buttons.push(btn);
+            recipeBtns.set(r.id, btn);
             row.appendChild(btn);
         }
         wrap.appendChild(row);
@@ -553,7 +570,7 @@ export function createPanel(opts) {
 
         const row = document.createElement('div');
         row.className = 'flex flex-wrap gap-2 mb-2';
-        for (const c of colorways) {
+        for (const c of currentColorways) {
             const btn = document.createElement('button');
             btn.type = 'button';
             const on = c.fabric === eff;
@@ -572,6 +589,7 @@ export function createPanel(opts) {
                 onColorwayChange && onColorwayChange(c.id);
             });
             live.buttons.push(btn);
+            colorChips.set(c.fabric, btn);
             row.appendChild(btn);
         }
         wrap.appendChild(row);
@@ -595,6 +613,7 @@ export function createPanel(opts) {
             swatch.style.background = hexText(hex);
             hexLabel.textContent = hexText(hex) + ' custom';
         };
+        const channelInputs = {};
         const emit = () => {
             paint();
             onRgbChange && onRgbChange((vals.r << 16) | (vals.g << 8) | vals.b);
@@ -625,9 +644,24 @@ export function createPanel(opts) {
                 emit();
             });
             if (live.inputs) live.inputs.push(input);
+            channelInputs[key] = { input, num };
             line.append(lab, input, num);
             rgb.appendChild(line);
         }
+        // applyLive drives the dial without firing onRgbChange.
+        rgbDialRef = {
+            set(hex) {
+                vals.r = (hex >> 16) & 255;
+                vals.g = (hex >> 8) & 255;
+                vals.b = hex & 255;
+                for (const key of ['r', 'g', 'b']) {
+                    if (!channelInputs[key]) continue;
+                    channelInputs[key].input.value = String(vals[key]);
+                    channelInputs[key].num.textContent = String(vals[key]);
+                }
+                paint();
+            }
+        };
         wrap.appendChild(rgb);
 
         // Keep the dialled colour as a new swatch - the board palettes are
@@ -664,6 +698,7 @@ export function createPanel(opts) {
         select.value = currentScene || (scenes[0] && scenes[0].id) || '';
         select.addEventListener('change', e => onSceneChange && onSceneChange(e.target.value));
         live.selects.push(select);
+        sceneSelectRef = select;
         wrap.appendChild(select);
         return wrap;
     }
@@ -727,23 +762,28 @@ export function createPanel(opts) {
         return footer;
     }
 
+    // Structural signature only: value-level fields (set, scene, colour,
+    // recipe, places, shape) travel through applyLive and never force a
+    // rebuild - a SET tap must not re-render the whole panel under the
+    // finger.
     function signature() {
         return [
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
-            currentScene || '',
-            currentSet || '',
-            currentColorway || '',
-            currentFabricColor === null ? 'none' : String(currentFabricColor),
-            currentRecipe || '',
             JSON.stringify(currentFramePillars),
-            JSON.stringify(currentPlaces),
             (current && current.name) || ''
         ].join('|');
     }
 
     function render() {
+        setSelectRef = null;
+        setNoteRef = null;
+        sceneSelectRef = null;
+        rgbDialRef = null;
+        recipeBtns.clear();
+        colorChips.clear();
+        placeRows.clear();
         host.textContent = '';
         sections = [];
         live = { selects: [], checks: [], buttons: [] };
@@ -809,7 +849,93 @@ export function createPanel(opts) {
             if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
+            if (next.colorways !== undefined) currentColorways = next.colorways;
             renderIfChanged(force);
+            return this;
+        },
+
+        // Value-level repaint: the SET select, Look chips, scene select,
+        // colour chips, RGB dial, the four shape sliders and the position
+        // numbers all move in place. A SET tap must feel like a state
+        // change, not a reload - so nothing here rebuilds the DOM.
+        applyLive(next = {}) {
+            if (next.set !== undefined) {
+                currentSet = next.set;
+                if (setSelectRef) setSelectRef.value = currentSet || '';
+                if (setNoteRef) {
+                    const hit = currentSet
+                        ? sets.find(x => x.id === currentSet) : null;
+                    setNoteRef.hidden = !hit;
+                    setNoteRef.textContent = hit
+                        ? `${hit.subtitle} - a starting point; `
+                          + 'every position below is yours to change.'
+                        : '';
+                }
+            }
+            if (next.scene !== undefined) {
+                currentScene = next.scene;
+                if (sceneSelectRef) {
+                    sceneSelectRef.value = currentScene
+                        || (scenes[0] && scenes[0].id) || '';
+                }
+            }
+            if (next.recipe !== undefined) {
+                currentRecipe = next.recipe;
+                for (const [id, btn] of recipeBtns) {
+                    const on = id === currentRecipe;
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.className = 'px-2 py-1.5 rounded-lg border text-xs '
+                        + 'transition-colors ' + (on
+                            ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                            : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+                }
+            }
+            if (next.colorway !== undefined || next.fabricColor !== undefined) {
+                if (next.colorway !== undefined) currentColorway = next.colorway;
+                if (next.fabricColor !== undefined) {
+                    currentFabricColor = next.fabricColor;
+                }
+                const eff = effectiveFabric();
+                for (const [fab, btn] of colorChips) {
+                    const on = fab === eff;
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg '
+                        + 'border text-xs transition-colors ' + (on
+                            ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
+                            : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
+                }
+                if (rgbDialRef) rgbDialRef.set(eff);
+            }
+            if (next.shape) {
+                for (const sec of sections) {
+                    const schema = sec.targets && sec.targets[0];
+                    for (const [k, v] of Object.entries(next.shape)) {
+                        const row = sec.rows && sec.rows[k];
+                        const meta = schema && schema.params ? schema.params[k] : null;
+                        if (!row || !meta) continue;
+                        row.input.value = String(v);
+                        if (row.value) row.value.textContent = fmt(v, meta.unit);
+                    }
+                }
+            }
+            if (next.places) {
+                for (const [key, list] of Object.entries(next.places)) {
+                    (list || []).forEach((place, idx) => {
+                        if (!place) return;
+                        const slot = placeRows.get(key + ':' + idx);
+                        if (!slot) return;
+                        for (const prop of ['x', 'z', 'ry']) {
+                            const r = slot[prop];
+                            if (!r) continue;
+                            const val = Math.round(place[prop] * 100) / 100;
+                            // Never fight a focused field mid-typing.
+                            if (document.activeElement !== r.input) {
+                                r.input.value = String(val);
+                            }
+                        }
+                    });
+                }
+            }
             return this;
         },
 

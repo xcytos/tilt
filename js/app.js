@@ -546,7 +546,7 @@ function setPlace(key, index, patch) {
         ry: num(patch.ry, cur.ry)
     };
     applyPlaces();
-    if (panel) panel.refresh({ places: placesFor() }, true);
+    if (panel) panel.applyLive({ places: placesFor() });
     scheduleSave();
     return true;
 }
@@ -574,9 +574,9 @@ function setColorway(id) {
     fabricColor = nextFabric;
     applyColorway();
     if (panel) {
-        panel.refresh({
+        panel.applyLive({
             colorway: colorwayId, fabricColor: fabricColor, recipe: recipeState()
-        }, true);
+        });
     }
     scheduleSave();
     return true;
@@ -650,10 +650,10 @@ function setRecipe(id) {
         }
     }
     if (panel) {
-        panel.refresh({
-            scene: sceneId, colorway: colorwayId, set: layoutId,
-            recipe: recipeState(), places: placesFor()
-        }, true);
+        panel.applyLive({
+            scene: sceneId, colorway: colorwayId, fabricColor: fabricColor,
+            set: layoutId, recipe: recipeState(), places: placesFor()
+        });
     }
     scheduleSave();
     return syncScene();
@@ -664,7 +664,12 @@ function setRecipe(id) {
 // a SET a real conversion of the object, not only a new row of coordinates.
 function applySetParams(id) {
     const lay = id ? layoutById(id) : null;
-    const src = (id && setPresets[id]) || (lay && lay.params) || null;
+    // Saved numbers sit ON TOP of the drawing's defaults: a SET that was
+    // only partly tweaked still converts every slider, not just the ones
+    // you happened to touch.
+    const src = lay || (id && setPresets[id])
+        ? Object.assign({}, (lay && lay.params) || {}, (id && setPresets[id]) || {})
+        : null;
     if (!src) return false;
     const patch = {};
     for (const k of SET_SHAPE_KEYS) {
@@ -673,7 +678,7 @@ function applySetParams(id) {
         if (!meta || !Number.isFinite(v)) continue;
         patch[k] = Math.max(meta.min, Math.min(meta.max, v));
     }
-    if (!Object.keys(patch).length) return false;
+    if (!Object.keys(patch).length) return null;
     for (const [key, models] of mounted) {
         if (key.startsWith(PILLAR_ID)) continue;
         for (const m of models) {
@@ -682,7 +687,7 @@ function applySetParams(id) {
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], patch);
         }
     }
-    return true;
+    return patch;
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`
@@ -705,8 +710,17 @@ async function syncScene(forcePanel = false) {
         }
 
         // Convert first, space second: the new SET's sliders must already
-        // be on the frames when the row is laid out and the panel repaints.
-        if (applySetParams(layoutId)) forcePanel = true;
+        // be on the frames when the row is laid out. The panel moves the
+        // numbers in place - a SET tap is a state change, not a reload.
+        const shaped = applySetParams(layoutId);
+        if (shaped) {
+            // The shape must land on the geometry NOW, not on the next
+            // slider nudge: rebuild the dirty models in place. (Slider
+            // drags still rebuild per frame through scheduleRebuild.)
+            for (const g of groups()) {
+                for (const m of g.models) if (m.dirty && m.build) m.build();
+            }
+        }
 
         defaultPlaces();
         // Frames first, then the pillars re-derive from where their frames
@@ -736,6 +750,12 @@ async function syncScene(forcePanel = false) {
                 places: placesFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
+            if (shaped) {
+                panel.applyLive({
+                    set: layoutId, recipe: recipeState(),
+                    shape: shaped, places: placesFor()
+                });
+            }
             panel.sync();
         }
 
@@ -787,7 +807,7 @@ function setScene(id) {
     if (!isScene(id) || id === sceneId) return false;
     sceneId = id;
     viewer.setScene(id);
-    if (panel) panel.refresh({ scene: sceneId, recipe: recipeState() }, true);
+    if (panel) panel.applyLive({ scene: sceneId, recipe: recipeState() });
     scheduleSave();
     return true;
 }
@@ -805,7 +825,11 @@ function setLayout(id) {
     for (const key of [...savedPlaces.keys()]) {
         if (!key.startsWith(PILLAR_ID)) savedPlaces.delete(key);
     }
-    if (panel) panel.refresh({ set: layoutId, recipe: recipeState(), places: placesFor() }, true);
+    if (panel) {
+        panel.applyLive({
+            set: layoutId, recipe: recipeState(), places: placesFor()
+        });
+    }
     scheduleSave();
     return syncScene();
 }
