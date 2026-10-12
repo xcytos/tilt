@@ -871,7 +871,15 @@ function setFramePillars(id, patch) {
     framePillars.set(id, { count, place, offset });
     // A new count gets a fresh set of anchors.
     if (count !== cur.count) savedPlaces.delete(pillarKey(id));
-    if (panel) panel.refresh({ framePillars: framePillarsPlain() }, true);
+    if (panel) {
+        if (count === cur.count && place === cur.place) {
+            // Offset-only: update the sliders in place - a full rebuild
+            // would destroy the input mid-drag.
+            panel.applyLive({ framePillars: framePillarsPlain() });
+        } else {
+            panel.refresh({ framePillars: framePillarsPlain() }, true);
+        }
+    }
     scheduleSave();
     return syncScene();
 }

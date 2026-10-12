@@ -260,6 +260,7 @@ export function createPanel(opts) {
     const sceneChips = new Map();
     const colorChips = new Map();
     const placeRows = new Map();
+    const pillarOffsetRows = new Map();
 
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
@@ -653,6 +654,9 @@ export function createPanel(opts) {
                 });
             });
             live.selects.push(built.input);
+            const slot = pillarOffsetRows.get(id) || {};
+            slot[prop] = { input: built.input, value: built.value };
+            pillarOffsetRows.set(id, slot);
             posBody.appendChild(built.wrap);
         }
 
@@ -967,11 +971,17 @@ export function createPanel(opts) {
     // rebuild - a SET tap must not re-render the whole panel under the
     // finger.
     function signature() {
+        // Count and place are structural (they change what the shelf
+        // shows); the offset sliders are value-level and must never
+        // force a rebuild mid-drag.
+        const pillarShape = Object.fromEntries(
+            Object.entries(currentFramePillars).map(([k, c]) => [k,
+                { count: c.count, place: c.place }]));
         return [
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
-            JSON.stringify(currentFramePillars),
+            JSON.stringify(pillarShape),
             (current && current.name) || ''
         ].join('|');
     }
@@ -985,6 +995,7 @@ export function createPanel(opts) {
         sceneChips.clear();
         colorChips.clear();
         placeRows.clear();
+        pillarOffsetRows.clear();
         host.textContent = '';
         sections = [];
         live = { selects: [], checks: [], buttons: [] };
@@ -1078,7 +1089,21 @@ export function createPanel(opts) {
             if (next.colorway !== undefined) currentColorway = next.colorway;
             if (next.fabricColor !== undefined) currentFabricColor = next.fabricColor;
             if (next.recipe !== undefined) currentRecipe = next.recipe;
-            if (next.framePillars !== undefined) currentFramePillars = next.framePillars;
+            if (next.framePillars !== undefined) {
+                currentFramePillars = next.framePillars;
+                // Nudge the offset sliders in place - a drag must never
+                // rebuild the shelf under the finger.
+                for (const [pid, slot] of pillarOffsetRows) {
+                    const cfg = currentFramePillars[pid];
+                    const off = (cfg && cfg.offset) || {};
+                    for (const [prop, refs] of Object.entries(slot)) {
+                        const v = Number(off[prop]) || 0;
+                        refs.input.value = String(Math.round(v * 100) / 100);
+                        refs.value.textContent = fmt(v,
+                            prop === 'ry' ? '\u00b0' : ' ft');
+                    }
+                }
+            }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
             if (next.colorways !== undefined) currentColorways = next.colorways;
