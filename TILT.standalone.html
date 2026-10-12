@@ -1167,7 +1167,7 @@ function cleanFramePillars(raw) {
         out[id] = {
             count: Math.round(clampN(v.count, 0, 2, 0)),
             place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
-            gap: clampN(v.gap, 0, 200, 3),
+            gap: clampN(v.gap, -40, 40, 3),
             offset: {
                 x: clampN(rawOff.x, -200, 200, 0),
                 z: clampN(rawOff.z, -200, 200, 0),
@@ -3350,7 +3350,7 @@ function createPanel(opts) {
         // Centre Gap: only meaningful with two pillars - symmetric spread.
         if (cfg.count === 2) {
             const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', cfg.gap ?? 3, 0, 40, 0.5, ' ft');
+                'gap', cfg.gap ?? 3, -40, 40, 0.5, ' ft');
             builtGap.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
@@ -5068,7 +5068,7 @@ function setFramePillars(id, patch) {
     }
     if (patch.gap !== undefined) {
         const g = Number(patch.gap);
-        if (Number.isFinite(g)) gap = Math.max(0, Math.min(200, g));
+        if (Number.isFinite(g)) gap = Math.max(-40, Math.min(40, g));
     }
     if (patch.offset && typeof patch.offset === 'object' && !Array.isArray(patch.offset)) {
         const numv = (v, lo, hi) => Number.isFinite(Number(v))

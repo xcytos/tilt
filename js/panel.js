@@ -641,7 +641,7 @@ export function createPanel(opts) {
         // Centre Gap: only meaningful with two pillars - symmetric spread.
         if (cfg.count === 2) {
             const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', cfg.gap ?? 3, 0, 40, 0.5, ' ft');
+                'gap', cfg.gap ?? 3, -40, 40, 0.5, ' ft');
             builtGap.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;

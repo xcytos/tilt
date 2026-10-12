@@ -866,7 +866,7 @@ function setFramePillars(id, patch) {
     }
     if (patch.gap !== undefined) {
         const g = Number(patch.gap);
-        if (Number.isFinite(g)) gap = Math.max(0, Math.min(200, g));
+        if (Number.isFinite(g)) gap = Math.max(-40, Math.min(40, g));
     }
     if (patch.offset && typeof patch.offset === 'object' && !Array.isArray(patch.offset)) {
         const numv = (v, lo, hi) => Number.isFinite(Number(v))
