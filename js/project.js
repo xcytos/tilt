@@ -119,7 +119,7 @@ function cleanFramePillars(raw) {
         out[id] = {
             count: Math.round(clampN(v.count, 0, 2, 0)),
             place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
-            gap: clampN(v.gap, -40, 40, 3),
+            gap: clampN(v.gap, -5, 40, 3),
             offset: {
                 x: clampN(rawOff.x, -200, 200, 0),
                 z: clampN(rawOff.z, -200, 200, 0),
