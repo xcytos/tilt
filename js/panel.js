@@ -638,6 +638,22 @@ export function createPanel(opts) {
         const posBody = document.createElement('div');
         posBody.className = 'pt-1';
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
+        // Centre Gap: only meaningful with two pillars - symmetric spread.
+        if (cfg.count === 2) {
+            const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
+                'gap', cfg.gap || 0, 0, 40, 0.5, ' ft');
+            builtGap.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                builtGap.value.textContent = fmt(v, ' ft');
+                onFramePillarsChange && onFramePillarsChange(id, { gap: v });
+            });
+            live.selects.push(builtGap.input);
+            const slot = pillarOffsetRows.get(id) || {};
+            slot.gap = { input: builtGap.input, value: builtGap.value };
+            pillarOffsetRows.set(id, slot);
+            posBody.appendChild(builtGap.wrap);
+        }
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
@@ -668,10 +684,10 @@ export function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         resetP.textContent = 'Reset placement';
-        resetP.title = 'Zero the X / Depth / Turn offset';
+        resetP.title = 'Zero the Centre Gap and X / Depth / Turn offset';
         resetP.addEventListener('click', () => {
             onFramePillarsChange && onFramePillarsChange(id,
-                { offset: { x: 0, z: 0, ry: 0 } });
+                { gap: 0, offset: { x: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
         posBody.appendChild(resetP);
@@ -1091,18 +1107,6 @@ export function createPanel(opts) {
             if (next.recipe !== undefined) currentRecipe = next.recipe;
             if (next.framePillars !== undefined) {
                 currentFramePillars = next.framePillars;
-                // Nudge the offset sliders in place - a drag must never
-                // rebuild the shelf under the finger.
-                for (const [pid, slot] of pillarOffsetRows) {
-                    const cfg = currentFramePillars[pid];
-                    const off = (cfg && cfg.offset) || {};
-                    for (const [prop, refs] of Object.entries(slot)) {
-                        const v = Number(off[prop]) || 0;
-                        refs.input.value = String(Math.round(v * 100) / 100);
-                        refs.value.textContent = fmt(v,
-                            prop === 'ry' ? '\u00b0' : ' ft');
-                    }
-                }
             }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
@@ -1116,6 +1120,23 @@ export function createPanel(opts) {
         // numbers all move in place. A SET tap must feel like a state
         // change, not a reload - so nothing here rebuilds the DOM.
         applyLive(next = {}) {
+            if (next.framePillars !== undefined) {
+                currentFramePillars = next.framePillars;
+                // Nudge the gap and offset sliders in place - a drag must
+                // never rebuild the shelf under the finger.
+                for (const [pid, slot] of pillarOffsetRows) {
+                    const c = currentFramePillars[pid];
+                    const off = (c && c.offset) || {};
+                    for (const [prop, refs] of Object.entries(slot)) {
+                        const v = prop === 'gap'
+                            ? (Number(c && c.gap) || 0)
+                            : (Number(off[prop]) || 0);
+                        refs.input.value = String(Math.round(v * 100) / 100);
+                        refs.value.textContent = fmt(v,
+                            prop === 'ry' ? '\u00b0' : ' ft');
+                    }
+                }
+            }
             if (next.set !== undefined) {
                 currentSet = next.set;
                 if (setSelectRef) setSelectRef.value = currentSet || '';

@@ -1167,6 +1167,7 @@ function cleanFramePillars(raw) {
         out[id] = {
             count: Math.round(clampN(v.count, 0, 2, 0)),
             place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
+            gap: clampN(v.gap, 0, 200, 0),
             offset: {
                 x: clampN(rawOff.x, -200, 200, 0),
                 z: clampN(rawOff.z, -200, 200, 0),
@@ -3346,6 +3347,22 @@ function createPanel(opts) {
         const posBody = document.createElement('div');
         posBody.className = 'pt-1';
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
+        // Centre Gap: only meaningful with two pillars - symmetric spread.
+        if (cfg.count === 2) {
+            const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
+                'gap', cfg.gap || 0, 0, 40, 0.5, ' ft');
+            builtGap.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                builtGap.value.textContent = fmt(v, ' ft');
+                onFramePillarsChange && onFramePillarsChange(id, { gap: v });
+            });
+            live.selects.push(builtGap.input);
+            const slot = pillarOffsetRows.get(id) || {};
+            slot.gap = { input: builtGap.input, value: builtGap.value };
+            pillarOffsetRows.set(id, slot);
+            posBody.appendChild(builtGap.wrap);
+        }
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
@@ -3376,10 +3393,10 @@ function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         resetP.textContent = 'Reset placement';
-        resetP.title = 'Zero the X / Depth / Turn offset';
+        resetP.title = 'Zero the Centre Gap and X / Depth / Turn offset';
         resetP.addEventListener('click', () => {
             onFramePillarsChange && onFramePillarsChange(id,
-                { offset: { x: 0, z: 0, ry: 0 } });
+                { gap: 0, offset: { x: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
         posBody.appendChild(resetP);
@@ -3799,18 +3816,6 @@ function createPanel(opts) {
             if (next.recipe !== undefined) currentRecipe = next.recipe;
             if (next.framePillars !== undefined) {
                 currentFramePillars = next.framePillars;
-                // Nudge the offset sliders in place - a drag must never
-                // rebuild the shelf under the finger.
-                for (const [pid, slot] of pillarOffsetRows) {
-                    const cfg = currentFramePillars[pid];
-                    const off = (cfg && cfg.offset) || {};
-                    for (const [prop, refs] of Object.entries(slot)) {
-                        const v = Number(off[prop]) || 0;
-                        refs.input.value = String(Math.round(v * 100) / 100);
-                        refs.value.textContent = fmt(v,
-                            prop === 'ry' ? '\u00b0' : ' ft');
-                    }
-                }
             }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
@@ -3824,6 +3829,23 @@ function createPanel(opts) {
         // numbers all move in place. A SET tap must feel like a state
         // change, not a reload - so nothing here rebuilds the DOM.
         applyLive(next = {}) {
+            if (next.framePillars !== undefined) {
+                currentFramePillars = next.framePillars;
+                // Nudge the gap and offset sliders in place - a drag must
+                // never rebuild the shelf under the finger.
+                for (const [pid, slot] of pillarOffsetRows) {
+                    const c = currentFramePillars[pid];
+                    const off = (c && c.offset) || {};
+                    for (const [prop, refs] of Object.entries(slot)) {
+                        const v = prop === 'gap'
+                            ? (Number(c && c.gap) || 0)
+                            : (Number(off[prop]) || 0);
+                        refs.input.value = String(Math.round(v * 100) / 100);
+                        refs.value.textContent = fmt(v,
+                            prop === 'ry' ? '\u00b0' : ' ft');
+                    }
+                }
+            }
             if (next.set !== undefined) {
                 currentSet = next.set;
                 if (setSelectRef) setSelectRef.value = currentSet || '';
@@ -4510,6 +4532,7 @@ function pillarKey(frameId) {
 function framePillarsFor(id) {
     const cfg = framePillars.get(id) || { count: 0, place: 'outer' };
     return Object.assign({}, cfg, {
+        gap: Number.isFinite(cfg.gap) ? cfg.gap : 0,
         offset: cfg.offset || { x: 0, z: 0, ry: 0 }
     });
 }
@@ -4518,6 +4541,7 @@ function framePillarsPlain() {
     return Object.fromEntries([...framePillars].map(([id, c]) => [id, {
         count: c.count,
         place: c.place,
+        gap: Number.isFinite(c.gap) ? c.gap : 0,
         offset: Object.assign({ x: 0, z: 0, ry: 0 }, c.offset || {})
     }]));
 }
@@ -4666,14 +4690,24 @@ function refreshPillarPlaces() {
         const cfg = framePillarsFor(frameId);
         const per = Math.max(0, Math.min(2, cfg.count)) || 1;
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
+        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 0;
         const arr = models.map((m, i) => {
             const frame = frames[Math.floor(i / per)] || frames[0] || null;
             const spot = derivePillarPlace(frame, cfg.place, i % per, per);
+            // Centre Gap: symmetric spread along the frame's own axis.
+            // Pillar 0 steps left, pillar 1 steps right.
+            let sx = 0, sz = 0;
+            if (per === 2 && gap) {
+                const turn = frame && frame.object3D ? frame.object3D.rotation.y : 0;
+                const dir = i % per === 0 ? -1 : 1;
+                sx = dir * (gap / 2) * Math.cos(turn);
+                sz = -dir * (gap / 2) * Math.sin(turn);
+            }
             // The anchor first, then this frame's pillar offset - free
             // numbers on top of where the pair stands by default.
             return {
-                x: spot.x + (off.x || 0),
-                z: spot.z + (off.z || 0),
+                x: spot.x + sx + (off.x || 0),
+                z: spot.z + sz + (off.z || 0),
                 ry: off.ry || 0
             };
         });
@@ -5024,13 +5058,17 @@ function setFramePillars(id, patch) {
     if (!patch || typeof patch !== 'object') return false;
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     const cur = framePillarsFor(id);
-    let count = cur.count, place = cur.place;
+    let count = cur.count, place = cur.place, gap = cur.gap;
     const offset = Object.assign({ x: 0, z: 0, ry: 0 }, cur.offset || {});
     if (patch.count !== undefined) {
         count = Math.max(0, Math.min(2, Math.round(Number(patch.count) || 0)));
     }
     if (patch.place !== undefined && ['centre', 'inner', 'outer'].includes(patch.place)) {
         place = patch.place;
+    }
+    if (patch.gap !== undefined) {
+        const g = Number(patch.gap);
+        if (Number.isFinite(g)) gap = Math.max(0, Math.min(200, g));
     }
     if (patch.offset && typeof patch.offset === 'object' && !Array.isArray(patch.offset)) {
         const numv = (v, lo, hi) => Number.isFinite(Number(v))
@@ -5044,16 +5082,16 @@ function setFramePillars(id, patch) {
     }
     if (count === 1) place = 'centre';
     if (count === 2 && place === 'centre') place = 'outer';
-    if (count === cur.count && place === cur.place
+    if (count === cur.count && place === cur.place && gap === cur.gap
         && offset.x === (cur.offset && cur.offset.x || 0)
         && offset.z === (cur.offset && cur.offset.z || 0)
         && offset.ry === (cur.offset && cur.offset.ry || 0)) return false;
-    framePillars.set(id, { count, place, offset });
+    framePillars.set(id, { count, place, gap, offset });
     // A new count gets a fresh set of anchors.
     if (count !== cur.count) savedPlaces.delete(pillarKey(id));
     if (panel) {
         if (count === cur.count && place === cur.place) {
-            // Offset-only: update the sliders in place - a full rebuild
+            // Value-level: update the sliders in place - a full rebuild
             // would destroy the input mid-drag.
             panel.applyLive({ framePillars: framePillarsPlain() });
         } else {
