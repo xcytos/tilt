@@ -37,7 +37,7 @@ function rangeBlock(key, p, current, compact) {
     input.max = p.max;
     input.step = p.step;
     input.value = current;
-    input.className = 'w-full h-5 accent-sky-500 cursor-pointer touch-none';
+    input.className = 'w-full h-5 accent-sky-500 cursor-pointer';
     value.textContent = fmt(current, p.unit);
     wrap.appendChild(input);
     return { wrap, input, value };
@@ -65,7 +65,7 @@ function placeRangeBlock(key, label, prop, value, min, max, step, unit) {
     input.max = String(max);
     input.step = String(step);
     input.value = String(Math.round(value * 100) / 100);
-    input.className = 'w-full h-5 accent-sky-500 cursor-pointer touch-none';
+    input.className = 'w-full h-5 accent-sky-500 cursor-pointer';
     wrap.append(head, input);
     return { wrap, input, value: val };
 }
@@ -954,21 +954,6 @@ export function createPanel(opts) {
         return wrap;
     }
 
-    // Dark mode and Reset live in the top bar's three-dot menu now - they
-    // are app actions, not stage tools. The shelf keeps only the stamp.
-    function themeFooter() {
-        const footer = document.createElement('div');
-        footer.className = 'flex items-center pt-3 mt-1 border-t '
-            + 'border-gray-200 dark:border-zinc-700';
-        const stamp = document.createElement('span');
-        stamp.className = 'ml-auto text-[10px] text-gray-400 dark:text-zinc-500 '
-            + 'select-none';
-        stamp.textContent = 'TILT v' + VERSION;
-        stamp.title = 'Build version';
-        footer.appendChild(stamp);
-        return footer;
-    }
-
     // Structural signature only: value-level fields (set, scene, colour,
     // recipe, places, shape) travel through applyLive and never force a
     // rebuild - a SET tap must not re-render the whole panel under the
@@ -1057,9 +1042,6 @@ export function createPanel(opts) {
             host.appendChild(empty);
         }
 
-        // Look and Sets live behind their own chips now; only the theme
-        // footer (global, small) rides along at the bottom of every shelf.
-        host.appendChild(themeFooter());
         applyBusy();
     }
 

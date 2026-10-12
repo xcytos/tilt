@@ -46,7 +46,9 @@ const approx = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 console.log('\n1. Mirror symmetry (left.x === -right.x, y/z equal)');
 for (const ui of [{ gap: 3, pan: 0, pitch: 0, decline: 0 },
                   { gap: 0, pan: 45, pitch: 20, decline: 100 },
-                  { gap: 6, pan: 90, pitch: 7, decline: 33 }]) {
+                  { gap: 6, pan: 90, pitch: 7, decline: 33 },
+                  { gap: 3, pan: -45, pitch: 10, decline: 20 },
+                  { gap: 2, pan: -90, pitch: 0, decline: 0 }]) {
   Object.assign(UI, ui);
   const R = getStructuralPoints(true, 300), L = getStructuralPoints(false, 300);
   let bad = 0;

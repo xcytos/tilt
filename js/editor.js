@@ -2,6 +2,8 @@
 // button, the project name, the save status and the overflow menu. It owns
 // DOM only - every action is a callback, so app.js keeps the scene logic.
 
+import { VERSION } from './version.js';
+
 export function createEditor(opts) {
     const {
         hasProject = false,
@@ -34,6 +36,11 @@ export function createEditor(opts) {
         }
         return { setName() {}, setStatus() {}, flash() {}, promptName: async () => null, setTheme() {} };
     }
+
+    // The version stamp rides in the bar itself, top-right, so the build
+    // number is always visible without opening any menu.
+    const versionEl = document.getElementById('app-version');
+    if (versionEl) versionEl.textContent = 'v' + VERSION;
 
     const STATUS_TEXT = { saving: 'Saving…', saved: 'Saved', offline: 'Offline' };
 

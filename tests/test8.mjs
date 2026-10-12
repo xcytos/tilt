@@ -489,11 +489,11 @@ check('the Looks reach the panel and one tap writes all three fields',
   && /onRecipeChange: guard\(/.test(app) && /recipes: RECIPES/.test(app)
   && /lookBlock\(\)/.test(panel) && /onRecipeChange/.test(panel)
   && /recipe: recipeState\(\)/.test(app));
-check('the build carries one version, in the footer and the log',
+check('the build carries one version, in the header and the log',
   /'js\/version\.js'/.test(build) && /export const VERSION = '[^']+'/.test(
     fs.readFileSync(path.join(DECOR, 'js/version.js'), 'utf8'))
-  && /TILT v' \+ VERSION/.test(panel)
-  && /js\/version\.js/.test(fs.readFileSync(path.join(DECOR, 'tools/serve.mjs'), 'utf8')));
+  && /app-version/.test(editor) && /TILT v\$\{VERSION\} serving/.test(
+    fs.readFileSync(path.join(DECOR, 'tools/serve.mjs'), 'utf8')));
 check('a saved RGB colour survives, junk drops to the palette', (() => {
   const p = proj.parseProject(JSON.stringify({ colorway: 'sage', fabricColor: 0x123456 }));
   const q = proj.parseProject(JSON.stringify({ fabricColor: 'red' }));

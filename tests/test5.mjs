@@ -106,7 +106,7 @@ const bad = [
   ['empty objects', { id: 'x', name: 'x', objects: [] }, /non-empty array/],
   ['unknown object type', { id: 'x', name: 'x', objects: [{ type: 'pillar' }] }, /not registered/],
   ['param out of range', { id: 'x', name: 'x',
-    objects: [{ type: 'o2tilt-frame', params: { pan: 500 } }] }, /outside \[0, 90\]/],
+    objects: [{ type: 'o2tilt-frame', params: { pan: 500 } }] }, /outside \[-90, 90\]/],
   ['param wrong type', { id: 'x', name: 'x',
     objects: [{ type: 'o2tilt-frame', params: { gap: 'wide' } }] }, /must be a number/],
   ['toggle must be boolean', { id: 'x', name: 'x',
