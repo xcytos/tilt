@@ -623,13 +623,19 @@ export function createPanel(opts) {
         }
 
         // Free numbers on top of the anchor: X / Depth / Turn for the pair,
-        // same compact tracks as the frame's own placement. The offset is
+        // folded by default like the frame's own placement. The offset is
         // added to wherever the place option puts them.
-        const posTitle = document.createElement('div');
-        posTitle.className = 'mt-1.5 mb-1 text-[10px] font-bold uppercase '
-            + 'tracking-wider text-gray-400 dark:text-zinc-500';
-        posTitle.textContent = 'Placement';
-        box.appendChild(posTitle);
+        const posDetails = document.createElement('details');
+        posDetails.className = 'mt-1.5 border-t border-dashed '
+            + 'border-gray-300 dark:border-zinc-600';
+        const posSummary = document.createElement('summary');
+        posSummary.className = 'cursor-pointer select-none py-1.5 text-[10px] '
+            + 'font-bold uppercase tracking-wider '
+            + 'text-gray-400 dark:text-zinc-500';
+        posSummary.textContent = 'Placement';
+        posDetails.appendChild(posSummary);
+        const posBody = document.createElement('div');
+        posBody.className = 'pt-1';
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
@@ -647,7 +653,7 @@ export function createPanel(opts) {
                 });
             });
             live.selects.push(built.input);
-            box.appendChild(built.wrap);
+            posBody.appendChild(built.wrap);
         }
 
         // Back to the bare anchor: the pair stands where the place option
@@ -664,7 +670,9 @@ export function createPanel(opts) {
                 { offset: { x: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
-        box.appendChild(resetP);
+        posBody.appendChild(resetP);
+        posDetails.appendChild(posBody);
+        box.appendChild(posDetails);
 
         wrap.appendChild(box);
         return wrap;

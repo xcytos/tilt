@@ -369,16 +369,20 @@ export function createO2TiltModel(initial = {}) {
                 bases[i].position.set(bx, 0, bz);
                 bases[i].rotation.y = turn * panRad;
 
-                // The coupling sleeve: a short fat tube seated on the stand
-                // top and running with the rail, so the rail can be pitched
-                // and locked inside it. It rides half the setback back, wide
-                // enough to swallow the gap to the rail.
+                // The coupling sleeve: a short fat tube that bridges the
+                // stand top to the rail. It sits at the midpoint of that
+                // gap and lies along the direction between them, so the
+                // rail can be pitched and locked inside it.
                 const joint = new THREE.Mesh(jointGeo, matJoint);
                 joint.castShadow = true;
                 joint.position.set(
                     p.x + back.x * STAND_SETBACK * 0.5, p.y,
                     p.z + back.z * STAND_SETBACK * 0.5);
-                joint.quaternion.setFromUnitVectors(Y_AXIS, jNext.clone().sub(jPrev).normalize());
+                // From the stand top toward the rail: the negated back
+                // direction (back points away from the audience, the rail
+                // sits STAND_SETBACK in front of the stand).
+                const jointDir = new THREE.Vector3(-back.x, 0, -back.z).normalize();
+                joint.quaternion.setFromUnitVectors(Y_AXIS, jointDir);
                 root.add(joint);
                 joints.push(joint);
             }

@@ -5,7 +5,6 @@ const MANIFEST_FILE = 'manifest.json';
 const BUILTIN = {
     id: 'o2tilt',
     name: 'S Curve',
-    environment: { theme: 'light' },
     objects: [{
         type: 'o2tilt-frame',
         params: { gap: 3, pan: 0, pitch: 0, decline: 0, fabric: true },

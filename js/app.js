@@ -243,6 +243,7 @@ async function applyPrimaryTheme() {
     const dark = theme === 'dark';
     viewer.setTheme(dark);
     if (panel) panel.setTheme(dark);
+    if (editor) editor.setTheme(dark);
 }
 
 // Reconcile the stage with `orderIds()` - drop what no longer belongs, mount
@@ -1138,6 +1139,7 @@ panel = createPanel({
     onThemeChange: isDark => {
         viewer.setTheme(isDark);
         if (panel) panel.setTheme(isDark);
+        if (editor) editor.setTheme(isDark);
     },
     onShelfChange: () => syncDock()
 });
@@ -1233,6 +1235,7 @@ editor = createEditor({
     onToggleTheme: isDarkNow => {
         viewer.setTheme(isDarkNow);
         if (panel) panel.setTheme(isDarkNow);
+        if (editor) editor.setTheme(isDarkNow);
         scheduleSave();
     }
 });
