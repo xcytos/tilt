@@ -641,7 +641,7 @@ export function createPanel(opts) {
         // Centre Gap: only meaningful with two pillars - symmetric spread.
         if (cfg.count === 2) {
             const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', cfg.gap || 0, 0, 40, 0.5, ' ft');
+                'gap', cfg.gap ?? 3, 0, 40, 0.5, ' ft');
             builtGap.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
@@ -684,10 +684,10 @@ export function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         resetP.textContent = 'Reset placement';
-        resetP.title = 'Zero the Centre Gap and X / Depth / Turn offset';
+        resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Depth / Turn';
         resetP.addEventListener('click', () => {
             onFramePillarsChange && onFramePillarsChange(id,
-                { gap: 0, offset: { x: 0, z: 0, ry: 0 } });
+                { gap: 3, offset: { x: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
         posBody.appendChild(resetP);
@@ -1129,7 +1129,7 @@ export function createPanel(opts) {
                     const off = (c && c.offset) || {};
                     for (const [prop, refs] of Object.entries(slot)) {
                         const v = prop === 'gap'
-                            ? (Number(c && c.gap) || 0)
+                            ? (Number(c && c.gap) || 3)
                             : (Number(off[prop]) || 0);
                         refs.input.value = String(Math.round(v * 100) / 100);
                         refs.value.textContent = fmt(v,

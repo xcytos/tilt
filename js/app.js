@@ -330,7 +330,7 @@ function pillarKey(frameId) {
 function framePillarsFor(id) {
     const cfg = framePillars.get(id) || { count: 0, place: 'outer' };
     return Object.assign({}, cfg, {
-        gap: Number.isFinite(cfg.gap) ? cfg.gap : 0,
+        gap: Number.isFinite(cfg.gap) ? cfg.gap : 3,
         offset: cfg.offset || { x: 0, z: 0, ry: 0 }
     });
 }
@@ -339,7 +339,7 @@ function framePillarsPlain() {
     return Object.fromEntries([...framePillars].map(([id, c]) => [id, {
         count: c.count,
         place: c.place,
-        gap: Number.isFinite(c.gap) ? c.gap : 0,
+        gap: Number.isFinite(c.gap) ? c.gap : 3,
         offset: Object.assign({ x: 0, z: 0, ry: 0 }, c.offset || {})
     }]));
 }
@@ -488,7 +488,7 @@ function refreshPillarPlaces() {
         const cfg = framePillarsFor(frameId);
         const per = Math.max(0, Math.min(2, cfg.count)) || 1;
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
-        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 0;
+        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 3;
         const arr = models.map((m, i) => {
             const frame = frames[Math.floor(i / per)] || frames[0] || null;
             const spot = derivePillarPlace(frame, cfg.place, i % per, per);

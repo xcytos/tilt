@@ -1167,7 +1167,7 @@ function cleanFramePillars(raw) {
         out[id] = {
             count: Math.round(clampN(v.count, 0, 2, 0)),
             place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
-            gap: clampN(v.gap, 0, 200, 0),
+            gap: clampN(v.gap, 0, 200, 3),
             offset: {
                 x: clampN(rawOff.x, -200, 200, 0),
                 z: clampN(rawOff.z, -200, 200, 0),
@@ -3350,7 +3350,7 @@ function createPanel(opts) {
         // Centre Gap: only meaningful with two pillars - symmetric spread.
         if (cfg.count === 2) {
             const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', cfg.gap || 0, 0, 40, 0.5, ' ft');
+                'gap', cfg.gap ?? 3, 0, 40, 0.5, ' ft');
             builtGap.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
@@ -3393,10 +3393,10 @@ function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         resetP.textContent = 'Reset placement';
-        resetP.title = 'Zero the Centre Gap and X / Depth / Turn offset';
+        resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Depth / Turn';
         resetP.addEventListener('click', () => {
             onFramePillarsChange && onFramePillarsChange(id,
-                { gap: 0, offset: { x: 0, z: 0, ry: 0 } });
+                { gap: 3, offset: { x: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
         posBody.appendChild(resetP);
@@ -3838,7 +3838,7 @@ function createPanel(opts) {
                     const off = (c && c.offset) || {};
                     for (const [prop, refs] of Object.entries(slot)) {
                         const v = prop === 'gap'
-                            ? (Number(c && c.gap) || 0)
+                            ? (Number(c && c.gap) || 3)
                             : (Number(off[prop]) || 0);
                         refs.input.value = String(Math.round(v * 100) / 100);
                         refs.value.textContent = fmt(v,
@@ -4532,7 +4532,7 @@ function pillarKey(frameId) {
 function framePillarsFor(id) {
     const cfg = framePillars.get(id) || { count: 0, place: 'outer' };
     return Object.assign({}, cfg, {
-        gap: Number.isFinite(cfg.gap) ? cfg.gap : 0,
+        gap: Number.isFinite(cfg.gap) ? cfg.gap : 3,
         offset: cfg.offset || { x: 0, z: 0, ry: 0 }
     });
 }
@@ -4541,7 +4541,7 @@ function framePillarsPlain() {
     return Object.fromEntries([...framePillars].map(([id, c]) => [id, {
         count: c.count,
         place: c.place,
-        gap: Number.isFinite(c.gap) ? c.gap : 0,
+        gap: Number.isFinite(c.gap) ? c.gap : 3,
         offset: Object.assign({ x: 0, z: 0, ry: 0 }, c.offset || {})
     }]));
 }
@@ -4690,7 +4690,7 @@ function refreshPillarPlaces() {
         const cfg = framePillarsFor(frameId);
         const per = Math.max(0, Math.min(2, cfg.count)) || 1;
         const off = cfg.offset || { x: 0, z: 0, ry: 0 };
-        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 0;
+        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 3;
         const arr = models.map((m, i) => {
             const frame = frames[Math.floor(i / per)] || frames[0] || null;
             const spot = derivePillarPlace(frame, cfg.place, i % per, per);
