@@ -1684,13 +1684,28 @@ const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 // the sleeve is round, the rail can be rotated (pitched) and locked in
 // place - the tilt lives in this joint, like a set-screw EMT coupling on
 // a pipe-and-rail build.
-const JOINT_RADIUS = RAIL_RADIUS * 1.25;
 // The stands stand behind the fabric, not through it: from the front the
 // drape hides the poles and base plates. Far enough back to clear the
 // deepest pleat, close enough to still read as one system.
 const STAND_SETBACK = 0.3;
-const JOINT_LEN = 0.55;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+// Pivot-bracket dimensions (feet), scaled from the DIY spec:
+// round sleeve 70-100 mm long, side plates 4-5 mm x 60-70 mm,
+// M8/M10 pivot bolt, M6/M8 locking bolt.
+const BR_SLEEVE_LEN = 0.25;
+const BR_SLEEVE_OUTER_R = RAIL_RADIUS + 0.017;
+const BR_PLATE_THICK = 0.015;
+const BR_PLATE_HEIGHT = 0.22;
+const BR_PLATE_WIDTH = 0.1;
+const BR_PIVOT_R = 0.014;
+const BR_PIVOT_HEAD_R = 0.025;
+const BR_PIVOT_HEAD_H = 0.012;
+const BR_LOCK_R = 0.01;
+const BR_LOCK_LEN = 0.06;
+const BR_PLATE_OFFSET = BR_SLEEVE_OUTER_R + BR_PLATE_THICK / 2 + 0.005;
+const BR_BOLT_LEN = 2 * BR_PLATE_OFFSET + BR_PLATE_THICK + 0.02;
+
 
 const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 10,  step: 0.1, value: 3,  unit: ' ft' },
@@ -1960,7 +1975,13 @@ function createO2TiltModel(initial = {}) {
     // the rail's own tangent so the rail runs through them, and they are
     // round so the rail can be pitched inside them.
     const joints = [];
-    const jointGeo = new THREE.CylinderGeometry(JOINT_RADIUS, JOINT_RADIUS, JOINT_LEN, 16);
+    // Shared pivot-bracket geometries (one set for all six brackets).
+    const brSleeveGeo = new THREE.CylinderGeometry(BR_SLEEVE_OUTER_R, BR_SLEEVE_OUTER_R, BR_SLEEVE_LEN, 16);
+    const brPlateGeo = new THREE.BoxGeometry(BR_PLATE_WIDTH, BR_PLATE_HEIGHT, BR_PLATE_THICK);
+    const brBoltGeo = new THREE.CylinderGeometry(BR_PIVOT_R, BR_PIVOT_R, BR_BOLT_LEN, 8);
+    const brHeadGeo = new THREE.CylinderGeometry(BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_H, 6);
+    const brLockGeo = new THREE.CylinderGeometry(BR_LOCK_R, BR_LOCK_R, BR_LOCK_LEN, 8);
+    const brLockHeadGeo = new THREE.CylinderGeometry(BR_LOCK_R * 1.8, BR_LOCK_R * 1.8, BR_LOCK_R * 2, 6);
 
     function release(mesh) {
         if (!mesh) return;
@@ -2025,22 +2046,61 @@ function createO2TiltModel(initial = {}) {
                 bases[i].position.set(bx, 0, bz);
                 bases[i].rotation.y = turn * panRad;
 
-                // The coupling sleeve: a short fat tube that bridges the
-                // stand top to the rail. It sits at the midpoint of that
-                // gap and lies along the direction between them, so the
-                // rail can be pitched and locked inside it.
-                const joint = new THREE.Mesh(jointGeo, matJoint);
-                joint.castShadow = true;
-                joint.position.set(
-                    p.x + back.x * STAND_SETBACK * 0.5, p.y,
-                    p.z + back.z * STAND_SETBACK * 0.5);
-                // From the stand top toward the rail: the negated back
-                // direction (back points away from the audience, the rail
-                // sits STAND_SETBACK in front of the stand).
-                const jointDir = new THREE.Vector3(-back.x, 0, -back.z).normalize();
-                joint.quaternion.setFromUnitVectors(Y_AXIS, jointDir);
-                root.add(joint);
-                joints.push(joint);
+                // Pivot bracket: round sleeve on the rail, two side
+                // plates (clevis ears) hanging down toward the stand, and
+                // a pivot bolt through plates and sleeve so the rail can
+                // tilt. A smaller locking bolt clamps the chosen angle.
+                const bracket = new THREE.Group();
+                bracket.position.set(p.x, p.y, p.z);
+                bracket.rotation.y = Math.atan2(-tan.z, tan.x);
+
+                // Round sleeve along the rail tangent (local X).
+                const sleeve = new THREE.Mesh(brSleeveGeo, matJoint);
+                sleeve.rotation.z = Math.PI / 2;
+                sleeve.castShadow = true;
+                bracket.add(sleeve);
+
+                // Two side plates (clevis ears) on either side (local Z).
+                for (const side of [-1, 1]) {
+                    const plate = new THREE.Mesh(brPlateGeo, matJoint);
+                    plate.position.set(0, -BR_PLATE_HEIGHT / 2 + BR_SLEEVE_OUTER_R,
+                        side * BR_PLATE_OFFSET);
+                    plate.castShadow = true;
+                    bracket.add(plate);
+                }
+
+                // Pivot bolt through the plates and sleeve (local Z).
+                const bolt = new THREE.Mesh(brBoltGeo, matJoint);
+                bolt.rotation.x = Math.PI / 2;
+                bolt.castShadow = true;
+                bracket.add(bolt);
+
+                // Hex heads at both ends of the bolt.
+                for (const end of [-1, 1]) {
+                    const head = new THREE.Mesh(brHeadGeo, matJoint);
+                    head.rotation.x = Math.PI / 2;
+                    head.position.z = end * (BR_BOLT_LEN / 2);
+                    head.castShadow = true;
+                    bracket.add(head);
+                }
+
+                // Locking bolt on one plate (secures the tilt angle).
+                const lock = new THREE.Mesh(brLockGeo, matJoint);
+                lock.rotation.x = Math.PI / 2;
+                lock.position.set(0, -BR_PLATE_HEIGHT * 0.3,
+                    BR_PLATE_OFFSET + BR_PLATE_THICK / 2 + BR_LOCK_LEN / 2);
+                lock.castShadow = true;
+                bracket.add(lock);
+
+                const lockHead = new THREE.Mesh(brLockHeadGeo, matJoint);
+                lockHead.rotation.x = Math.PI / 2;
+                lockHead.position.set(0, -BR_PLATE_HEIGHT * 0.3,
+                    BR_PLATE_OFFSET + BR_PLATE_THICK / 2 + BR_LOCK_LEN);
+                lockHead.castShadow = true;
+                bracket.add(lockHead);
+
+                root.add(bracket);
+                joints.push(bracket);
             }
         }
 
