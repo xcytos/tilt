@@ -1684,10 +1684,6 @@ const INNER_HIDE = 0.02;        // below this the inner tube is not drawn
 // the sleeve is round, the rail can be rotated (pitched) and locked in
 // place - the tilt lives in this joint, like a set-screw EMT coupling on
 // a pipe-and-rail build.
-// The stands stand behind the fabric, not through it: from the front the
-// drape hides the poles and base plates. Far enough back to clear the
-// deepest pleat, close enough to still read as one system.
-const STAND_SETBACK = 0.3;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // Pivot-bracket dimensions (feet), scaled from the DIY spec:
@@ -1994,11 +1990,6 @@ function createO2TiltModel(initial = {}) {
         const ptsR = getStructuralPoints(state, true, FABRIC_RES_X);
         const panRad = state.pan * (Math.PI / 180);
 
-        // Which way is the back of the set: the fabric's own normal, flipped
-        // to the side away from the audience. Stands step behind it so the
-        // drape hides them from the front.
-        const backRef = new THREE.Vector3(Math.sin(panRad), 0, Math.cos(panRad));
-
         ensureTubeGeometry();
 
         for (const j of joints) root.remove(j);
@@ -2021,18 +2012,19 @@ function createO2TiltModel(initial = {}) {
                 const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
                 const innerH = railY - sleeveH;
 
-                // Behind the fabric: along this point's pleat normal, on the
-                // side the audience never sees.
+                // The stand rises straight up under the rail point - the
+                // sleeve on top of it holds the rail, so the rail sits
+                // exactly on the vertical tube with no sideways offset.
+                const bx = p.x;
+                const bz = p.z;
+
+                // Rail tangent at this point, for bracket orientation.
                 const jPrev = pts[Math.max(0, idx - 1)];
                 const jNext = pts[Math.min(pts.length - 1, idx + 1)];
                 const tan = jNext.clone().sub(jPrev);
                 tan.y = 0;
                 if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
                 tan.normalize();
-                const back = new THREE.Vector3(-tan.z, 0, tan.x);
-                if (back.dot(backRef) < 0) back.negate();
-                const bx = p.x + back.x * STAND_SETBACK;
-                const bz = p.z + back.z * STAND_SETBACK;
 
                 stand.group.position.set(bx, 0, bz);
                 stand.group.rotation.y = turn * panRad;
@@ -2046,24 +2038,27 @@ function createO2TiltModel(initial = {}) {
                 bases[i].position.set(bx, 0, bz);
                 bases[i].rotation.y = turn * panRad;
 
-                // Pivot bracket: round sleeve on the rail, two side
-                // plates (clevis ears) hanging down toward the stand, and
-                // a pivot bolt through plates and sleeve so the rail can
-                // tilt. A smaller locking bolt clamps the chosen angle.
+                // Pivot bracket: sits ON the stand top, directly under the
+                // rail. The round sleeve holds the rail, two side plates
+                // (clevis ears) hang down onto the stand, and a pivot bolt
+                // through plates and sleeve lets the rail tilt. A smaller
+                // locking bolt clamps the chosen angle.
                 const bracket = new THREE.Group();
-                bracket.position.set(p.x, p.y, p.z);
+                bracket.position.set(bx, railY, bz);
                 bracket.rotation.y = Math.atan2(-tan.z, tan.x);
 
-                // Round sleeve along the rail tangent (local X).
+                // Round sleeve along the rail tangent - right on the rail.
                 const sleeve = new THREE.Mesh(brSleeveGeo, matJoint);
                 sleeve.rotation.z = Math.PI / 2;
                 sleeve.castShadow = true;
                 bracket.add(sleeve);
 
-                // Two side plates (clevis ears) on either side (local Z).
+                // Two side plates (clevis ears) on either side of the
+                // sleeve along the pivot axis (local Z), hanging down
+                // onto the stand top.
                 for (const side of [-1, 1]) {
                     const plate = new THREE.Mesh(brPlateGeo, matJoint);
-                    plate.position.set(0, -BR_PLATE_HEIGHT / 2 + BR_SLEEVE_OUTER_R,
+                    plate.position.set(0, -BR_PLATE_HEIGHT / 2,
                         side * BR_PLATE_OFFSET);
                     plate.castShadow = true;
                     bracket.add(plate);
