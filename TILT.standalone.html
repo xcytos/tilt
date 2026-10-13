@@ -2018,11 +2018,11 @@ function createO2TiltModel(initial = {}) {
                 const bx = p.x;
                 const bz = p.z;
 
-                // Rail tangent at this point, for bracket orientation.
+                // Rail tangent at this point — full 3D so the sleeve
+                // follows the rail's pitch, not just its yaw.
                 const jPrev = pts[Math.max(0, idx - 1)];
                 const jNext = pts[Math.min(pts.length - 1, idx + 1)];
                 const tan = jNext.clone().sub(jPrev);
-                tan.y = 0;
                 if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
                 tan.normalize();
 
@@ -2039,23 +2039,37 @@ function createO2TiltModel(initial = {}) {
                 bases[i].rotation.y = turn * panRad;
 
                 // Pivot bracket: sits ON the stand top, directly under the
-                // rail. The round sleeve holds the rail, two side plates
-                // (clevis ears) hang down onto the stand, and a pivot bolt
-                // through plates and sleeve lets the rail tilt. A smaller
-                // locking bolt clamps the chosen angle.
+                // rail. The round sleeve holds the rail and tilts with it
+                // (pitch), two side plates (clevis ears) hang down onto
+                // the stand, and a pivot bolt through plates and sleeve
+                // lets the rail tilt. A smaller locking bolt clamps the
+                // chosen angle.
                 const bracket = new THREE.Group();
                 bracket.position.set(bx, railY, bz);
+                // Yaw only — the plates and bolt stay horizontal; the
+                // sleeve is what tilts with the rail.
                 bracket.rotation.y = Math.atan2(-tan.z, tan.x);
 
-                // Round sleeve along the rail tangent - right on the rail.
+                // Round sleeve aligned to the full 3D rail tangent so it
+                // pitches with the rail. The cylinder's default axis is Y,
+                // so point Y along the tangent. Express the tangent in the
+                // bracket's local frame (undo the yaw) so the tilt is
+                // purely the pitch component.
+                const cosY = Math.cos(-bracket.rotation.y);
+                const sinY = Math.sin(-bracket.rotation.y);
+                const localTan = new THREE.Vector3(
+                    tan.x * cosY + tan.z * sinY,
+                    tan.y,
+                    -tan.x * sinY + tan.z * cosY
+                ).normalize();
                 const sleeve = new THREE.Mesh(brSleeveGeo, matJoint);
-                sleeve.rotation.z = Math.PI / 2;
+                sleeve.quaternion.setFromUnitVectors(Y_AXIS, localTan);
                 sleeve.castShadow = true;
                 bracket.add(sleeve);
 
                 // Two side plates (clevis ears) on either side of the
                 // sleeve along the pivot axis (local Z), hanging down
-                // onto the stand top.
+                // onto the stand top. They stay put — the sleeve tilts.
                 for (const side of [-1, 1]) {
                     const plate = new THREE.Mesh(brPlateGeo, matJoint);
                     plate.position.set(0, -BR_PLATE_HEIGHT / 2,
@@ -2064,7 +2078,7 @@ function createO2TiltModel(initial = {}) {
                     bracket.add(plate);
                 }
 
-                // Pivot bolt through the plates and sleeve (local Z).
+                // Pivot bolt through the plates (local Z, horizontal).
                 const bolt = new THREE.Mesh(brBoltGeo, matJoint);
                 bolt.rotation.x = Math.PI / 2;
                 bolt.castShadow = true;
