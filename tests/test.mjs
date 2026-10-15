@@ -23,10 +23,11 @@ const src = [extract('getStructuralPoints'), extract('generateFabricGeometry')].
 
 const CONSTS = `
   const POLE_MAX_HEIGHT = 8.0, RAIL_LENGTH = 12.0, WAVE_AMP = 1.0;
+  const LOBES_MIN = 6, LOBES_MAX = 11, LOBE_GAP_MIN = 0.2, LOBE_GAP_MAX = 3.0;
   const RAIL_RADIUS = 0.12, POLE_RADIUS = 0.08;
   const FABRIC_RES_X = 300, FABRIC_RES_Y = 8;
   const MAX_DROP = 5.0, PLEAT_FREQ = 30, PLEAT_DEPTH = 0.12;
-  let UI = { gap: 3.0, pan: 0, pitch: 0, decline: 0 };
+  let UI = { gap: 3.0, pan: 0, pitch: 0, decline: 0, lobes: 6, lobeGaps: [1,1,1,1,1,1,1,1,1,1,1] };
 `;
 
 const factory = new Function('THREE', `${CONSTS}${src};

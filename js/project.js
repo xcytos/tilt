@@ -141,7 +141,7 @@ const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
 // The four shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
-const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline'];
+const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
 // Colours you saved yourself: appended after the board palettes, never
 // replacing them. Capped so a document cannot grow a paint shop.
 function cleanExtras(raw) {
@@ -170,6 +170,12 @@ function cleanSetPresets(raw) {
         for (const k of DOC_SET_SHAPE_KEYS) {
             const n = Number(v[k]);
             if (Number.isFinite(n)) shape[k] = n;
+        }
+        if (Array.isArray(v.lobeGaps)) {
+            shape.lobeGaps = v.lobeGaps
+                .map(Number)
+                .filter(Number.isFinite)
+                .slice(0, 11);
         }
         if (Object.keys(shape).length) out[id] = shape;
     }

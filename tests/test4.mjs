@@ -80,7 +80,9 @@ for (const [k, p] of Object.entries(model.params)) {
     ? !(p.label && p.min < p.max && p.step > 0 && typeof p.value === 'number')
     : p.type === 'toggle'
       ? !(p.label && typeof p.value === 'boolean')
-      : true;
+      : p.type === 'lobeGaps'
+        ? !(p.label && p.min < p.max && p.step > 0 && typeof p.value === 'number')
+        : true;
   if (bad) { schemaOk = false; schemaWhy = `${k} (${JSON.stringify(p)})`; break; }
 }
 check('every param is a range or toggle with a label', schemaOk, schemaWhy);

@@ -82,7 +82,7 @@ let rebuildQueued = false;
 const savedPresets = {};
 // Each SET remembers its own four shape sliders (Center Gap, Swing Pan,
 // Pitch, Decline): switching a SET is a conversion, not a nudge.
-const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline'];
+const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
 let setPresets = Object.create(null);
 
 function setPresetsPlain() {
@@ -91,6 +91,7 @@ function setPresetsPlain() {
         if (!LAYOUT_IDS.includes(id) || !v) continue;
         const shape = {};
         for (const k of SET_SHAPE_KEYS) if (Number.isFinite(v[k])) shape[k] = v[k];
+        if (Array.isArray(v.lobeGaps)) shape.lobeGaps = v.lobeGaps.slice();
         if (Object.keys(shape).length) out[id] = shape;
     }
     return out;
@@ -690,6 +691,18 @@ function applySetParams(id) {
         if (!meta || !Number.isFinite(v)) continue;
         patch[k] = Math.max(meta.min, Math.min(meta.max, v));
     }
+    // Lobe gaps always travel with the SET: a drawing or an old preset
+    // without them restores the default 1 ft gap on every lobe.
+    {
+        const meta = PARAMS.lobeGaps;
+        const count = meta.count || 11;
+        const srcGaps = Array.isArray(src.lobeGaps) ? src.lobeGaps : [];
+        patch.lobeGaps = Array.from({ length: count }, (_, i) => {
+            const n = Number(srcGaps[i]);
+            return Number.isFinite(n)
+                ? Math.max(meta.min, Math.min(meta.max, n)) : meta.value;
+        });
+    }
     if (!Object.keys(patch).length) return null;
     for (const [key, models] of mounted) {
         if (key.startsWith(PILLAR_ID)) continue;
@@ -1152,6 +1165,9 @@ panel = createPanel({
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], known);
             for (const k of SET_SHAPE_KEYS) {
                 if (known[k] !== undefined) shaped[k] = known[k];
+            }
+            if (Array.isArray(known.lobeGaps)) {
+                shaped.lobeGaps = known.lobeGaps.slice();
             }
         }
         if (layoutId && Object.keys(shaped).length) {

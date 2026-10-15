@@ -9,6 +9,15 @@ const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1
 const fmt = (value, unit) =>
     (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
 
+// Lobe lean angle: how far a lobe's rail segment is turned by its gap.
+// tan(lean) = (2 · gap · lobes) / railLen - the vertical excursion over
+// the along-rail run of one lobe. 45° at the defaults (1 ft gap, 6 lobes,
+// 12 ft rail).
+const lobeLeanDeg = (gap, lobes, railLen) =>
+    Math.round(Math.atan(2 * gap * (lobes || 6) / (railLen || 12)) * 180 / Math.PI);
+const lobeGapText = (gap, lobes, meta) =>
+    `${fmt(gap, meta.unit)} · ${lobeLeanDeg(gap, lobes, meta.railLen)}°`;
+
 function blockShell(key, label, compact) {
     const wrap = document.createElement('div');
     wrap.className = compact ? 'mb-1.5' : 'mb-3';
@@ -356,12 +365,79 @@ export function createPanel(opts) {
                     if (p.type === 'toggle') normalToggles.push([k, p]);
                     continue;
                 }
+                if (p.type === 'lobeGaps') continue; // rendered below
                 if (p.advanced) {
                     (p.type === 'range' ? advancedRanges : advancedToggles)
                         .push([k, p]);
                 } else if (p.type === 'range') {
                     shapeRanges.push([k, p]);
                 }
+            }
+        }
+
+        // Per-lobe gap sliders: one per active lobe. All LOBES_MAX rows are
+        // built up front and shown/hidden by the Lobes slider so a mid-drag
+        // lobes change never rebuilds the DOM.
+        const lobeGapMeta = schema && schema.params
+            ? schema.params.lobeGaps : null;
+        const lobeGapSlots = [];
+        function syncLobeGapVisibility() {
+            const n = Math.round(schema.state.lobes) || 6;
+            lobeGapSlots.forEach((slot, i) => {
+                slot.wrap.style.display = i < n ? '' : 'none';
+            });
+        }
+        // The lean degrees on every gap row depend on the lobe count, so a
+        // lobes change re-reads all of them. Always reads fresh state - the
+        // lobeGaps array identity changes when setParams replaces it.
+        function refreshLobeGapTexts() {
+            const lobesNow = Math.round(schema.state.lobes) || 6;
+            const gapsNow = Array.isArray(schema.state.lobeGaps)
+                ? schema.state.lobeGaps : [];
+            lobeGapSlots.forEach((slot, i) => {
+                const v = Number.isFinite(gapsNow[i]) ? gapsNow[i]
+                    : lobeGapMeta.value;
+                slot.value.textContent = lobeGapText(v, lobesNow, lobeGapMeta);
+            });
+        }
+        if (tool === 'shape' && lobeGapMeta) {
+            const gaps = Array.isArray(schema.state.lobeGaps)
+                ? schema.state.lobeGaps : [];
+            const count = lobeGapMeta.count || 11;
+            const lobesNow = Math.round(schema.state.lobes) || 6;
+            for (let i = 0; i < count; i++) {
+                const meta = {
+                    label: `Lobe ${i + 1} Gap`,
+                    type: 'range',
+                    min: lobeGapMeta.min,
+                    max: lobeGapMeta.max,
+                    step: lobeGapMeta.step,
+                    unit: lobeGapMeta.unit
+                };
+                const val = Number.isFinite(gaps[i]) ? gaps[i] : lobeGapMeta.value;
+                const built = rangeBlock(`${key}-lobeGap-${i}`, meta, val);
+                built.value.textContent = lobeGapText(val, lobesNow, lobeGapMeta);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    const lobesCur = Math.round(schema.state.lobes) || 6;
+                    built.value.textContent = lobeGapText(v, lobesCur, lobeGapMeta);
+                    // Read the state array fresh: setParams may have replaced
+                    // it with a new (clamped) array since these rows were built.
+                    const cur = Array.isArray(schema.state.lobeGaps)
+                        ? schema.state.lobeGaps : [];
+                    const arr = Array.from({ length: count },
+                        (_, j) => j === i ? v
+                            : (Number.isFinite(cur[j]) ? cur[j]
+                                : lobeGapMeta.value));
+                    if (Array.isArray(schema.state.lobeGaps)) {
+                        schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                    } else {
+                        schema.state.lobeGaps = arr;
+                    }
+                    emit({ lobeGaps: arr.slice() }, targets);
+                });
+                rows[`lobeGap${i}`] = built;
+                lobeGapSlots.push({ wrap: built.wrap, input: built.input, value: built.value });
             }
         }
 
@@ -379,7 +455,54 @@ export function createPanel(opts) {
             summary.textContent = 'S Curve';
             const bodyEl = document.createElement('div');
             bodyEl.className = 'px-2 pb-2';
-            for (const [k, p] of shapeRanges) bodyEl.appendChild(addRange(k, p));
+            for (const [k, p] of shapeRanges) {
+                bodyEl.appendChild(addRange(k, p));
+                // After the Lobes slider, insert the per-lobe gap sliders
+                // and keep their visibility (and lean degrees) in sync.
+                if (k === 'lobes') {
+                    for (const slot of lobeGapSlots) bodyEl.appendChild(slot.wrap);
+                    syncLobeGapVisibility();
+                    refreshLobeGapTexts();
+                    rows.lobes.input.addEventListener('input', () => {
+                        syncLobeGapVisibility();
+                        refreshLobeGapTexts();
+                    });
+                    // Reset: back to the pre-lobe-feature configuration -
+                    // 6 lobes at the default 1 ft gap, a plain sin(6πt)
+                    // serpentine. One emit, DOM updated directly.
+                    const resetBtn = document.createElement('button');
+                    resetBtn.type = 'button';
+                    resetBtn.className = 'mt-0.5 mb-1 w-full rounded-md border '
+                        + 'border-gray-300 dark:border-zinc-600 px-2 py-1 text-[11px] '
+                        + 'font-semibold uppercase tracking-wider text-gray-500 '
+                        + 'dark:text-zinc-400 hover:border-sky-400 hover:text-sky-600 '
+                        + 'dark:hover:text-sky-400 transition-colors';
+                    resetBtn.textContent = 'Reset Lobes';
+                    resetBtn.addEventListener('click', () => {
+                        const n = lobeGapMeta.count || 11;
+                        const resetVal = lobeGapMeta.value;
+                        const arr = Array.from({ length: n }, () => resetVal);
+                        schema.state.lobes = 6;
+                        if (Array.isArray(schema.state.lobeGaps)) {
+                            schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                        } else {
+                            schema.state.lobeGaps = arr;
+                        }
+                        rows.lobes.input.value = '6';
+                        if (rows.lobes.value) {
+                            rows.lobes.value.textContent =
+                                fmt(6, schema.params.lobes.unit);
+                        }
+                        lobeGapSlots.forEach(slot => {
+                            slot.input.value = String(resetVal);
+                        });
+                        syncLobeGapVisibility();
+                        refreshLobeGapTexts();
+                        emit({ lobes: 6, lobeGaps: arr.slice() }, targets);
+                    });
+                    bodyEl.appendChild(resetBtn);
+                }
+            }
             const place = (currentPlaces[key] || [])[idx];
             if (place) bodyEl.appendChild(positionBlock(key, idx, place));
             details.append(summary, bodyEl);
@@ -1196,11 +1319,51 @@ export function createPanel(opts) {
                 for (const sec of sections) {
                     const schema = sec.targets && sec.targets[0];
                     for (const [k, v] of Object.entries(next.shape)) {
+                        if (k === 'lobeGaps') {
+                            // Sync each per-lobe gap slider in place.
+                            const meta = schema && schema.params
+                                ? schema.params.lobeGaps : null;
+                            if (!meta || !Array.isArray(v)) continue;
+                            const count = meta.count || 11;
+                            const lobesNow = Math.round(
+                                schema.state && schema.state.lobes) || 6;
+                            for (let i = 0; i < count; i++) {
+                                const row = sec.rows && sec.rows[`lobeGap${i}`];
+                                if (!row) continue;
+                                const val = Number.isFinite(v[i]) ? v[i] : meta.value;
+                                row.input.value = String(val);
+                                if (row.value) {
+                                    row.value.textContent = lobeGapText(val, lobesNow, meta);
+                                }
+                            }
+                            continue;
+                        }
                         const row = sec.rows && sec.rows[k];
                         const meta = schema && schema.params ? schema.params[k] : null;
                         if (!row || !meta) continue;
                         row.input.value = String(v);
                         if (row.value) row.value.textContent = fmt(v, meta.unit);
+                        // Keep lobe-gap visibility in sync when lobes arrives
+                        // from outside (SET switch, project load), and refresh
+                        // the lean degrees, which depend on the lobe count.
+                        if (k === 'lobes') {
+                            const n = Math.round(v) || 6;
+                            const gMeta = schema && schema.params
+                                ? schema.params.lobeGaps : null;
+                            const gCount = (gMeta && gMeta.count) || 11;
+                            const gapsNow = schema && Array.isArray(schema.state.lobeGaps)
+                                ? schema.state.lobeGaps : [];
+                            for (let i = 0; i < gCount; i++) {
+                                const gRow = sec.rows && sec.rows[`lobeGap${i}`];
+                                if (!gRow) continue;
+                                gRow.wrap.style.display = i < n ? '' : 'none';
+                                if (gMeta && gRow.value) {
+                                    const gv = Number.isFinite(gapsNow[i])
+                                        ? gapsNow[i] : gMeta.value;
+                                    gRow.value.textContent = lobeGapText(gv, n, gMeta);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1240,6 +1403,20 @@ export function createPanel(opts) {
                 const owner = sec.targets[0];
                 if (!owner) continue;
                 for (const [k, r] of Object.entries(sec.rows)) {
+                    if (k.startsWith('lobeGap')) {
+                        const i = Number(k.slice(8));
+                        const gaps = owner.state.lobeGaps;
+                        const meta = owner.params.lobeGaps;
+                        if (meta && Array.isArray(gaps)) {
+                            const v = Number.isFinite(gaps[i]) ? gaps[i] : meta.value;
+                            r.input.value = String(v);
+                            if (r.value) {
+                                const lobesNow = Math.round(owner.state.lobes) || 6;
+                                r.value.textContent = lobeGapText(v, lobesNow, meta);
+                            }
+                        }
+                        continue;
+                    }
                     const v = owner.state[k];
                     if (r.value) r.value.textContent = fmt(v, owner.params[k].unit);
                     if (r.input.type === 'checkbox') r.input.checked = !!v;

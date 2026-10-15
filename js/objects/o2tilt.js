@@ -7,6 +7,10 @@ export const MODEL_SUBTITLE = 'Modular Control';
 const POLE_MAX_HEIGHT = 8.0;
 const RAIL_LENGTH = 12.0;
 const WAVE_AMP = 1.0;
+const LOBES_MIN = 6;
+const LOBES_MAX = 11;
+const LOBE_GAP_MIN = 0.2;
+const LOBE_GAP_MAX = 3.0;
 const RAIL_RADIUS = 0.12;
 const FABRIC_RES_X = 300;
 const FABRIC_RES_Y = 8;
@@ -51,6 +55,8 @@ export const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 10,  step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: -90, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 45,  step: 1,   value: 0,  unit: '°' },
+    lobes:   { label: 'Lobes',            type: 'range', min: LOBES_MIN, max: LOBES_MAX, step: 1, value: 6, unit: '' },
+    lobeGaps: { label: 'Lobe Gaps', type: 'lobeGaps', min: LOBE_GAP_MIN, max: LOBE_GAP_MAX, step: 0.1, value: WAVE_AMP, unit: ' ft', count: LOBES_MAX, railLen: RAIL_LENGTH },
     decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
     fabric:  { label: 'Curtains',          type: 'toggle', value: false },
 
@@ -162,7 +168,16 @@ export function getStructuralPoints(state, isRight, segments) {
         const t = i / segments;
 
         const localX = t * RAIL_LENGTH;
-        const wave = Math.sin(t * Math.PI * 6) * WAVE_AMP;
+        // Per-lobe amplitude: lobe i covers t ∈ [i/lobes, (i+1)/lobes).
+        // sin(t·π·lobes) is zero at every lobe boundary, so swapping the
+        // amplitude there never kinks the rail. Each lobe holds one
+        // half-wave bump (a single lobe, not an up/down pair).
+        const nLobes = Math.max(LOBES_MIN, Math.min(LOBES_MAX,
+            Math.round(state.lobes) || 6));
+        const lobeIdx = Math.min(nLobes - 1, Math.max(0, Math.floor(t * nLobes)));
+        const lobeAmp = Number(state.lobeGaps && state.lobeGaps[lobeIdx])
+            || WAVE_AMP;
+        const wave = Math.sin(t * Math.PI * nLobes) * lobeAmp;
 
         // Decline: a pure vertical drop, independent of pitch.
         const dropY = -t * (state.decline / 100) * MAX_DROP;
@@ -251,8 +266,19 @@ export function createO2TiltModel(initial = {}) {
     });
 
     const state = {};
-    for (const k of Object.keys(PARAMS)) state[k] = PARAMS[k].value;
+    for (const k of Object.keys(PARAMS)) {
+        state[k] = PARAMS[k].type === 'lobeGaps'
+            ? Array(LOBES_MAX).fill(PARAMS[k].value)
+            : PARAMS[k].value;
+    }
     Object.assign(state, initial);
+    // Guarantee a full-length lobeGaps array even when a preset or project
+    // supplies a shorter one.
+    if (!Array.isArray(state.lobeGaps) || state.lobeGaps.length !== LOBES_MAX) {
+        const src = Array.isArray(state.lobeGaps) ? state.lobeGaps : [];
+        state.lobeGaps = Array.from({ length: LOBES_MAX },
+            (_, i) => Number.isFinite(src[i]) ? src[i] : WAVE_AMP);
+    }
 
     const polesL = [], polesR = [], basesL = [], basesR = [];
     for (let i = 0; i < POLE_COUNT; i++) {
@@ -573,7 +599,24 @@ export function createO2TiltModel(initial = {}) {
         getAnchors,
         setTheme,
         setColorway,
-        setParams(partial) { Object.assign(state, partial); model.dirty = true; },
+        setParams(partial) {
+            if (Array.isArray(partial.lobeGaps)) {
+                const gaps = Array.from({ length: LOBES_MAX },
+                    (_, i) => {
+                        const v = Number(partial.lobeGaps[i]);
+                        return Number.isFinite(v)
+                            ? Math.max(LOBE_GAP_MIN,
+                                Math.min(LOBE_GAP_MAX, v))
+                            : state.lobeGaps[i];
+                    });
+                state.lobeGaps = gaps;
+                const { lobeGaps: _drop, ...rest } = partial;
+                Object.assign(state, rest);
+            } else {
+                Object.assign(state, partial);
+            }
+            model.dirty = true;
+        },
         dispose
     };
 
