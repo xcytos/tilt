@@ -136,6 +136,57 @@ function cleanFramePillars(raw) {
 // where a three.js import would not resolve.
 const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
+// Lighting fixtures belong to their frame: { '<frameId>': [{ type, anchor,
+// params }] }. Only shapes and numbers get through - the type must be a
+// registered light, the anchor a plausible mount-point id, the numbers
+// finite and bounded - so a hand-edited project cannot smuggle a thousand
+// lights into the scene. The registered list itself is mirrored here (this
+// module imports nothing); app.js re-checks against the live registry.
+const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
+const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
+const ELEM_PER_FRAME = 6;
+const ELEM_TOTAL = 12;
+const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
+
+function cleanFrameElements(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    let frames = 0, total = 0;
+    for (const [id, v] of Object.entries(raw)) {
+        if (frames >= PLACE_KEYS || total >= ELEM_TOTAL) break;
+        if (!PLACE_KEY_RE.test(id) || !Array.isArray(v) || !v.length) continue;
+        const list = [];
+        for (const el of v) {
+            if (list.length >= ELEM_PER_FRAME || total >= ELEM_TOTAL) break;
+            if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+            if (!ELEM_TYPES.includes(el.type)) continue;
+            const params = {};
+            if (el.params && typeof el.params === 'object' && !Array.isArray(el.params)) {
+                let keys = 0;
+                for (const [k, n] of Object.entries(el.params)) {
+                    if (keys >= 8) break;
+                    if (!ELEM_PARAM_RE.test(k)
+                        || typeof n !== 'number' || !Number.isFinite(n)) continue;
+                    params[k] = n;
+                    keys++;
+                }
+            }
+            list.push({
+                type: el.type,
+                anchor: typeof el.anchor === 'string' && ELEM_ANCHOR_RE.test(el.anchor)
+                    ? el.anchor : '',
+                params
+            });
+            total++;
+        }
+        if (list.length) {
+            out[id] = list;
+            frames++;
+        }
+    }
+    return out;
+}
+
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
@@ -209,6 +260,7 @@ export function parseProject(raw) {
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
+        elements: cleanFrameElements(data.elements),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)

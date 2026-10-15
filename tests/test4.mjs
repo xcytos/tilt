@@ -26,7 +26,8 @@ check('importmap is valid JSON', (() => {
 check('sliders moved out of the shell', !html.includes('slider-gap') && !html.includes('toggle-fabric'));
 check('shelf body is empty markup', /id="shelf-body"[^>]*><\/div>/.test(html));
 
-const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/registry.js', 'js/objects/o2tilt.js'];
+const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/registry.js',
+               'js/objects/o2tilt.js', 'js/elements/light.js'];
 for (const f of FILES) check(`exists ${f}`, fs.existsSync(path.join(DECOR, f)));
 
 for (const f of FILES) {
@@ -243,6 +244,102 @@ check('dispose() detaches everything', (() => {
   model.dispose();
   return model.object3D.children.length === 0;
 })());
+
+console.log('\nStage 3: lighting element contract (universal model + type adaptors)');
+{
+  const lightFile = path.join(TMP, 'light.contract.mjs');
+  fs.writeFileSync(lightFile, fs.readFileSync(path.join(DECOR, 'js/elements/light.js'), 'utf8')
+    .replace("from 'three'", `from '${pathToFileURL(path.join(HERE, 'vendor', 'three160.js')).href}'`));
+  const light = await import(pathToFileURL(lightFile).href);
+
+  check('exports the three type adaptors',
+        JSON.stringify(light.LIGHT_TYPES) === '["light-par","light-led","light-strip"]');
+  check('every type has a human name',
+        light.LIGHT_TYPES.every(t => typeof light.LIGHT_NAMES[t] === 'string'
+          && light.LIGHT_NAMES[t]));
+  check('every type has its own params schema',
+        light.LIGHT_TYPES.every(t => light.LIGHT_PARAMS[t.slice(6)]
+          && Object.keys(light.LIGHT_PARAMS[t.slice(6)]).length > 0));
+
+  const spotsOf = m => {
+    const out = [];
+    m.object3D.traverse(o => { if (o.isSpotLight) out.push(o); });
+    return out;
+  };
+
+  for (const type of light.LIGHT_TYPES) {
+    const lm = light.createLightModel(type);
+    check(`${type}: full model contract`, lm.id === type
+      && typeof lm.name === 'string' && lm.subtitle
+      && lm.object3D && lm.object3D.isObject3D && lm.params && lm.state
+      && ['build', 'setTheme', 'setParams', 'dispose'].every(k => typeof lm[k] === 'function'));
+    check(`${type}: params are ranges with labels, state mirrors params`,
+          Object.entries(lm.params).every(([, p]) =>
+            (p.type === 'range' || p.type === 'toggle') && p.label
+            && p.min < p.max && p.step > 0 && typeof p.value === 'number')
+          && Object.keys(lm.params).every(k => k in lm.state));
+
+    lm.build();
+    const spots = spotsOf(lm);
+    if (type === 'light-strip') {
+      check(`${type}: emissive only - no real light`, spots.length === 0,
+            `${spots.length} spotlights`);
+    } else {
+      check(`${type}: exactly one bounded spotlight`, spots.length === 1,
+            `${spots.length} spotlights`);
+      check(`${type}: the spotlight never casts shadows`, spots[0].castShadow === false);
+    }
+
+    lm.setParams({ power: 40 });
+    check(`${type}: setParams marks the model dirty`, lm.dirty === true);
+    lm.build();
+    check(`${type}: build() clears the dirty flag`, lm.dirty === false);
+    if (spots.length) check(`${type}: power drives the spotlight`,
+      Math.abs(spotsOf(lm)[0].intensity
+        - (type === 'light-par' ? 0.4 * 2.2 : 0.4 * 1.4)) < 1e-9);
+
+    if (type === 'light-strip') {
+      lm.setParams({ length: 11 });
+      lm.build();
+      check(`${type}: length changes the tube geometry`,
+            lm.object3D.children.some(c => c.geometry && c.geometry.type === 'BoxGeometry'
+              && Math.abs(c.geometry.parameters.width - 11) < 1e-9));
+    } else {
+      lm.setParams({ tilt: -60 });
+      lm.build();
+      const yoke = lm.object3D.children.find(c => c.type === 'Group');
+      const head = yoke && yoke.children.find(c => c.type === 'Group');
+      check(`${type}: tilt re-aims the head (-60 tilt = +60° up)`,
+            !!head && Math.abs(head.rotation.x - Math.PI / 3) < 1e-9,
+            head ? `rx=${head.rotation.x.toFixed(3)}` : 'no head group');
+    }
+    lm.setTheme(true);
+    lm.setTheme(false);
+    lm.dispose();
+    check(`${type}: dispose() empties the root`, lm.object3D.children.length === 0);
+  }
+
+  check('a PAR beam follows its focus angle', (() => {
+    const pm = light.createLightModel('light-par', { focus: 60 });
+    let cone = null;
+    pm.object3D.traverse(o => {
+      if (o.isMesh && o.geometry && o.geometry.type === 'CylinderGeometry'
+        && o.geometry.parameters.openEnded) cone = o;
+    });
+    if (!cone) return false;
+    const wideR = cone.geometry.parameters.radiusTop;
+    pm.setParams({ focus: 20 });
+    pm.build();
+    let narrow = null;
+    pm.object3D.traverse(o => {
+      if (o.isMesh && o.geometry && o.geometry.type === 'CylinderGeometry'
+        && o.geometry.parameters.openEnded) narrow = o;
+    });
+    narrow = narrow && narrow.geometry.parameters.radiusTop;
+    pm.dispose();
+    return narrow && narrow < wideR;
+  })());
+}
 
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
 process.exit(fails ? 1 : 0);

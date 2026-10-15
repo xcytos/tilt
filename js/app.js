@@ -8,6 +8,7 @@ import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
 import { RECIPES, recipeById, recipeFor } from './recipes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
+import { createLightModel, LIGHT_TYPES, LIGHT_PARAMS, LIGHT_NAMES } from './elements/light.js';
 import {
     loadProject, saveProject, clearProject, applySaved, projectToJSON,
     projectId, loadNotice, flushProject, renameProject, createProject,
@@ -35,6 +36,12 @@ try {
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
+// One lighting module, three registered type adaptors - each with its own
+// params schema, so the panel renders PAR/LED/strip from the same code.
+for (const t of LIGHT_TYPES) {
+    const kind = t.slice(6);
+    registry.register(t, p => createLightModel(t, p), LIGHT_PARAMS[kind]);
+}
 
 // Scene state. `mode` chooses between one preset on stage and several side by
 // side; `mounted` holds exactly what is in the scene, keyed by preset id.
@@ -71,6 +78,11 @@ function fabricHex() {
 let layoutId = null;
 const savedPlaces = new Map();
 const framePillars = new Map();
+// Lighting elements belong to their frame: `frameElements` holds each
+// frame's own list of fixtures - { type, anchor, params } keyed by preset id,
+// like pillars are. The lights stand on the frame's own anchors, so they
+// travel with it, and each keeps its own numbers.
+const frameElements = new Map();
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -118,8 +130,9 @@ function buildDoc() {
         extraColors: extraColors.slice(),
         layout: layoutId,
         pillars: framePillarsPlain(),
+        elements: frameElementsPlain(),
         places: Object.fromEntries([...savedPlaces]
-            .filter(([k]) => !k.startsWith(PILLAR_ID))
+            .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
         view,
@@ -198,7 +211,8 @@ function orderIds() {
 function groups() {
     // Frames come in display order, a SET never hides any of them, and each
     // frame's own pillars follow it - one group apiece, so the panel gives
-    // each its own section right after the frame it stands beside.
+    // each its own section right after the frame it stands beside. A frame's
+    // lights follow the same rule: one group per fixture, owned by its frame.
     const out = [];
     for (const id of orderIds()) {
         if (mounted.has(id)) out.push({ id, models: mounted.get(id) });
@@ -207,6 +221,13 @@ function groups() {
             out.push({
                 id: PILLAR_ID, models: [m], inst: i,
                 total: pillars.length, owner: id
+            });
+        });
+        const lights = mounted.get(elementKey(id)) || [];
+        lights.forEach((m, i) => {
+            out.push({
+                id: elementKey(id) + ':' + i, models: [m], inst: i,
+                total: lights.length, owner: id
             });
         });
     }
@@ -222,9 +243,10 @@ function scheduleRebuild() {
         rebuildQueued = false;
         for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
         // Re-place only. A pillar follows its frame's end through the
-        // swing; the camera is left alone so dragging a slider never yanks
-        // the view around.
+        // swing, and a light rides the same anchor it clamped to; the camera
+        // is left alone so dragging a slider never yanks the view around.
         refreshPillarPlaces();
+        refreshElementPlaces();
         applyPlaces();
     });
 }
@@ -254,9 +276,12 @@ async function syncPresets() {
     const want = orderIds();
 
     for (const [id, models] of [...mounted]) {
-        // A pillar group stays while the frame that owns it stays.
+        // A pillar group stays while the frame that owns it stays; so does a
+        // frame's light rig.
         const owner = id.startsWith(PILLAR_ID + ':')
-            ? id.slice(PILLAR_ID.length + 1) : id;
+            ? id.slice(PILLAR_ID.length + 1)
+            : id.startsWith(ELEM_PREFIX)
+                ? id.slice(ELEM_PREFIX.length) : id;
         if (want.includes(owner)) continue;
         for (const m of models) viewer.removeModel(m);
         mounted.delete(id);
@@ -268,6 +293,12 @@ async function syncPresets() {
         if (mounted.has(id)) continue;
         try {
             const def = await registry.load(id);
+            // A def may bring fixtures of its own; the document's own list
+            // wins whenever it has one for this frame.
+            if (!frameElements.has(id)) {
+                const seed = defElementsOf(def);
+                if (seed.length) frameElements.set(id, seed);
+            }
             const { models } = await registry.instantiate(def);
             for (const m of models) {
                 // Every element comes back with the settings it was left with.
@@ -281,9 +312,10 @@ async function syncPresets() {
             failures.push({ id, message: (err && err.message) || String(err) });
         }
     }
-    // Each frame brings its own pillars along.
+    // Each frame brings its own pillars along - and its own lights.
     for (const id of want) {
         failures.push(...await syncPillarsFor(id));
+        failures.push(...await syncElementsFor(id));
     }
     return failures;
 }
@@ -345,6 +377,113 @@ function framePillarsPlain() {
     }]));
 }
 
+// Elements live under their frame's key, one instance slot apiece.
+const ELEM_PREFIX = 'light:';
+
+function elementKey(frameId) {
+    return ELEM_PREFIX + frameId;
+}
+
+function frameElementsFor(id) {
+    return frameElements.get(id) || [];
+}
+
+// Plain document form: only frames that actually carry fixtures, values
+// copied so a later edit cannot mutate the saved snapshot.
+function frameElementsPlain() {
+    return Object.fromEntries([...frameElements]
+        .filter(([, list]) => list.length)
+        .map(([id, list]) => [id, list.map(el => ({
+            type: el.type,
+            anchor: el.anchor,
+            params: Object.assign({}, el.params)
+        }))]));
+}
+
+// A fixture's numbers are the registered schema's business: anything the
+// schema does not know, or clamps, is dropped here - both for documents and
+// for a def's own elements. The registry validates again on the way in.
+function clampElemParams(type, params) {
+    const schema = LIGHT_PARAMS[type.slice(6)] || {};
+    const out = {};
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
+    for (const [k, v] of Object.entries(params)) {
+        const p = schema[k];
+        if (!p || p.type !== 'range') continue;
+        const n = Number(v);
+        if (!Number.isFinite(n)) continue;
+        out[k] = Math.max(p.min, Math.min(p.max, n));
+    }
+    return out;
+}
+
+function normaliseElementList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const el of raw) {
+        if (out.length >= 6) break;
+        if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+        if (!LIGHT_TYPES.includes(el.type)) continue;
+        out.push({
+            type: el.type,
+            anchor: typeof el.anchor === 'string' ? el.anchor : '',
+            params: clampElemParams(el.type, el.params)
+        });
+    }
+    return out;
+}
+
+// A def may seed its frames with fixtures of its own (objects[].elements);
+// only used for frames the document has never touched.
+function defElementsOf(def) {
+    const out = [];
+    for (const o of ((def && def.objects) || [])) {
+        if (!Array.isArray(o.elements)) continue;
+        for (const el of normaliseElementList([].concat(o.elements))) out.push(el);
+    }
+    return out.slice(0, 6);
+}
+
+// Every mount point of one frame as plain data for the panel: id, kind and a
+// label that reads like the drawing (Pole 3, Rail L 12, Base 1).
+function anchorOptionsFor(frameId) {
+    const owner = (mounted.get(frameId) || [])[0];
+    if (!owner || typeof owner.getAnchors !== 'function') return [];
+    let anchors = [];
+    try { anchors = owner.getAnchors() || []; } catch { return []; }
+    const counts = {};
+    return anchors.map(a => {
+        const key = a.kind === 'rail' ? `rail:${a.side || ''}` : a.kind;
+        counts[key] = (counts[key] || 0) + 1;
+        const n = counts[key];
+        const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
+            : a.kind === 'pole' ? `Pole ${n}`
+            : `Base ${n}`;
+        return { id: a.id, kind: a.kind, label };
+    });
+}
+
+function frameAnchorsPlain() {
+    return Object.fromEntries(orderIds()
+        .filter(id => mounted.has(id))
+        .map(id => [id, anchorOptionsFor(id)]));
+}
+
+// Where a newly added fixture clamps: strips clamp to the rail, par and led
+// fixtures to a pole - and the next unused one of that kind, so three taps
+// of Add walk along the line instead of stacking in one spot.
+function defaultAnchorFor(frameId, type) {
+    const opts = anchorOptionsFor(frameId);
+    const kind = type === 'light-strip' ? 'rail' : 'pole';
+    const pool = opts.filter(o => o.kind === kind);
+    if (pool.length) {
+        const used = frameElementsFor(frameId)
+            .filter(e => e.anchor && e.anchor.startsWith(kind + '-')).length;
+        return pool[used % pool.length].id;
+    }
+    return opts.length ? opts[0].id : '';
+}
+
 async function syncPillarsFor(frameId) {
     const failures = [];
     const key = pillarKey(frameId);
@@ -369,6 +508,53 @@ async function syncPillarsFor(frameId) {
         mounted.set(key, models);
     } catch (err) {
         console.error('[pillars]', err);
+        failures.push({ id: key, message: (err && err.message) || String(err) });
+    }
+    return failures;
+}
+
+// One def per frame carries that frame's fixtures as separate objects, so
+// each light keeps its own type and numbers while sharing its frame's fate.
+// The set of types is the signature: a count change, an add, a remove or a
+// type swap all re-instantiate; anchor and param edits do not.
+async function syncElementsFor(frameId) {
+    const failures = [];
+    const key = elementKey(frameId);
+    if (frameElements.has(frameId)) {
+        frameElements.set(frameId, normaliseElementList(frameElements.get(frameId)));
+    }
+    const list = frameElementsFor(frameId);
+    const have = mounted.get(key) || [];
+    const same = have.length === list.length
+        && have.every((m, i) => m.lightType === list[i].type);
+    if (same) return failures;
+
+    for (const m of have) viewer.removeModel(m);
+    mounted.delete(key);
+    savedPlaces.delete(key);
+    if (!list.length) return failures;
+
+    try {
+        const def = {
+            id: key,
+            name: 'Lights',
+            objects: list.map(el => ({
+                type: el.type,
+                params: el.params || {},
+                elements: []
+            }))
+        };
+        const { models } = await registry.instantiate(def);
+        models.forEach((m, i) => {
+            m.lightType = list[i].type;
+            m.elementOf = { frameId, index: i };
+            m.name = LIGHT_NAMES[list[i].type];
+            m.build();
+            viewer.addModel(m);
+        });
+        mounted.set(key, models);
+    } catch (err) {
+        console.error('[lights]', err);
         failures.push({ id: key, message: (err && err.message) || String(err) });
     }
     return failures;
@@ -520,6 +706,63 @@ function refreshPillarPlaces() {
     return changed;
 }
 
+// Mount height above the anchor itself: base plates sit flat on the floor,
+// pole and rail fixtures sit just proud of whatever they clamp to.
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12 };
+
+// Where one light stands: its anchor on the frame it belongs to, resolved
+// after the frame has been placed, so it travels with the frame exactly as a
+// pillar does - through swing, turn and the All-at-once row alike. World
+// coordinates come from the frame's transform by plain trig, the way
+// frameAnchorOf reads it: this file keeps no three import of its own.
+function elementSpot(owner, anchors, anchorId) {
+    if (!owner || !owner.object3D || !anchors.length) return { x: 0, y: 0, z: 0, ry: 0 };
+    let a = anchors.find(x => x.id === anchorId);
+    if (!a) {
+        // A stale or missing anchor falls back to the nearest same-kind one -
+        // a Pole 2 that no longer exists still lands on some pole.
+        const want = (anchorId || '').split('-')[0];
+        a = anchors.find(x => x.kind === want) || anchors[0];
+    }
+    const p = a.position;
+    const pos = owner.object3D.position, turn = owner.object3D.rotation.y;
+    const c = Math.cos(turn), s = Math.sin(turn);
+    // A rail fixture aims along its rail; poles and bases follow the frame.
+    const ry = a.kind === 'rail' && a.tangent
+        ? turn + Math.atan2(-a.tangent.z, a.tangent.x) : turn;
+    return {
+        x: pos.x + p.x * c + p.z * s,
+        y: p.y + (MOUNT_Y[a.kind] || 0),
+        z: pos.z - p.x * s + p.z * c,
+        ry
+    };
+}
+
+function refreshElementPlaces() {
+    let changed = false;
+    for (const [key, models] of mounted) {
+        if (!key.startsWith(ELEM_PREFIX) || !models.length) continue;
+        const frameId = key.slice(ELEM_PREFIX.length);
+        const owner = (mounted.get(frameId) || [])[0] || null;
+        let anchors = [];
+        if (owner && typeof owner.getAnchors === 'function') {
+            try { anchors = owner.getAnchors() || []; } catch { anchors = []; }
+        }
+        const list = frameElementsFor(frameId);
+        const arr = models.map((m, i) => elementSpot(
+            owner, anchors, list[i] && list[i].anchor));
+        const prev = savedPlaces.get(key);
+        if (!prev || prev.length !== arr.length
+            || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
+                || prev[i].y !== p.y || prev[i].z !== p.z
+                || prev[i].ry !== p.ry)) {
+            changed = true;
+        }
+        savedPlaces.set(key, arr);
+    }
+    return changed;
+}
+
 // The one writer: every model's transform comes from `savedPlaces`. Frames
 // first, because a pillar takes its coordinates from the frame it stands
 // beside. `layoutX` records the x written here so the viewer's own spacing
@@ -530,7 +773,7 @@ function applyPlaces() {
         models.forEach((m, i) => {
             const p = arr[i];
             if (!m.object3D || !p) return;
-            m.object3D.position.set(p.x, 0, p.z);
+            m.object3D.position.set(p.x, p.y || 0, p.z);
             m.object3D.rotation.y = (p.ry || 0) * Math.PI / 180;
             m.layoutX = p.x;
         });
@@ -547,9 +790,10 @@ function placesFor() {
 }
 
 // One number at a time, for frames. Pillars are not edited here: they have
-// no coordinates of their own - they follow the frame that owns them.
+// no coordinates of their own - they follow the frame that owns them. Lights
+// are not edited here either: they stand on their frame's anchors.
 function setPlace(key, index, patch) {
-    if (key.startsWith(PILLAR_ID)) return false;
+    if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) return false;
     const arr = savedPlaces.get(key);
     if (!arr || !arr[index]) return false;
     const cur = arr[index];
@@ -705,7 +949,7 @@ function applySetParams(id) {
     }
     if (!Object.keys(patch).length) return null;
     for (const [key, models] of mounted) {
-        if (key.startsWith(PILLAR_ID)) continue;
+        if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
         for (const m of models) {
             if (!m.setParams) continue;
             m.setParams(patch);
@@ -750,10 +994,12 @@ async function syncScene(forcePanel = false) {
 
         defaultPlaces();
         // Frames first, then the pillars re-derive from where their frames
-        // actually stand, then everything is written - so a pillar always
-        // travels with its frame, including through the All-at-once row.
+        // actually stand, then the lights re-derive from their anchors, then
+        // everything is written - so a pillar and a light always travel with
+        // their frame, including through the All-at-once row.
         applyPlaces();
         refreshPillarPlaces();
+        refreshElementPlaces();
         applyPlaces();
         const gs = groups();
         viewer.frameScene();
@@ -773,6 +1019,8 @@ async function syncScene(forcePanel = false) {
                 recipe: recipeState(),
                 set: layoutId,
                 framePillars: framePillarsPlain(),
+                frameElements: frameElementsPlain(),
+                frameAnchors: frameAnchorsPlain(),
                 places: placesFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
@@ -913,6 +1161,63 @@ function setFramePillars(id, patch) {
     return syncScene();
 }
 
+// Lighting elements: add one, take one away, retarget one. The list is the
+// state - a fixture's numbers live in its own entry - so every change goes
+// back through the document, then re-instantiates only when the types changed.
+function onElementAdd(id, type) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    if (!LIGHT_TYPES.includes(type)) return false;
+    const list = frameElementsFor(id).slice();
+    if (list.length >= 6) return false;
+    list.push({ type, anchor: defaultAnchorFor(id, type), params: {} });
+    frameElements.set(id, list);
+    scheduleSave();
+    return syncScene();
+}
+
+function onElementRemove(id, index) {
+    const list = frameElementsFor(id).slice();
+    if (!list[index]) return false;
+    list.splice(index, 1);
+    frameElements.set(id, list);
+    scheduleSave();
+    return syncScene();
+}
+
+function onElementPatch(id, index, patch) {
+    const list = frameElementsFor(id).slice();
+    const entry = list[index];
+    if (!entry || !patch || typeof patch !== 'object') return false;
+    let structural = false;
+    if (typeof patch.anchor === 'string' && patch.anchor && patch.anchor !== entry.anchor) {
+        entry.anchor = patch.anchor;
+    }
+    if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
+        && patch.type !== entry.type) {
+        // A different fixture on the same hook: fresh numbers, and possibly
+        // a different hook (strips clamp to the rail, par and led to a pole).
+        entry.type = patch.type;
+        entry.params = {};
+        entry.anchor = defaultAnchorFor(id, patch.type);
+        structural = true;
+    }
+    list[index] = { type: entry.type, anchor: entry.anchor, params: entry.params };
+    frameElements.set(id, list);
+    scheduleSave();
+    if (structural) return syncScene();
+    // Anchor retarget only: same models, re-place on the next frame - and
+    // let the panel repaint, because the hook is part of its signature.
+    refreshElementPlaces();
+    applyPlaces();
+    if (panel) {
+        panel.refresh({
+            frameElements: frameElementsPlain(),
+            frameAnchors: frameAnchorsPlain()
+        });
+    }
+    return true;
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -939,6 +1244,7 @@ async function resetProject() {
     extraColors = [];
     layoutId = null;
     framePillars.clear();
+    frameElements.clear();
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -1055,6 +1361,17 @@ if (savedDoc) {
             });
         }
     }
+    // The fixtures ride along with the pillars - same rule: the document's
+    // own list, only for frames this project actually knows.
+    if (savedDoc.elements && typeof savedDoc.elements === 'object'
+        && !Array.isArray(savedDoc.elements)) {
+        for (const [id, v] of Object.entries(savedDoc.elements)) {
+            const target = remapId(id);
+            if (!knownIds.has(target)) continue;
+            const list = normaliseElementList(v);
+            if (list.length) frameElements.set(target, list);
+        }
+    }
     // The active frame's own numbers win when two old presets merge into one.
     const placeEntries = Object.entries(savedDoc.places || {})
         .sort((a, b) => (b[0] === savedDoc.activeId) - (a[0] === savedDoc.activeId));
@@ -1130,6 +1447,8 @@ panel = createPanel({
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
+    frameElements: frameElementsPlain(),
+    frameAnchors: frameAnchorsPlain(),
     places: placesFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
@@ -1141,11 +1460,39 @@ panel = createPanel({
     onRecipeChange: guard(id => setRecipe(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
+    onElementAdd: guard((id, type) => onElementAdd(id, type)),
+    onElementRemove: guard((id, index) => onElementRemove(id, index)),
+    onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
             .filter(Boolean);
+        // A light keeps its own numbers: focus belongs to THAT fixture, it
+        // lands in its frame's fixture entry, and it never travels into
+        // savedPresets under the rig's key - so no shared-id fan-out below.
+        const first = picked[0];
+        if (first && first.elementOf) {
+            const { frameId, index } = first.elementOf;
+            const known = {};
+            for (const m of picked) {
+                if (!m.setParams || !m.params) continue;
+                const mine = {};
+                for (const [k, v] of Object.entries(partial)) {
+                    if (m.params[k]) mine[k] = v;
+                }
+                if (!Object.keys(mine).length) continue;
+                m.setParams(mine);
+                Object.assign(known, mine);
+            }
+            if (Object.keys(known).length) {
+                const list = frameElements.get(frameId);
+                if (list && list[index]) Object.assign(list[index].params, known);
+                scheduleSave();
+                scheduleRebuild();
+            }
+            return;
+        }
         // Instances of the same preset share one set of controls: two pillars
         // are one row of sliders, not two rows that drift apart.
         const ids = new Set(picked.map(m => m.id));

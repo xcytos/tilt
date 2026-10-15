@@ -68,6 +68,44 @@ export function validateDef(def, types) {
 
         if (o.elements !== undefined && !Array.isArray(o.elements)) {
             errs.push(`${at}.elements must be an array`);
+        } else if (Array.isArray(o.elements)) {
+            // Elements attach to this object's anchors (lights, and anything
+            // after them): same schema rules as the object itself.
+            o.elements.forEach((el, j) => {
+                const where = `${at}.elements[${j}]`;
+                if (!isPlainObject(el)) { errs.push(`${where} must be an object`); return; }
+                if (typeof el.type !== 'string' || !el.type) {
+                    errs.push(`${where}.type must be a string`); return;
+                }
+                const ereg = types ? types.get(el.type) : null;
+                if (types && !ereg) {
+                    errs.push(`${where}.type "${el.type}" is not registered`); return;
+                }
+                if (!ereg) return;
+                const eparams = el.params === undefined ? {} : el.params;
+                if (!isPlainObject(eparams)) {
+                    errs.push(`${where}.params must be an object`); return;
+                }
+                const eschema = ereg.params || {};
+                for (const [k, v] of Object.entries(eparams)) {
+                    const p = eschema[k];
+                    if (!p) { errs.push(`${where}.params: unknown "${k}"`); continue; }
+                    if (p.type === 'range') {
+                        if (typeof v !== 'number' || !Number.isFinite(v)) {
+                            errs.push(`${where}.params.${k} must be a number`);
+                        } else if (v < p.min || v > p.max) {
+                            errs.push(`${where}.params.${k}=${v} outside [${p.min}, ${p.max}]`);
+                        }
+                    } else if (p.type === 'toggle') {
+                        if (typeof v !== 'boolean') {
+                            errs.push(`${where}.params.${k} must be true or false`);
+                        }
+                    }
+                }
+                if (el.anchor !== undefined && typeof el.anchor !== 'string') {
+                    errs.push(`${where}.anchor must be a string`);
+                }
+            });
         }
     });
 

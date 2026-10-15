@@ -16,6 +16,7 @@ export const ORDER = [
     'js/registry.js',
     'js/objects/o2tilt.js',
     'js/objects/pillar.js',
+    'js/elements/light.js',
     'js/viewer.js',
     'js/panel.js',
     'js/editor.js',

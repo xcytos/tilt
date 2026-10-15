@@ -612,7 +612,7 @@ check("a pillar's look hides behind one gear inside Pillars",
 check('pillars have no accordion section of their own',
   /g\.id !== PILLAR_ID/.test(panel));
 check('pillars travel with their frame through the All-at-once row',
-  /applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);/.test(app)
+  /applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);(?:\s*\n\s*refreshElementPlaces\(\);)?\s*\n\s*applyPlaces\(\);/.test(app)
   && /for \(const k of presets\)/.test(app)
   && /frames\[Math\.floor\(i \/ per\)\]/.test(app));
 check('your numbers reach the document and come back',

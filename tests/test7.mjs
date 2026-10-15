@@ -151,7 +151,7 @@ check('app spaces models through viewer.layoutGroups', /viewer\.layoutGroups\(/.
 const syncSrc = /async function syncScene\([^)]*\) \{[\s\S]*?\n\}/.exec(app);
 check('scene sync places frames, then pillars, then frames once',
       !!syncSrc
-      && /defaultPlaces\(\);[\s\S]*?applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);\s*\n\s*applyPlaces\(\);[\s\S]*?viewer\.frameScene\(\);/.test(syncSrc));
+      && /defaultPlaces\(\);[\s\S]*?applyPlaces\(\);\s*\n\s*refreshPillarPlaces\(\);(?:\s*\n\s*refreshElementPlaces\(\);)?\s*\n\s*applyPlaces\(\);[\s\S]*?viewer\.frameScene\(\);/.test(syncSrc));
 check('panel callbacks are guarded against rejection',
       /onSelect: guard\(/.test(app) && /onModeChange: guard\(/.test(app)
       && /onToggle: guard\(/.test(app));

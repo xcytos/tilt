@@ -26,7 +26,17 @@ const registryFile = path.join(TMP, 'registry.test5.mjs');
 fs.writeFileSync(registryFile, fs.readFileSync(path.join(DECOR, 'js/registry.js'), 'utf8'));
 const { Registry, validateDef } = await import(pathToFileURL(registryFile).href);
 
+// The lighting element module, staged the same way (its three import must
+// resolve for the element schemas to validate against the real ones).
+const lightFile = path.join(TMP, 'light.test5.mjs');
+fs.writeFileSync(lightFile, fs.readFileSync(path.join(DECOR, 'js/elements/light.js'), 'utf8')
+  .replace("from 'three'", `from '${threeURL}'`));
+const { createLightModel, LIGHT_TYPES, LIGHT_PARAMS } = await import(pathToFileURL(lightFile).href);
+
 const types = new Map([['o2tilt-frame', { factory: createO2TiltModel, params: PARAMS }]]);
+for (const t of LIGHT_TYPES) {
+  types.set(t, { factory: p => createLightModel(t, p), params: LIGHT_PARAMS[t.slice(6)] });
+}
 
 // Serve the DECOR folder in place of a real HTTP server, so loadManifest/load
 // run exactly as they will in the browser. Accepts both './models/x.json'
@@ -60,6 +70,7 @@ for (const m of manifest.models) {
 
 console.log('\n2. registry.loadManifest + load + instantiate');
 const reg = new Registry('./models').register('o2tilt-frame', createO2TiltModel, PARAMS);
+for (const t of LIGHT_TYPES) reg.register(t, p => createLightModel(t, p), LIGHT_PARAMS[t.slice(6)]);
 const entries = await reg.loadManifest();
 check('returns one entry per manifest model', entries.length === manifest.models.length,
       `${entries.length}/${manifest.models.length}`);
@@ -128,6 +139,40 @@ check('a good definition passes', validateDef({
   objects: [{ type: 'o2tilt-frame', params: { gap: 3, pan: 10, pitch: 5, decline: 20, fabric: true }, elements: [] }]
 }, types).length === 0);
 
+console.log('\n4b. element validation (the def `elements` slot)');
+const elemBad = [
+  ['element must be an object', [42], /elements\[0\] must be an object/],
+  ['element type is required', [{}], /elements\[0\]\.type must be a string/],
+  ['element type must be registered', [{ type: 'light-hologram' }], /not registered/],
+  ['element param out of range', [{ type: 'light-par', params: { focus: 500 } }],
+    /elements\[0\]\.params\.focus=500 outside \[10, 60\]/],
+  ['element param wrong type', [{ type: 'light-par', params: { power: 'max' } }],
+    /elements\[0\]\.params\.power must be a number/],
+  ['element param unknown', [{ type: 'light-strip', params: { sparkle: 1 } }],
+    /unknown "sparkle"/],
+  ['element anchor must be a string', [{ type: 'light-led', anchor: 7 }],
+    /elements\[0\]\.anchor must be a string/]
+];
+for (const [label, elements, re] of elemBad) {
+  const errs = validateDef({ id: 'x', name: 'x', objects: [{ type: 'o2tilt-frame', elements }] }, types);
+  check(label, errs.length > 0 && errs.some(e => re.test(e)), errs.join('; '));
+}
+check('a definition with lights passes', validateDef({
+  id: 'lit', name: 'Lit',
+  objects: [{
+    type: 'o2tilt-frame', params: { fabric: true },
+    elements: [
+      { type: 'light-par', anchor: 'pole-R-1', params: { power: 80, focus: 25, pan: 15, tilt: 45 } },
+      { type: 'light-strip', anchor: 'rail-L-7', params: { power: 100, length: 4.5 } }
+    ]
+  }]
+}, types).length === 0);
+check('element schemas come from the real module', (() => {
+  const errs = validateDef({ id: 'x', name: 'x', objects: [{
+    type: 'o2tilt-frame', elements: [{ type: 'light-par', params: { focus: 999 } }] }] }, types);
+  return errs.some(e => /focus=999 outside \[10, 60\]/.test(e));
+})());
+
 console.log('\n5. manifest hardening');
 const hostile = {
   models: [{ id: 'evil', name: 'Evil', file: '../../../etc/passwd' }]
@@ -174,6 +219,9 @@ for (const m of manifest.models) {
   const def = JSON.parse(fs.readFileSync(path.join(DECOR, 'models', m.file), 'utf8'));
   for (const o of def.objects) {
     check(`${m.id} -> "${o.type}" is registered`, types.has(o.type));
+    for (const el of (Array.isArray(o.elements) ? o.elements : [])) {
+      check(`${m.id} element -> "${el.type}" is registered`, types.has(el.type));
+    }
   }
 }
 

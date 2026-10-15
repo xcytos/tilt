@@ -1184,6 +1184,57 @@ function cleanFramePillars(raw) {
 // where a three.js import would not resolve.
 const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
+// Lighting fixtures belong to their frame: { '<frameId>': [{ type, anchor,
+// params }] }. Only shapes and numbers get through - the type must be a
+// registered light, the anchor a plausible mount-point id, the numbers
+// finite and bounded - so a hand-edited project cannot smuggle a thousand
+// lights into the scene. The registered list itself is mirrored here (this
+// module imports nothing); app.js re-checks against the live registry.
+const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
+const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
+const ELEM_PER_FRAME = 6;
+const ELEM_TOTAL = 12;
+const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
+
+function cleanFrameElements(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    let frames = 0, total = 0;
+    for (const [id, v] of Object.entries(raw)) {
+        if (frames >= PLACE_KEYS || total >= ELEM_TOTAL) break;
+        if (!PLACE_KEY_RE.test(id) || !Array.isArray(v) || !v.length) continue;
+        const list = [];
+        for (const el of v) {
+            if (list.length >= ELEM_PER_FRAME || total >= ELEM_TOTAL) break;
+            if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+            if (!ELEM_TYPES.includes(el.type)) continue;
+            const params = {};
+            if (el.params && typeof el.params === 'object' && !Array.isArray(el.params)) {
+                let keys = 0;
+                for (const [k, n] of Object.entries(el.params)) {
+                    if (keys >= 8) break;
+                    if (!ELEM_PARAM_RE.test(k)
+                        || typeof n !== 'number' || !Number.isFinite(n)) continue;
+                    params[k] = n;
+                    keys++;
+                }
+            }
+            list.push({
+                type: el.type,
+                anchor: typeof el.anchor === 'string' && ELEM_ANCHOR_RE.test(el.anchor)
+                    ? el.anchor : '',
+                params
+            });
+            total++;
+        }
+        if (list.length) {
+            out[id] = list;
+            frames++;
+        }
+    }
+    return out;
+}
+
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
@@ -1257,6 +1308,7 @@ function parseProject(raw) {
             && LAYOUT_IDS.includes(LEGACY_LAYOUT[data.layout] || data.layout)
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
+        elements: cleanFrameElements(data.elements),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
@@ -1549,6 +1601,44 @@ function validateDef(def, types) {
 
         if (o.elements !== undefined && !Array.isArray(o.elements)) {
             errs.push(`${at}.elements must be an array`);
+        } else if (Array.isArray(o.elements)) {
+            // Elements attach to this object's anchors (lights, and anything
+            // after them): same schema rules as the object itself.
+            o.elements.forEach((el, j) => {
+                const where = `${at}.elements[${j}]`;
+                if (!isPlainObject(el)) { errs.push(`${where} must be an object`); return; }
+                if (typeof el.type !== 'string' || !el.type) {
+                    errs.push(`${where}.type must be a string`); return;
+                }
+                const ereg = types ? types.get(el.type) : null;
+                if (types && !ereg) {
+                    errs.push(`${where}.type "${el.type}" is not registered`); return;
+                }
+                if (!ereg) return;
+                const eparams = el.params === undefined ? {} : el.params;
+                if (!isPlainObject(eparams)) {
+                    errs.push(`${where}.params must be an object`); return;
+                }
+                const eschema = ereg.params || {};
+                for (const [k, v] of Object.entries(eparams)) {
+                    const p = eschema[k];
+                    if (!p) { errs.push(`${where}.params: unknown "${k}"`); continue; }
+                    if (p.type === 'range') {
+                        if (typeof v !== 'number' || !Number.isFinite(v)) {
+                            errs.push(`${where}.params.${k} must be a number`);
+                        } else if (v < p.min || v > p.max) {
+                            errs.push(`${where}.params.${k}=${v} outside [${p.min}, ${p.max}]`);
+                        }
+                    } else if (p.type === 'toggle') {
+                        if (typeof v !== 'boolean') {
+                            errs.push(`${where}.params.${k} must be true or false`);
+                        }
+                    }
+                }
+                if (el.anchor !== undefined && typeof el.anchor !== 'string') {
+                    errs.push(`${where}.anchor must be a string`);
+                }
+            });
         }
     });
 
@@ -2408,6 +2498,249 @@ function createPillarModel(initial = {}) {
     return model;
 }
 
+// ---- js/elements/light.js ----
+// The lighting element family: ONE universal fixture model with a type
+// adaptor per event light - a PAR can (focused beam), an LED wash panel
+// and a linear strip. Registered as three types (light-par, light-led,
+// light-strip) so the panel renders each from its own schema, and mounted
+// on ANY model's anchors through the def's `elements` list - the anchor
+// contract (getAnchors) is what makes this system model-agnostic.
+const LIGHT_TYPES = ['light-par', 'light-led', 'light-strip'];
+const LIGHT_NAMES = {
+    'light-par': 'PAR Light',
+    'light-led': 'LED Wash',
+    'light-strip': 'Strip Light'
+};
+
+// Params stay range/toggle so registry validation, the panel and the
+// project clamps all keep their current contract.
+const LIGHT_PARAMS = {
+    par: {
+        power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
+        pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
+        tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 45,  unit: '°' },
+        focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' }
+    },
+    led: {
+        power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
+        pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
+        tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 55,  unit: '°' },
+        wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' }
+    },
+    strip: {
+        power:  { label: 'Power',  type: 'range', min: 0,  max: 100, step: 1,   value: 100, unit: '%' },
+        length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' }
+    }
+};
+
+const LIGHT_THEME = {
+    light: { env: 0.5, glow: 1.0 },
+    dark:  { env: 0.2, glow: 1.8 }
+};
+const LIGHT_DEG = Math.PI / 180;
+// One real spotlight per PAR/LED fixture, never more, never shadowed:
+// the scene's own rig owns shadows and the bounded count keeps a stage
+// full of fixtures harmless. The strip is emissive only.
+const SPOT_BASE = { par: 2.2, led: 1.4 };
+
+function createLightModel(type = 'light-par', initial = {}) {
+    const kind = LIGHT_TYPES.includes(type) ? type.slice(6) : 'par';
+    const regType = 'light-' + kind;
+    const params = LIGHT_PARAMS[kind];
+
+    const root = new THREE.Group();
+    root.name = regType;
+
+    const state = {};
+    for (const k of Object.keys(params)) state[k] = params[k].value;
+    Object.assign(state, initial);
+
+    const matHousing = new THREE.MeshStandardMaterial({
+        color: 0x141418, metalness: 0.65, roughness: 0.45
+    });
+    const matYoke = new THREE.MeshStandardMaterial({
+        color: 0x2a2a30, metalness: 0.7, roughness: 0.4
+    });
+    const matLens = new THREE.MeshStandardMaterial({
+        color: 0x0c0c10, emissive: 0xfff4e2, emissiveIntensity: 1,
+        roughness: 0.3, metalness: 0
+    });
+    const matBeam = new THREE.MeshBasicMaterial({
+        color: 0xffeecf, transparent: true, opacity: 0.15, depthWrite: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
+
+    let spot = null;
+    let beam = null;
+    let themeNow = 'light';
+
+    const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
+
+    function applyGlow() {
+        matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        if (spot) spot.intensity = power01() * SPOT_BASE[kind];
+        if (beam) {
+            beam.visible = power01() > 0;
+            matBeam.opacity = power01() * 0.16;
+        }
+    }
+
+    // Shared yoke: two clevis arms and a bridge the head pivots between.
+    // The head aims along -Z; tilt 0 is horizontal, +90 is straight down,
+    // -90 straight up (floor uplights).
+    function buildYoke() {
+        const panG = new THREE.Group();
+        panG.position.y = 0.2;
+        panG.rotation.y = state.pan * LIGHT_DEG;
+        for (const s of [-1, 1]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.07), matYoke);
+            arm.position.set(s * 0.17, 0.17, 0);
+            panG.add(arm);
+        }
+        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.375, 0.035, 0.07), matYoke);
+        bridge.position.y = 0.357;
+        panG.add(bridge);
+
+        const tiltG = new THREE.Group();
+        tiltG.position.y = 0.17;
+        tiltG.rotation.x = -state.tilt * LIGHT_DEG;
+        panG.add(tiltG);
+        return { panG, tiltG };
+    }
+
+    // The real light: one SpotLight, no shadow, decay 0 so the dimmer
+    // reads predictably at any throw distance.
+    function addSpot(tiltG, halfAngleRad) {
+        spot = new THREE.SpotLight(0xfff2dd, 0, 0, halfAngleRad, 0.35, 0);
+        spot.position.set(0, 0, -0.2);
+        spot.castShadow = false;
+        const target = new THREE.Object3D();
+        target.position.set(0, 0, -4);
+        spot.target = target;
+        tiltG.add(spot, target);
+    }
+
+    function clearRoot() {
+        for (const o of [...root.children]) {
+            o.traverse(c => { if (c.isMesh) c.geometry.dispose(); });
+            root.remove(o);
+        }
+        spot = null;
+        beam = null;
+    }
+
+    function build() {
+        clearRoot();
+
+        // Universal mount: flange + spigot at the anchor point. The app
+        // decides where that is (pole top, rail, floor plate); the fixture
+        // only knows its own local frame, +Y up, aiming along -Z.
+        const flange = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
+        flange.position.y = 0.02;
+        const spigot = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.05, 0.05, 0.16, 12), matHousing);
+        spigot.position.y = 0.12;
+        root.add(flange, spigot);
+
+        if (kind === 'strip') {
+            // Linear tube hanging below the mount; emissive face on the
+            // underside. No pan/tilt - its orientation comes from the rail.
+            const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), matHousing);
+            stem.position.y = -0.07;
+            const len = state.length;
+            const tube = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.12), matHousing);
+            tube.position.y = -0.2;
+            const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
+            face.position.y = -0.262;
+            root.add(stem, tube, face);
+        } else if (kind === 'par') {
+            const { panG, tiltG } = buildYoke();
+            root.add(panG);
+            // The can: cylinder turned so its axis runs along Z, flared
+            // end (the lens) forward at -Z.
+            const can = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.36, 24), matHousing);
+            can.rotation.x = Math.PI / 2;
+            tiltG.add(can);
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 8, 24), matYoke);
+            ring.position.z = -0.185;
+            tiltG.add(ring);
+            const face = new THREE.Mesh(new THREE.CircleGeometry(0.14, 24), matLens);
+            face.position.z = -0.184;
+            face.rotation.y = Math.PI;
+            tiltG.add(face);
+
+            addSpot(tiltG, (state.focus / 2) * LIGHT_DEG);
+
+            // Visible beam cone: tip at the lens, mouth toward the aim,
+            // radius grown to the focus angle over a 7 ft throw.
+            const len = 7;
+            const r = Math.tan((state.focus / 2) * LIGHT_DEG) * len;
+            const geo = new THREE.CylinderGeometry(r, 0.001, len, 24, 1, true);
+            geo.translate(0, len / 2, 0);
+            beam = new THREE.Mesh(geo, matBeam);
+            beam.rotation.x = -Math.PI / 2;
+            beam.position.z = -0.19;
+            tiltG.add(beam);
+        } else { // led: flat wash panel on the same yoke
+            const { panG, tiltG } = buildYoke();
+            root.add(panG);
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.46, 0.07), matHousing);
+            tiltG.add(panel);
+            const dotGeo = new THREE.PlaneGeometry(0.08, 0.08);
+            for (let r = 0; r < 3; r++) {
+                for (let c = 0; c < 5; c++) {
+                    const dot = new THREE.Mesh(dotGeo, matLens);
+                    dot.position.set(-0.24 + c * 0.12, 0.14 - r * 0.14, -0.037);
+                    dot.rotation.y = Math.PI;
+                    tiltG.add(dot);
+                }
+            }
+            addSpot(tiltG, (state.wash / 2) * LIGHT_DEG);
+        }
+
+        applyGlow();
+        model.dirty = false;
+    }
+
+    function setTheme(isDark) {
+        themeNow = isDark ? 'dark' : 'light';
+        const t = LIGHT_THEME[themeNow];
+        matHousing.envMapIntensity = t.env;
+        matYoke.envMapIntensity = t.env;
+        matLens.envMapIntensity = t.env;
+        applyGlow();
+    }
+
+    function dispose() {
+        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.clear();
+        spot = null;
+        beam = null;
+        [matHousing, matYoke, matLens, matBeam].forEach(m => m.dispose());
+    }
+
+    const model = {
+        id: regType,
+        name: LIGHT_NAMES[regType],
+        subtitle: 'Stage light',
+        object3D: root,
+        params,
+        state,
+        dirty: true,
+        build,
+        setTheme,
+        setParams(partial) {
+            Object.assign(state, partial);
+            model.dirty = true;
+        },
+        dispose
+    };
+
+    build();
+    return model;
+}
+
 // ---- js/viewer.js ----
 const FLOOR_SIZE = 200;
 const GRID_CELLS = 100;
@@ -2946,12 +3279,14 @@ function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
-        framePillars = {}, places = {},
+        framePillars = {}, frameElements = {}, frameAnchors = {}, places = {},
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
-        onSetChange, onFramePillarsChange, onPlaceChange,
+        onSetChange, onFramePillarsChange,
+        onElementAdd, onElementRemove, onElementPatch,
+        onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
 
@@ -3017,6 +3352,11 @@ function createPanel(opts) {
           show: () => true },
         { id: 'pillars', label: 'Pillars',
           icon: icon('M6 21V7M12 21V7M18 21V7M4 7h16'),
+          show: () => frameGroupsOf().length > 0 },
+        { id: 'lights', label: 'Lights',
+          icon: icon('M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2'
+              + 'M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2'
+              + 'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'),
           show: () => frameGroupsOf().length > 0 }
     ];
 
@@ -3046,7 +3386,7 @@ function createPanel(opts) {
     }
 
     function frameGroupsOf() {
-        return currentGroups.filter(g => g.id !== PILLAR_ID);
+        return currentGroups.filter(g => g.id !== PILLAR_ID && !g.owner);
     }
 
     function emptyNote(text) {
@@ -3078,6 +3418,8 @@ function createPanel(opts) {
     let currentScene = scene;
     let currentSet = set;
     let currentFramePillars = framePillars;
+    let currentFrameElements = frameElements;
+    let currentFrameAnchors = frameAnchors;
     let currentPlaces = places;
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
@@ -3085,6 +3427,8 @@ function createPanel(opts) {
     // Which toolbar chip owns the shelf right now. Structural: switching
     // tools rebuilds the shelf body, never the viewer.
     let activeTool = 'shape';
+    // Which type the next Add light plants; remembered across rebuilds.
+    let lastAddType = 'light-par';
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -3374,6 +3718,8 @@ function createPanel(opts) {
         // Pillars: one group per frame, gone until the frame has some.
         // Count, place, the offset and the pillar's look all live here.
         if (tool === 'pillars') inner.appendChild(pillarsBlock(key));
+        // Lights: one rig per frame - add, retarget, tune, remove.
+        if (tool === 'lights') inner.appendChild(lightsBlock(key));
 
         const sec = { key, targets, rows, root };
         sections.push(sec);
@@ -3645,6 +3991,199 @@ function createPanel(opts) {
         box.appendChild(posDetails);
 
         wrap.appendChild(box);
+        return wrap;
+    }
+
+    // This frame's own lights, as one rig that only exists while the frame
+    // has any: a type chooser and Add at the top, then one card per fixture -
+    // where it clamps (Pole / Rail / Base, cycled along that line), its own
+    // numbers, and the way out. Every card edits ITS light only: the sliders
+    // emit against that one model, never through the shared-id fan-out.
+    function lightsBlock(id) {
+        const entries = currentFrameElements[id] || [];
+        const anchors = currentFrameAnchors[id] || [];
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-3';
+
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between';
+        const title = document.createElement('div');
+        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400';
+        title.textContent = 'Lights';
+        head.appendChild(title);
+        if (entries.length) {
+            const count = document.createElement('span');
+            count.className = 'text-[11px] text-gray-500 dark:text-zinc-400 '
+                + 'tabular-nums';
+            count.textContent = `${entries.length}/6`;
+            head.appendChild(count);
+        }
+        wrap.appendChild(head);
+
+        // What the next Add plants: PAR, LED or Strip. Panel-local - a choice
+        // about the NEXT light, remembered across rebuilds of this block.
+        const choices = [
+            { id: 'light-par', name: 'PAR' },
+            { id: 'light-led', name: 'LED' },
+            { id: 'light-strip', name: 'Strip' }
+        ];
+        const addRow = document.createElement('div');
+        addRow.className = 'mt-2 flex items-center gap-2';
+        const typeBtns = new Map();
+        for (const c of choices) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = c.id === lastAddType;
+            btn.className = chipCls(on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = c.name;
+            btn.addEventListener('click', () => {
+                lastAddType = c.id;
+                for (const [cid, b] of typeBtns) {
+                    const act = cid === lastAddType;
+                    b.className = chipCls(act);
+                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                }
+            });
+            live.buttons.push(btn);
+            typeBtns.set(c.id, btn);
+            addRow.appendChild(btn);
+        }
+        const atCap = entries.length >= 6;
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'ml-auto px-2.5 py-1.5 rounded-md border text-xs '
+            + 'font-semibold transition-colors ' + (atCap
+                ? 'border-gray-300 dark:border-zinc-600 text-gray-400 dark:text-zinc-500'
+                : 'border-sky-500 text-sky-600 dark:text-sky-400 hover:bg-sky-50 '
+                    + 'dark:hover:bg-zinc-700');
+        addBtn.textContent = 'Add';
+        addBtn.title = atCap
+            ? 'Six lights per frame - the document cap.'
+            : 'Add this light to the frame';
+        addBtn.disabled = atCap;
+        addBtn.dataset.off = atCap ? '1' : '0';
+        addBtn.addEventListener('click', () => {
+            onElementAdd && onElementAdd(id, lastAddType);
+        });
+        live.buttons.push(addBtn);
+        addRow.appendChild(addBtn);
+        wrap.appendChild(addRow);
+
+        // One card per fixture, in the order of its frame's own list.
+        const byInst = new Map();
+        for (const g of currentGroups) {
+            if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
+        }
+        entries.forEach((entry, i) => {
+            const g = byInst.get(i);
+            const lm = g && g.models && g.models[0];
+            const card = document.createElement('div');
+            card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+
+            const ch = document.createElement('div');
+            ch.className = 'flex items-center justify-between';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
+            nameEl.textContent = ((lm && lm.name) || entry.type) + ' ' + (i + 1);
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                + 'dark:text-zinc-400 hover:border-red-400 hover:text-red-500 '
+                + 'transition-colors';
+            rm.textContent = '\u00d7';
+            rm.title = 'Remove this light';
+            rm.addEventListener('click', () => onElementRemove && onElementRemove(id, i));
+            live.buttons.push(rm);
+            ch.append(nameEl, rm);
+            card.appendChild(ch);
+
+            if (anchors.length) {
+                const poolFor = k => anchors.filter(o => o.kind === k);
+                const ordinal = a => {
+                    const pool = poolFor((a || '').split('-')[0]);
+                    const at = pool.findIndex(o => o.id === a);
+                    return at < 0 ? 0 : at;
+                };
+                const curKind0 = (entry.anchor || '').split('-')[0];
+                const kind = ['pole', 'rail', 'base'].includes(curKind0)
+                    ? curKind0 : anchors[0].kind;
+
+                const mount = document.createElement('div');
+                mount.className = 'mt-1.5 flex items-center gap-1.5';
+                for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
+                    ['base', 'Base']]) {
+                    const has = poolFor(k).length > 0;
+                    const on = has && k === kind;
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = chipCls(on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.textContent = label;
+                    btn.disabled = !has;
+                    btn.dataset.off = has ? '0' : '1';
+                    btn.addEventListener('click', () => {
+                        if (on) return;
+                        const pool = poolFor(k);
+                        const at = Math.min(ordinal(entry.anchor), pool.length - 1);
+                        onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
+                    });
+                    live.buttons.push(btn);
+                    mount.appendChild(btn);
+                }
+                const step = delta => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = delta > 0 ? '\u25b6' : '\u25c0';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
+                        + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
+                    const pool = poolFor(kind);
+                    btn.disabled = pool.length < 2;
+                    btn.dataset.off = pool.length < 2 ? '1' : '0';
+                    btn.addEventListener('click', () => {
+                        const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
+                        const nextAt = (at + delta + pool.length) % pool.length;
+                        onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
+                    });
+                    live.buttons.push(btn);
+                    return btn;
+                };
+                const readout = document.createElement('span');
+                readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
+                    + 'dark:text-zinc-300 tabular-nums';
+                const hit = anchors.find(o => o.id === entry.anchor);
+                readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
+                mount.append(step(-1), readout, step(1));
+                card.appendChild(mount);
+            } else {
+                const note = document.createElement('p');
+                note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
+                note.textContent = 'This frame has no mount points.';
+                card.appendChild(note);
+            }
+
+            // Its own numbers: the light model's own schema, emitted against
+            // THIS model alone - one fixture's focus never moves another's.
+            if (lm && lm.params) {
+                for (const [k, p] of Object.entries(lm.params)) {
+                    if (p.type !== 'range') continue;
+                    const built = rangeBlock(`light-${i}-${k}`, p, lm.state[k]);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, p.unit);
+                        emit({ [k]: v }, [lm]);
+                    });
+                    live.selects.push(built.input);
+                    card.appendChild(built.wrap);
+                }
+            }
+            wrap.appendChild(card);
+        });
         return wrap;
     }
 
@@ -3943,11 +4482,17 @@ function createPanel(opts) {
         const pillarShape = Object.fromEntries(
             Object.entries(currentFramePillars).map(([k, c]) => [k,
                 { count: c.count, place: c.place }]));
+        // A light's type and hook are structural (the card must repaint);
+        // its numbers are value-level like every other slider.
+        const elemShape = Object.fromEntries(
+            Object.entries(currentFrameElements).map(([k, list]) => [k,
+                (list || []).map(el => `${el.type}@${el.anchor || ''}`)]));
         return [
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
             JSON.stringify(pillarShape),
+            JSON.stringify(elemShape),
             (current && current.name) || ''
         ].join('|');
     }
@@ -4010,7 +4555,9 @@ function createPanel(opts) {
             host.appendChild(emptyNote(
                 activeTool === 'pillars'
                     ? 'No frames on stage - nothing to put pillars beside.'
-                    : 'Nothing here yet.'));
+                    : activeTool === 'lights'
+                        ? 'No frames on stage - nothing to hang lights on.'
+                        : 'Nothing here yet.'));
         }
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
@@ -4058,6 +4605,12 @@ function createPanel(opts) {
             if (next.framePillars !== undefined) {
                 currentFramePillars = next.framePillars;
             }
+            if (next.frameElements !== undefined) {
+                currentFrameElements = next.frameElements;
+            }
+            if (next.frameAnchors !== undefined) {
+                currentFrameAnchors = next.frameAnchors;
+            }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
             if (next.colorways !== undefined) currentColorways = next.colorways;
@@ -4086,6 +4639,14 @@ function createPanel(opts) {
                             prop === 'ry' ? '\u00b0' : ' ft');
                     }
                 }
+            }
+            // Lights: value-level only - the card repaints through refresh()
+            // when a type or hook changes; numbers move their own inputs.
+            if (next.frameElements !== undefined) {
+                currentFrameElements = next.frameElements;
+            }
+            if (next.frameAnchors !== undefined) {
+                currentFrameAnchors = next.frameAnchors;
             }
             if (next.set !== undefined) {
                 currentSet = next.set;
@@ -4532,6 +5093,12 @@ try {
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
+// One lighting module, three registered type adaptors - each with its own
+// params schema, so the panel renders PAR/LED/strip from the same code.
+for (const t of LIGHT_TYPES) {
+    const kind = t.slice(6);
+    registry.register(t, p => createLightModel(t, p), LIGHT_PARAMS[kind]);
+}
 
 // Scene state. `mode` chooses between one preset on stage and several side by
 // side; `mounted` holds exactly what is in the scene, keyed by preset id.
@@ -4568,6 +5135,11 @@ function fabricHex() {
 let layoutId = null;
 const savedPlaces = new Map();
 const framePillars = new Map();
+// Lighting elements belong to their frame: `frameElements` holds each
+// frame's own list of fixtures - { type, anchor, params } keyed by preset id,
+// like pillars are. The lights stand on the frame's own anchors, so they
+// travel with it, and each keeps its own numbers.
+const frameElements = new Map();
 const mounted = new Map();
 let lastPrimary = null;
 let panel = null;
@@ -4615,8 +5187,9 @@ function buildDoc() {
         extraColors: extraColors.slice(),
         layout: layoutId,
         pillars: framePillarsPlain(),
+        elements: frameElementsPlain(),
         places: Object.fromEntries([...savedPlaces]
-            .filter(([k]) => !k.startsWith(PILLAR_ID))
+            .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
         view,
@@ -4695,7 +5268,8 @@ function orderIds() {
 function groups() {
     // Frames come in display order, a SET never hides any of them, and each
     // frame's own pillars follow it - one group apiece, so the panel gives
-    // each its own section right after the frame it stands beside.
+    // each its own section right after the frame it stands beside. A frame's
+    // lights follow the same rule: one group per fixture, owned by its frame.
     const out = [];
     for (const id of orderIds()) {
         if (mounted.has(id)) out.push({ id, models: mounted.get(id) });
@@ -4704,6 +5278,13 @@ function groups() {
             out.push({
                 id: PILLAR_ID, models: [m], inst: i,
                 total: pillars.length, owner: id
+            });
+        });
+        const lights = mounted.get(elementKey(id)) || [];
+        lights.forEach((m, i) => {
+            out.push({
+                id: elementKey(id) + ':' + i, models: [m], inst: i,
+                total: lights.length, owner: id
             });
         });
     }
@@ -4719,9 +5300,10 @@ function scheduleRebuild() {
         rebuildQueued = false;
         for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
         // Re-place only. A pillar follows its frame's end through the
-        // swing; the camera is left alone so dragging a slider never yanks
-        // the view around.
+        // swing, and a light rides the same anchor it clamped to; the camera
+        // is left alone so dragging a slider never yanks the view around.
         refreshPillarPlaces();
+        refreshElementPlaces();
         applyPlaces();
     });
 }
@@ -4751,9 +5333,12 @@ async function syncPresets() {
     const want = orderIds();
 
     for (const [id, models] of [...mounted]) {
-        // A pillar group stays while the frame that owns it stays.
+        // A pillar group stays while the frame that owns it stays; so does a
+        // frame's light rig.
         const owner = id.startsWith(PILLAR_ID + ':')
-            ? id.slice(PILLAR_ID.length + 1) : id;
+            ? id.slice(PILLAR_ID.length + 1)
+            : id.startsWith(ELEM_PREFIX)
+                ? id.slice(ELEM_PREFIX.length) : id;
         if (want.includes(owner)) continue;
         for (const m of models) viewer.removeModel(m);
         mounted.delete(id);
@@ -4765,6 +5350,12 @@ async function syncPresets() {
         if (mounted.has(id)) continue;
         try {
             const def = await registry.load(id);
+            // A def may bring fixtures of its own; the document's own list
+            // wins whenever it has one for this frame.
+            if (!frameElements.has(id)) {
+                const seed = defElementsOf(def);
+                if (seed.length) frameElements.set(id, seed);
+            }
             const { models } = await registry.instantiate(def);
             for (const m of models) {
                 // Every element comes back with the settings it was left with.
@@ -4778,9 +5369,10 @@ async function syncPresets() {
             failures.push({ id, message: (err && err.message) || String(err) });
         }
     }
-    // Each frame brings its own pillars along.
+    // Each frame brings its own pillars along - and its own lights.
     for (const id of want) {
         failures.push(...await syncPillarsFor(id));
+        failures.push(...await syncElementsFor(id));
     }
     return failures;
 }
@@ -4842,6 +5434,113 @@ function framePillarsPlain() {
     }]));
 }
 
+// Elements live under their frame's key, one instance slot apiece.
+const ELEM_PREFIX = 'light:';
+
+function elementKey(frameId) {
+    return ELEM_PREFIX + frameId;
+}
+
+function frameElementsFor(id) {
+    return frameElements.get(id) || [];
+}
+
+// Plain document form: only frames that actually carry fixtures, values
+// copied so a later edit cannot mutate the saved snapshot.
+function frameElementsPlain() {
+    return Object.fromEntries([...frameElements]
+        .filter(([, list]) => list.length)
+        .map(([id, list]) => [id, list.map(el => ({
+            type: el.type,
+            anchor: el.anchor,
+            params: Object.assign({}, el.params)
+        }))]));
+}
+
+// A fixture's numbers are the registered schema's business: anything the
+// schema does not know, or clamps, is dropped here - both for documents and
+// for a def's own elements. The registry validates again on the way in.
+function clampElemParams(type, params) {
+    const schema = LIGHT_PARAMS[type.slice(6)] || {};
+    const out = {};
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
+    for (const [k, v] of Object.entries(params)) {
+        const p = schema[k];
+        if (!p || p.type !== 'range') continue;
+        const n = Number(v);
+        if (!Number.isFinite(n)) continue;
+        out[k] = Math.max(p.min, Math.min(p.max, n));
+    }
+    return out;
+}
+
+function normaliseElementList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const el of raw) {
+        if (out.length >= 6) break;
+        if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+        if (!LIGHT_TYPES.includes(el.type)) continue;
+        out.push({
+            type: el.type,
+            anchor: typeof el.anchor === 'string' ? el.anchor : '',
+            params: clampElemParams(el.type, el.params)
+        });
+    }
+    return out;
+}
+
+// A def may seed its frames with fixtures of its own (objects[].elements);
+// only used for frames the document has never touched.
+function defElementsOf(def) {
+    const out = [];
+    for (const o of ((def && def.objects) || [])) {
+        if (!Array.isArray(o.elements)) continue;
+        for (const el of normaliseElementList([].concat(o.elements))) out.push(el);
+    }
+    return out.slice(0, 6);
+}
+
+// Every mount point of one frame as plain data for the panel: id, kind and a
+// label that reads like the drawing (Pole 3, Rail L 12, Base 1).
+function anchorOptionsFor(frameId) {
+    const owner = (mounted.get(frameId) || [])[0];
+    if (!owner || typeof owner.getAnchors !== 'function') return [];
+    let anchors = [];
+    try { anchors = owner.getAnchors() || []; } catch { return []; }
+    const counts = {};
+    return anchors.map(a => {
+        const key = a.kind === 'rail' ? `rail:${a.side || ''}` : a.kind;
+        counts[key] = (counts[key] || 0) + 1;
+        const n = counts[key];
+        const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
+            : a.kind === 'pole' ? `Pole ${n}`
+            : `Base ${n}`;
+        return { id: a.id, kind: a.kind, label };
+    });
+}
+
+function frameAnchorsPlain() {
+    return Object.fromEntries(orderIds()
+        .filter(id => mounted.has(id))
+        .map(id => [id, anchorOptionsFor(id)]));
+}
+
+// Where a newly added fixture clamps: strips clamp to the rail, par and led
+// fixtures to a pole - and the next unused one of that kind, so three taps
+// of Add walk along the line instead of stacking in one spot.
+function defaultAnchorFor(frameId, type) {
+    const opts = anchorOptionsFor(frameId);
+    const kind = type === 'light-strip' ? 'rail' : 'pole';
+    const pool = opts.filter(o => o.kind === kind);
+    if (pool.length) {
+        const used = frameElementsFor(frameId)
+            .filter(e => e.anchor && e.anchor.startsWith(kind + '-')).length;
+        return pool[used % pool.length].id;
+    }
+    return opts.length ? opts[0].id : '';
+}
+
 async function syncPillarsFor(frameId) {
     const failures = [];
     const key = pillarKey(frameId);
@@ -4866,6 +5565,53 @@ async function syncPillarsFor(frameId) {
         mounted.set(key, models);
     } catch (err) {
         console.error('[pillars]', err);
+        failures.push({ id: key, message: (err && err.message) || String(err) });
+    }
+    return failures;
+}
+
+// One def per frame carries that frame's fixtures as separate objects, so
+// each light keeps its own type and numbers while sharing its frame's fate.
+// The set of types is the signature: a count change, an add, a remove or a
+// type swap all re-instantiate; anchor and param edits do not.
+async function syncElementsFor(frameId) {
+    const failures = [];
+    const key = elementKey(frameId);
+    if (frameElements.has(frameId)) {
+        frameElements.set(frameId, normaliseElementList(frameElements.get(frameId)));
+    }
+    const list = frameElementsFor(frameId);
+    const have = mounted.get(key) || [];
+    const same = have.length === list.length
+        && have.every((m, i) => m.lightType === list[i].type);
+    if (same) return failures;
+
+    for (const m of have) viewer.removeModel(m);
+    mounted.delete(key);
+    savedPlaces.delete(key);
+    if (!list.length) return failures;
+
+    try {
+        const def = {
+            id: key,
+            name: 'Lights',
+            objects: list.map(el => ({
+                type: el.type,
+                params: el.params || {},
+                elements: []
+            }))
+        };
+        const { models } = await registry.instantiate(def);
+        models.forEach((m, i) => {
+            m.lightType = list[i].type;
+            m.elementOf = { frameId, index: i };
+            m.name = LIGHT_NAMES[list[i].type];
+            m.build();
+            viewer.addModel(m);
+        });
+        mounted.set(key, models);
+    } catch (err) {
+        console.error('[lights]', err);
         failures.push({ id: key, message: (err && err.message) || String(err) });
     }
     return failures;
@@ -5017,6 +5763,63 @@ function refreshPillarPlaces() {
     return changed;
 }
 
+// Mount height above the anchor itself: base plates sit flat on the floor,
+// pole and rail fixtures sit just proud of whatever they clamp to.
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12 };
+
+// Where one light stands: its anchor on the frame it belongs to, resolved
+// after the frame has been placed, so it travels with the frame exactly as a
+// pillar does - through swing, turn and the All-at-once row alike. World
+// coordinates come from the frame's transform by plain trig, the way
+// frameAnchorOf reads it: this file keeps no three import of its own.
+function elementSpot(owner, anchors, anchorId) {
+    if (!owner || !owner.object3D || !anchors.length) return { x: 0, y: 0, z: 0, ry: 0 };
+    let a = anchors.find(x => x.id === anchorId);
+    if (!a) {
+        // A stale or missing anchor falls back to the nearest same-kind one -
+        // a Pole 2 that no longer exists still lands on some pole.
+        const want = (anchorId || '').split('-')[0];
+        a = anchors.find(x => x.kind === want) || anchors[0];
+    }
+    const p = a.position;
+    const pos = owner.object3D.position, turn = owner.object3D.rotation.y;
+    const c = Math.cos(turn), s = Math.sin(turn);
+    // A rail fixture aims along its rail; poles and bases follow the frame.
+    const ry = a.kind === 'rail' && a.tangent
+        ? turn + Math.atan2(-a.tangent.z, a.tangent.x) : turn;
+    return {
+        x: pos.x + p.x * c + p.z * s,
+        y: p.y + (MOUNT_Y[a.kind] || 0),
+        z: pos.z - p.x * s + p.z * c,
+        ry
+    };
+}
+
+function refreshElementPlaces() {
+    let changed = false;
+    for (const [key, models] of mounted) {
+        if (!key.startsWith(ELEM_PREFIX) || !models.length) continue;
+        const frameId = key.slice(ELEM_PREFIX.length);
+        const owner = (mounted.get(frameId) || [])[0] || null;
+        let anchors = [];
+        if (owner && typeof owner.getAnchors === 'function') {
+            try { anchors = owner.getAnchors() || []; } catch { anchors = []; }
+        }
+        const list = frameElementsFor(frameId);
+        const arr = models.map((m, i) => elementSpot(
+            owner, anchors, list[i] && list[i].anchor));
+        const prev = savedPlaces.get(key);
+        if (!prev || prev.length !== arr.length
+            || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
+                || prev[i].y !== p.y || prev[i].z !== p.z
+                || prev[i].ry !== p.ry)) {
+            changed = true;
+        }
+        savedPlaces.set(key, arr);
+    }
+    return changed;
+}
+
 // The one writer: every model's transform comes from `savedPlaces`. Frames
 // first, because a pillar takes its coordinates from the frame it stands
 // beside. `layoutX` records the x written here so the viewer's own spacing
@@ -5027,7 +5830,7 @@ function applyPlaces() {
         models.forEach((m, i) => {
             const p = arr[i];
             if (!m.object3D || !p) return;
-            m.object3D.position.set(p.x, 0, p.z);
+            m.object3D.position.set(p.x, p.y || 0, p.z);
             m.object3D.rotation.y = (p.ry || 0) * Math.PI / 180;
             m.layoutX = p.x;
         });
@@ -5044,9 +5847,10 @@ function placesFor() {
 }
 
 // One number at a time, for frames. Pillars are not edited here: they have
-// no coordinates of their own - they follow the frame that owns them.
+// no coordinates of their own - they follow the frame that owns them. Lights
+// are not edited here either: they stand on their frame's anchors.
 function setPlace(key, index, patch) {
-    if (key.startsWith(PILLAR_ID)) return false;
+    if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) return false;
     const arr = savedPlaces.get(key);
     if (!arr || !arr[index]) return false;
     const cur = arr[index];
@@ -5202,7 +6006,7 @@ function applySetParams(id) {
     }
     if (!Object.keys(patch).length) return null;
     for (const [key, models] of mounted) {
-        if (key.startsWith(PILLAR_ID)) continue;
+        if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
         for (const m of models) {
             if (!m.setParams) continue;
             m.setParams(patch);
@@ -5247,10 +6051,12 @@ async function syncScene(forcePanel = false) {
 
         defaultPlaces();
         // Frames first, then the pillars re-derive from where their frames
-        // actually stand, then everything is written - so a pillar always
-        // travels with its frame, including through the All-at-once row.
+        // actually stand, then the lights re-derive from their anchors, then
+        // everything is written - so a pillar and a light always travel with
+        // their frame, including through the All-at-once row.
         applyPlaces();
         refreshPillarPlaces();
+        refreshElementPlaces();
         applyPlaces();
         const gs = groups();
         viewer.frameScene();
@@ -5270,6 +6076,8 @@ async function syncScene(forcePanel = false) {
                 recipe: recipeState(),
                 set: layoutId,
                 framePillars: framePillarsPlain(),
+                frameElements: frameElementsPlain(),
+                frameAnchors: frameAnchorsPlain(),
                 places: placesFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
@@ -5410,6 +6218,63 @@ function setFramePillars(id, patch) {
     return syncScene();
 }
 
+// Lighting elements: add one, take one away, retarget one. The list is the
+// state - a fixture's numbers live in its own entry - so every change goes
+// back through the document, then re-instantiates only when the types changed.
+function onElementAdd(id, type) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    if (!LIGHT_TYPES.includes(type)) return false;
+    const list = frameElementsFor(id).slice();
+    if (list.length >= 6) return false;
+    list.push({ type, anchor: defaultAnchorFor(id, type), params: {} });
+    frameElements.set(id, list);
+    scheduleSave();
+    return syncScene();
+}
+
+function onElementRemove(id, index) {
+    const list = frameElementsFor(id).slice();
+    if (!list[index]) return false;
+    list.splice(index, 1);
+    frameElements.set(id, list);
+    scheduleSave();
+    return syncScene();
+}
+
+function onElementPatch(id, index, patch) {
+    const list = frameElementsFor(id).slice();
+    const entry = list[index];
+    if (!entry || !patch || typeof patch !== 'object') return false;
+    let structural = false;
+    if (typeof patch.anchor === 'string' && patch.anchor && patch.anchor !== entry.anchor) {
+        entry.anchor = patch.anchor;
+    }
+    if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
+        && patch.type !== entry.type) {
+        // A different fixture on the same hook: fresh numbers, and possibly
+        // a different hook (strips clamp to the rail, par and led to a pole).
+        entry.type = patch.type;
+        entry.params = {};
+        entry.anchor = defaultAnchorFor(id, patch.type);
+        structural = true;
+    }
+    list[index] = { type: entry.type, anchor: entry.anchor, params: entry.params };
+    frameElements.set(id, list);
+    scheduleSave();
+    if (structural) return syncScene();
+    // Anchor retarget only: same models, re-place on the next frame - and
+    // let the panel repaint, because the hook is part of its signature.
+    refreshElementPlaces();
+    applyPlaces();
+    if (panel) {
+        panel.refresh({
+            frameElements: frameElementsPlain(),
+            frameAnchors: frameAnchorsPlain()
+        });
+    }
+    return true;
+}
+
 // Forget the project: reset the document to its defaults, drop every saved
 // control value, and re-mount the default preset from its schema defaults.
 // The name and the URL stay put - you are still in the same project.
@@ -5436,6 +6301,7 @@ async function resetProject() {
     extraColors = [];
     layoutId = null;
     framePillars.clear();
+    frameElements.clear();
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -5552,6 +6418,17 @@ if (savedDoc) {
             });
         }
     }
+    // The fixtures ride along with the pillars - same rule: the document's
+    // own list, only for frames this project actually knows.
+    if (savedDoc.elements && typeof savedDoc.elements === 'object'
+        && !Array.isArray(savedDoc.elements)) {
+        for (const [id, v] of Object.entries(savedDoc.elements)) {
+            const target = remapId(id);
+            if (!knownIds.has(target)) continue;
+            const list = normaliseElementList(v);
+            if (list.length) frameElements.set(target, list);
+        }
+    }
     // The active frame's own numbers win when two old presets merge into one.
     const placeEntries = Object.entries(savedDoc.places || {})
         .sort((a, b) => (b[0] === savedDoc.activeId) - (a[0] === savedDoc.activeId));
@@ -5627,6 +6504,8 @@ panel = createPanel({
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
+    frameElements: frameElementsPlain(),
+    frameAnchors: frameAnchorsPlain(),
     places: placesFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
@@ -5638,11 +6517,39 @@ panel = createPanel({
     onRecipeChange: guard(id => setRecipe(id)),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
+    onElementAdd: guard((id, type) => onElementAdd(id, type)),
+    onElementRemove: guard((id, index) => onElementRemove(id, index)),
+    onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
             .filter(Boolean);
+        // A light keeps its own numbers: focus belongs to THAT fixture, it
+        // lands in its frame's fixture entry, and it never travels into
+        // savedPresets under the rig's key - so no shared-id fan-out below.
+        const first = picked[0];
+        if (first && first.elementOf) {
+            const { frameId, index } = first.elementOf;
+            const known = {};
+            for (const m of picked) {
+                if (!m.setParams || !m.params) continue;
+                const mine = {};
+                for (const [k, v] of Object.entries(partial)) {
+                    if (m.params[k]) mine[k] = v;
+                }
+                if (!Object.keys(mine).length) continue;
+                m.setParams(mine);
+                Object.assign(known, mine);
+            }
+            if (Object.keys(known).length) {
+                const list = frameElements.get(frameId);
+                if (list && list[index]) Object.assign(list[index].params, known);
+                scheduleSave();
+                scheduleRebuild();
+            }
+            return;
+        }
         // Instances of the same preset share one set of controls: two pillars
         // are one row of sliders, not two rows that drift apart.
         const ids = new Set(picked.map(m => m.id));

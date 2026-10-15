@@ -119,12 +119,14 @@ export function createPanel(opts) {
     const {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
-        framePillars = {}, places = {},
+        framePillars = {}, frameElements = {}, frameAnchors = {}, places = {},
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
-        onSetChange, onFramePillarsChange, onPlaceChange,
+        onSetChange, onFramePillarsChange,
+        onElementAdd, onElementRemove, onElementPatch,
+        onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
 
@@ -190,6 +192,11 @@ export function createPanel(opts) {
           show: () => true },
         { id: 'pillars', label: 'Pillars',
           icon: icon('M6 21V7M12 21V7M18 21V7M4 7h16'),
+          show: () => frameGroupsOf().length > 0 },
+        { id: 'lights', label: 'Lights',
+          icon: icon('M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2'
+              + 'M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2'
+              + 'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'),
           show: () => frameGroupsOf().length > 0 }
     ];
 
@@ -219,7 +226,7 @@ export function createPanel(opts) {
     }
 
     function frameGroupsOf() {
-        return currentGroups.filter(g => g.id !== PILLAR_ID);
+        return currentGroups.filter(g => g.id !== PILLAR_ID && !g.owner);
     }
 
     function emptyNote(text) {
@@ -251,6 +258,8 @@ export function createPanel(opts) {
     let currentScene = scene;
     let currentSet = set;
     let currentFramePillars = framePillars;
+    let currentFrameElements = frameElements;
+    let currentFrameAnchors = frameAnchors;
     let currentPlaces = places;
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
@@ -258,6 +267,8 @@ export function createPanel(opts) {
     // Which toolbar chip owns the shelf right now. Structural: switching
     // tools rebuilds the shelf body, never the viewer.
     let activeTool = 'shape';
+    // Which type the next Add light plants; remembered across rebuilds.
+    let lastAddType = 'light-par';
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -547,6 +558,8 @@ export function createPanel(opts) {
         // Pillars: one group per frame, gone until the frame has some.
         // Count, place, the offset and the pillar's look all live here.
         if (tool === 'pillars') inner.appendChild(pillarsBlock(key));
+        // Lights: one rig per frame - add, retarget, tune, remove.
+        if (tool === 'lights') inner.appendChild(lightsBlock(key));
 
         const sec = { key, targets, rows, root };
         sections.push(sec);
@@ -818,6 +831,199 @@ export function createPanel(opts) {
         box.appendChild(posDetails);
 
         wrap.appendChild(box);
+        return wrap;
+    }
+
+    // This frame's own lights, as one rig that only exists while the frame
+    // has any: a type chooser and Add at the top, then one card per fixture -
+    // where it clamps (Pole / Rail / Base, cycled along that line), its own
+    // numbers, and the way out. Every card edits ITS light only: the sliders
+    // emit against that one model, never through the shared-id fan-out.
+    function lightsBlock(id) {
+        const entries = currentFrameElements[id] || [];
+        const anchors = currentFrameAnchors[id] || [];
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-3';
+
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between';
+        const title = document.createElement('div');
+        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400';
+        title.textContent = 'Lights';
+        head.appendChild(title);
+        if (entries.length) {
+            const count = document.createElement('span');
+            count.className = 'text-[11px] text-gray-500 dark:text-zinc-400 '
+                + 'tabular-nums';
+            count.textContent = `${entries.length}/6`;
+            head.appendChild(count);
+        }
+        wrap.appendChild(head);
+
+        // What the next Add plants: PAR, LED or Strip. Panel-local - a choice
+        // about the NEXT light, remembered across rebuilds of this block.
+        const choices = [
+            { id: 'light-par', name: 'PAR' },
+            { id: 'light-led', name: 'LED' },
+            { id: 'light-strip', name: 'Strip' }
+        ];
+        const addRow = document.createElement('div');
+        addRow.className = 'mt-2 flex items-center gap-2';
+        const typeBtns = new Map();
+        for (const c of choices) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = c.id === lastAddType;
+            btn.className = chipCls(on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = c.name;
+            btn.addEventListener('click', () => {
+                lastAddType = c.id;
+                for (const [cid, b] of typeBtns) {
+                    const act = cid === lastAddType;
+                    b.className = chipCls(act);
+                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                }
+            });
+            live.buttons.push(btn);
+            typeBtns.set(c.id, btn);
+            addRow.appendChild(btn);
+        }
+        const atCap = entries.length >= 6;
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'ml-auto px-2.5 py-1.5 rounded-md border text-xs '
+            + 'font-semibold transition-colors ' + (atCap
+                ? 'border-gray-300 dark:border-zinc-600 text-gray-400 dark:text-zinc-500'
+                : 'border-sky-500 text-sky-600 dark:text-sky-400 hover:bg-sky-50 '
+                    + 'dark:hover:bg-zinc-700');
+        addBtn.textContent = 'Add';
+        addBtn.title = atCap
+            ? 'Six lights per frame - the document cap.'
+            : 'Add this light to the frame';
+        addBtn.disabled = atCap;
+        addBtn.dataset.off = atCap ? '1' : '0';
+        addBtn.addEventListener('click', () => {
+            onElementAdd && onElementAdd(id, lastAddType);
+        });
+        live.buttons.push(addBtn);
+        addRow.appendChild(addBtn);
+        wrap.appendChild(addRow);
+
+        // One card per fixture, in the order of its frame's own list.
+        const byInst = new Map();
+        for (const g of currentGroups) {
+            if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
+        }
+        entries.forEach((entry, i) => {
+            const g = byInst.get(i);
+            const lm = g && g.models && g.models[0];
+            const card = document.createElement('div');
+            card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+
+            const ch = document.createElement('div');
+            ch.className = 'flex items-center justify-between';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
+            nameEl.textContent = ((lm && lm.name) || entry.type) + ' ' + (i + 1);
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                + 'dark:text-zinc-400 hover:border-red-400 hover:text-red-500 '
+                + 'transition-colors';
+            rm.textContent = '\u00d7';
+            rm.title = 'Remove this light';
+            rm.addEventListener('click', () => onElementRemove && onElementRemove(id, i));
+            live.buttons.push(rm);
+            ch.append(nameEl, rm);
+            card.appendChild(ch);
+
+            if (anchors.length) {
+                const poolFor = k => anchors.filter(o => o.kind === k);
+                const ordinal = a => {
+                    const pool = poolFor((a || '').split('-')[0]);
+                    const at = pool.findIndex(o => o.id === a);
+                    return at < 0 ? 0 : at;
+                };
+                const curKind0 = (entry.anchor || '').split('-')[0];
+                const kind = ['pole', 'rail', 'base'].includes(curKind0)
+                    ? curKind0 : anchors[0].kind;
+
+                const mount = document.createElement('div');
+                mount.className = 'mt-1.5 flex items-center gap-1.5';
+                for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
+                    ['base', 'Base']]) {
+                    const has = poolFor(k).length > 0;
+                    const on = has && k === kind;
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = chipCls(on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.textContent = label;
+                    btn.disabled = !has;
+                    btn.dataset.off = has ? '0' : '1';
+                    btn.addEventListener('click', () => {
+                        if (on) return;
+                        const pool = poolFor(k);
+                        const at = Math.min(ordinal(entry.anchor), pool.length - 1);
+                        onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
+                    });
+                    live.buttons.push(btn);
+                    mount.appendChild(btn);
+                }
+                const step = delta => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = delta > 0 ? '\u25b6' : '\u25c0';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
+                        + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
+                    const pool = poolFor(kind);
+                    btn.disabled = pool.length < 2;
+                    btn.dataset.off = pool.length < 2 ? '1' : '0';
+                    btn.addEventListener('click', () => {
+                        const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
+                        const nextAt = (at + delta + pool.length) % pool.length;
+                        onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
+                    });
+                    live.buttons.push(btn);
+                    return btn;
+                };
+                const readout = document.createElement('span');
+                readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
+                    + 'dark:text-zinc-300 tabular-nums';
+                const hit = anchors.find(o => o.id === entry.anchor);
+                readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
+                mount.append(step(-1), readout, step(1));
+                card.appendChild(mount);
+            } else {
+                const note = document.createElement('p');
+                note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
+                note.textContent = 'This frame has no mount points.';
+                card.appendChild(note);
+            }
+
+            // Its own numbers: the light model's own schema, emitted against
+            // THIS model alone - one fixture's focus never moves another's.
+            if (lm && lm.params) {
+                for (const [k, p] of Object.entries(lm.params)) {
+                    if (p.type !== 'range') continue;
+                    const built = rangeBlock(`light-${i}-${k}`, p, lm.state[k]);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, p.unit);
+                        emit({ [k]: v }, [lm]);
+                    });
+                    live.selects.push(built.input);
+                    card.appendChild(built.wrap);
+                }
+            }
+            wrap.appendChild(card);
+        });
         return wrap;
     }
 
@@ -1116,11 +1322,17 @@ export function createPanel(opts) {
         const pillarShape = Object.fromEntries(
             Object.entries(currentFramePillars).map(([k, c]) => [k,
                 { count: c.count, place: c.place }]));
+        // A light's type and hook are structural (the card must repaint);
+        // its numbers are value-level like every other slider.
+        const elemShape = Object.fromEntries(
+            Object.entries(currentFrameElements).map(([k, list]) => [k,
+                (list || []).map(el => `${el.type}@${el.anchor || ''}`)]));
         return [
             currentMode,
             currentGroups.map(g => g.id).join(','),
             activeId_ || '',
             JSON.stringify(pillarShape),
+            JSON.stringify(elemShape),
             (current && current.name) || ''
         ].join('|');
     }
@@ -1183,7 +1395,9 @@ export function createPanel(opts) {
             host.appendChild(emptyNote(
                 activeTool === 'pillars'
                     ? 'No frames on stage - nothing to put pillars beside.'
-                    : 'Nothing here yet.'));
+                    : activeTool === 'lights'
+                        ? 'No frames on stage - nothing to hang lights on.'
+                        : 'Nothing here yet.'));
         }
 
         if (titleEl) titleEl.textContent = (current && current.name) || '';
@@ -1231,6 +1445,12 @@ export function createPanel(opts) {
             if (next.framePillars !== undefined) {
                 currentFramePillars = next.framePillars;
             }
+            if (next.frameElements !== undefined) {
+                currentFrameElements = next.frameElements;
+            }
+            if (next.frameAnchors !== undefined) {
+                currentFrameAnchors = next.frameAnchors;
+            }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
             if (next.colorways !== undefined) currentColorways = next.colorways;
@@ -1259,6 +1479,14 @@ export function createPanel(opts) {
                             prop === 'ry' ? '\u00b0' : ' ft');
                     }
                 }
+            }
+            // Lights: value-level only - the card repaints through refresh()
+            // when a type or hook changes; numbers move their own inputs.
+            if (next.frameElements !== undefined) {
+                currentFrameElements = next.frameElements;
+            }
+            if (next.frameAnchors !== undefined) {
+                currentFrameAnchors = next.frameAnchors;
             }
             if (next.set !== undefined) {
                 currentSet = next.set;
