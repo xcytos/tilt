@@ -125,7 +125,7 @@ export function createPanel(opts) {
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
         onSetChange, onFramePillarsChange,
-        onElementAdd, onElementRemove, onElementPatch,
+        onElementAdd, onElementRemove, onElementPatch, onElementCount,
         onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
@@ -269,6 +269,9 @@ export function createPanel(opts) {
     let activeTool = 'shape';
     // Which type the next Add light plants; remembered across rebuilds.
     let lastAddType = 'light-par';
+    // Which fixtures the light numbers reach: each on its own, one wall,
+    // or the whole rig. Session-local, like the type chooser.
+    let lightsMode = 'separate';
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -835,10 +838,12 @@ export function createPanel(opts) {
     }
 
     // This frame's own lights, as one rig that only exists while the frame
-    // has any: a type chooser and Add at the top, then one card per fixture -
-    // where it clamps (Pole / Rail / Base, cycled along that line), its own
-    // numbers, and the way out. Every card edits ITS light only: the sliders
-    // emit against that one model, never through the shared-id fan-out.
+    // has any: a type chooser and Add at the top, a per-wall count (1-3,
+    // default 3), then a mode row - Separate is one card per fixture
+    // (mount, numbers, remove), while Left, Right and All are ONE set of
+    // numbers written to every fixture of that group at once. Grouped cards
+    // never retarget or remove; that stays Separate. Floor mounts may only
+    // aim up, so their tilt slider tops out at -30.
     function lightsBlock(id) {
         const entries = currentFrameElements[id] || [];
         const anchors = currentFrameAnchors[id] || [];
@@ -856,7 +861,7 @@ export function createPanel(opts) {
             const count = document.createElement('span');
             count.className = 'text-[11px] text-gray-500 dark:text-zinc-400 '
                 + 'tabular-nums';
-            count.textContent = `${entries.length}/6`;
+            count.textContent = `${entries.length}/20`;
             head.appendChild(count);
         }
         wrap.appendChild(head);
@@ -890,7 +895,7 @@ export function createPanel(opts) {
             typeBtns.set(c.id, btn);
             addRow.appendChild(btn);
         }
-        const atCap = entries.length >= 6;
+        const atCap = entries.length >= 20;
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
         addBtn.className = 'ml-auto px-2.5 py-1.5 rounded-md border text-xs '
@@ -900,7 +905,7 @@ export function createPanel(opts) {
                     + 'dark:hover:bg-zinc-700');
         addBtn.textContent = 'Add';
         addBtn.title = atCap
-            ? 'Six lights per frame - the document cap.'
+            ? 'Twenty lights per frame - the document cap.'
             : 'Add this light to the frame';
         addBtn.disabled = atCap;
         addBtn.dataset.off = atCap ? '1' : '0';
@@ -911,14 +916,95 @@ export function createPanel(opts) {
         addRow.appendChild(addBtn);
         wrap.appendChild(addRow);
 
-        // One card per fixture, in the order of its frame's own list.
+        // How many floor uplights stand on EACH wall: a 1-10 slider. Only
+        // frames with floor-uplight hooks offer it; committing a number
+        // plants or removes the rig lights and never touches hand-placed
+        // ones. It emits on release, not mid-drag: a count change rebuilds
+        // the rig under the panel.
+        if (anchors.some(o => o.kind === 'uplight')) {
+            const perWall = Math.max(0, ...['L', 'R'].map(s => entries
+                .filter(e => e && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
+                .length));
+            const cur = Math.max(1, Math.min(10, perWall || 3));
+            const cnt = rangeBlock('lightcount', {
+                label: 'Per wall', type: 'range', min: 1, max: 10, step: 1,
+                value: cur, unit: ' lights'
+            }, cur, true);
+            cnt.input.addEventListener('input', e => {
+                cnt.value.textContent = `${e.target.value} lights`;
+            });
+            cnt.input.addEventListener('change', e => {
+                const v = parseInt(e.target.value, 10);
+                if (Number.isFinite(v) && v !== perWall) {
+                    onElementCount && onElementCount(id, v);
+                }
+            });
+            live.selects.push(cnt.input);
+            wrap.appendChild(cnt.wrap);
+        }
+
+        // Mode row: which fixtures the numbers below reach. Separate keeps
+        // the per-fixture cards; Left / Right / All collapse to one card
+        // that writes every fixture in the group at once.
+        const modeRow = document.createElement('div');
+        modeRow.className = 'mt-2 flex items-center gap-2';
+        const modeBtns = new Map();
+        for (const [val, label, desc] of [
+            ['separate', 'Separate', 'Each fixture keeps its own numbers'],
+            ['left', 'Left', 'One set of numbers for the left curtain wall'],
+            ['right', 'Right', 'One set of numbers for the right curtain wall'],
+            ['all', 'All', 'One set of numbers for every fixture']
+        ]) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = val === lightsMode;
+            btn.className = chipCls(on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = label;
+            btn.title = desc;
+            btn.addEventListener('click', () => {
+                if (lightsMode === val) return;
+                lightsMode = val;
+                for (const [v, b] of modeBtns) {
+                    const act = v === lightsMode;
+                    b.className = chipCls(act);
+                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                }
+                paint();
+            });
+            live.buttons.push(btn);
+            modeBtns.set(val, btn);
+            modeRow.appendChild(btn);
+        }
+        wrap.appendChild(modeRow);
+
+        const body = document.createElement('div');
+        wrap.appendChild(body);
+
         const byInst = new Map();
         for (const g of currentGroups) {
             if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
         }
-        entries.forEach((entry, i) => {
+        const lmOf = i => {
             const g = byInst.get(i);
-            const lm = g && g.models && g.models[0];
+            return (g && g.models && g.models[0]) || null;
+        };
+        // Which wall a fixture stands on: every anchor id carries its side
+        // (uplight-L-0, rail-R-4, pole-L-1); a sideless anchor is only
+        // editable in Separate and All.
+        const sideOf = anchor => {
+            const hit = /-([LR])-\d+$/.exec(anchor || '');
+            return hit ? hit[1] : null;
+        };
+        const memberIdx = mode => entries.map((_, i) => i)
+            .filter(i => mode === 'all'
+                || sideOf(entries[i] && entries[i].anchor)
+                    === (mode === 'left' ? 'L' : 'R'));
+
+        // One card per fixture, in the order of its frame's own list.
+        const paintSeparate = () => {
+        entries.forEach((entry, i) => {
+            const lm = lmOf(i);
             const card = document.createElement('div');
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -949,13 +1035,17 @@ export function createPanel(opts) {
                     return at < 0 ? 0 : at;
                 };
                 const curKind0 = (entry.anchor || '').split('-')[0];
-                const kind = ['pole', 'rail', 'base'].includes(curKind0)
+                // Floor means the floor-uplight hooks when the frame has
+                // them, else the stand base plates.
+                const floorKind = anchors.some(o => o.kind === 'uplight')
+                    ? 'uplight' : 'base';
+                const kind = ['pole', 'rail', 'uplight', 'base'].includes(curKind0)
                     ? curKind0 : anchors[0].kind;
 
                 const mount = document.createElement('div');
                 mount.className = 'mt-1.5 flex items-center gap-1.5';
                 for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
-                    ['base', 'Base']]) {
+                    [floorKind, 'Floor']]) {
                     const has = poolFor(k).length > 0;
                     const on = has && k === kind;
                     const btn = document.createElement('button');
@@ -1011,7 +1101,12 @@ export function createPanel(opts) {
             if (lm && lm.params) {
                 for (const [k, p] of Object.entries(lm.params)) {
                     if (p.type !== 'range') continue;
-                    const built = rangeBlock(`light-${i}-${k}`, p, lm.state[k]);
+                    // A floor mount may only aim up: the slider tops out at
+                    // -30 so the whole cone can never point at the ground.
+                    // (Mirrors FLOOR_TILT_MAX in app.js.)
+                    const pp = k === 'tilt' && /^(uplight|base)-/.test(entry.anchor || '')
+                        ? { ...p, max: -30 } : p;
+                    const built = rangeBlock(`light-${i}-${k}`, pp, lm.state[k]);
                     built.input.addEventListener('input', e => {
                         const v = parseFloat(e.target.value);
                         if (!Number.isFinite(v)) return;
@@ -1022,8 +1117,78 @@ export function createPanel(opts) {
                     card.appendChild(built.wrap);
                 }
             }
-            wrap.appendChild(card);
+            body.appendChild(card);
         });
+        };
+
+        // One card for the whole group: the union of every fixture's
+        // numbers, one slider row per number, each change written to every
+        // fixture in the group that understands it. Mount and remove stay
+        // per-fixture, in Separate.
+        const paintGroup = mode => {
+            const idxs = memberIdx(mode);
+            const card = document.createElement('div');
+            card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const wall = mode === 'all' ? 'Whole rig'
+                : mode === 'left' ? 'Left wall' : 'Right wall';
+            const ch = document.createElement('div');
+            ch.className = 'flex items-center justify-between';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
+            nameEl.textContent = `${wall} - ${idxs.length} light${idxs.length === 1 ? '' : 's'}`;
+            ch.appendChild(nameEl);
+            card.appendChild(ch);
+
+            const params = new Map();
+            for (const i of idxs) {
+                const lm = lmOf(i);
+                if (!lm || !lm.params) continue;
+                for (const [k, p] of Object.entries(lm.params)) {
+                    if (p.type !== 'range') continue;
+                    if (!params.has(k)) params.set(k, p);
+                }
+            }
+            if (!params.size) {
+                const note = document.createElement('p');
+                note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
+                note.textContent = !entries.length
+                    ? 'Add a light to the frame first.'
+                    : idxs.length
+                        ? 'These fixtures expose no numbers yet.'
+                        : `No lights on the ${mode} wall yet.`;
+                card.appendChild(note);
+            }
+            for (const [k, p] of params) {
+                const holder = idxs.map(lmOf)
+                    .find(lm => lm && lm.state && k in lm.state);
+                // One floor-mounted member is enough to keep the group's
+                // tilt slider inside the up-only range.
+                const floorTilt = k === 'tilt' && idxs.some(i => /^(uplight|base)-/
+                    .test((entries[i] || {}).anchor || ''));
+                const pp = floorTilt ? { ...p, max: -30 } : p;
+                const built = rangeBlock(`lightgrp-${mode}-${k}`, pp,
+                    holder ? holder.state[k] : pp.value);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    built.value.textContent = fmt(v, p.unit);
+                    const targets = idxs.map(lmOf)
+                        .filter(lm => lm && lm.params && lm.params[k]);
+                    emit({ [k]: v }, targets);
+                });
+                live.selects.push(built.input);
+                card.appendChild(built.wrap);
+            }
+            body.appendChild(card);
+        };
+
+        const paint = () => {
+            body.textContent = '';
+            if (lightsMode === 'separate') paintSeparate();
+            else paintGroup(lightsMode);
+        };
+        paint();
         return wrap;
     }
 

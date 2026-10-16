@@ -144,8 +144,8 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // module imports nothing); app.js re-checks against the live registry.
 const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
 const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
-const ELEM_PER_FRAME = 6;
-const ELEM_TOTAL = 12;
+const ELEM_PER_FRAME = 20;
+const ELEM_TOTAL = 40;
 const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
 
 function cleanFrameElements(raw) {

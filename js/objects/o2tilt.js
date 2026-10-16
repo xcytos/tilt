@@ -19,6 +19,17 @@ const MAX_DROP = 5.0;
 const PLEAT_FREQ = 30;
 const PLEAT_DEPTH = 0.12;
 const ANCHOR_RAIL_SAMPLES = 24;
+// Floor uplight hooks: one per section of the wall, up to ten per side.
+// The panel's Per-wall slider (1-10) picks how many of them carry a
+// fixture; the anchors themselves always exist so any count is legal.
+const UPLIGHT_PER_SIDE = 10;
+// How far in front of its curtain wall a floor uplight stands. The stand
+// base frame is 1.6 ft square (reaches 0.8 ft off the line), so this keeps
+// the fixture clear of the plate while staying inside the wash throw.
+const UPLIGHT_STANDOFF = 1.35;
+// Front-side z floor: the stand base frames reach 0.8 ft off the wall
+// line, so a fixture's centre stays at least this far front of z=0.
+const UPLIGHT_MIN_Z = 1.15;
 
 // A stand is telescoping: a fixed sleeve standing out of the floor, with a
 // slimmer inner tube running out of its open top and on up to the rail.
@@ -514,6 +525,7 @@ export function createO2TiltModel(initial = {}) {
 
         for (const side of [false, true]) {
             const pts = getStructuralPoints(state, side, ANCHOR_RAIL_SAMPLES);
+            const tag = side ? 'R' : 'L';
             for (let i = 0; i < pts.length; i++) {
                 const prv = pts[Math.max(i - 1, 0)];
                 const nxt = pts[Math.min(i + 1, pts.length - 1)];
@@ -521,12 +533,61 @@ export function createO2TiltModel(initial = {}) {
                 const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
                 if (!side) normal.negate();
                 anchors.push({
-                    id: `rail-${side ? 'R' : 'L'}-${i}`,
+                    id: `rail-${tag}-${i}`,
                     kind: 'rail',
-                    side: side ? 'R' : 'L',
+                    side: tag,
                     position: pts[i].clone(),
                     tangent,
                     normal
+                });
+            }
+
+            // Floor uplights: one per section of the wall (ten per side),
+            // evenly spaced ALONG THE WALL'S X SPAN - curve-parameter
+            // spacing bunches up in the steep parts of the wave, and the
+            // samples themselves are too sparse to snap to, so the hook's
+            // point and tangent are interpolated from the rail polyline at
+            // its x. Each hook stands off on the guest-facing side and is
+            // then guaranteed a minimum z clearance from the stand base
+            // frames (1.6 ft square on the line) so no fixture ever sits
+            // on a plate. The standoff itself is pure -Z so the hooks keep
+            // their even x spacing; the blended normal only steers the
+            // fixture's aim back at the fabric.
+            const xs = pts.map(p => p.x);
+            const xIn = xs[0], xOut = xs[xs.length - 1];
+            const xLo = Math.min(xIn, xOut), xHi = Math.max(xIn, xOut);
+            const at = target => {
+                const xT = Math.max(xLo, Math.min(xHi, target));
+                let j = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    const xa = pts[i].x, xb = pts[i + 1].x;
+                    if (xT >= Math.min(xa, xb) && xT <= Math.max(xa, xb)) {
+                        j = i;
+                        break;
+                    }
+                }
+                const a = pts[j], b = pts[j + 1];
+                const u = Math.abs(b.x - a.x) < 1e-9
+                    ? 0 : Math.max(0, Math.min(1, (xT - a.x) / (b.x - a.x)));
+                return {
+                    p: a.clone().lerp(b, u),
+                    t: b.clone().sub(a).setY(0).normalize()
+                };
+            };
+            for (let k = 0; k < UPLIGHT_PER_SIDE; k++) {
+                const t = (k + 0.5) / UPLIGHT_PER_SIDE;
+                const { p, t: tangent } = at(xIn + (xOut - xIn) * t);
+                const front = new THREE.Vector3(-tangent.z, 0, tangent.x);
+                if (front.z > 0) front.negate();
+                front.add(new THREE.Vector3(0, 0, -1)).normalize();
+                const z = Math.min(p.z - UPLIGHT_STANDOFF, -UPLIGHT_MIN_Z);
+                anchors.push({
+                    id: `uplight-${tag}-${k}`,
+                    kind: 'uplight',
+                    side: tag,
+                    position: new THREE.Vector3(p.x, 0, z),
+                    tangent,
+                    normal: front
                 });
             }
         }

@@ -14,23 +14,33 @@ export const LIGHT_NAMES = {
 };
 
 // Params stay range/toggle so registry validation, the panel and the
-// project clamps all keep their current contract.
+// project clamps all keep their current contract. Hue + Saturation are the
+// fixture's RGBW colour mixing as two sliders: Saturation 0 is plain white,
+// low saturation with Hue ~40 is warm white, high saturation is amber/gold
+// (hue 40) or deep purple (hue 280) - the palettes an entrance actually
+// asks for. Defaults are the wedding look: warm white.
 export const LIGHT_PARAMS = {
     par: {
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 45,  unit: '°' },
-        focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' }
+        focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' },
+        hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
     },
     led: {
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 55,  unit: '°' },
-        wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' }
+        wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' },
+        hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
     },
     strip: {
         power:  { label: 'Power',  type: 'range', min: 0,  max: 100, step: 1,   value: 100, unit: '%' },
-        length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' }
+        length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
+        hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
     }
 };
 
@@ -43,6 +53,45 @@ const LIGHT_DEG = Math.PI / 180;
 // the scene's own rig owns shadows and the bounded count keeps a stage
 // full of fixtures harmless. The strip is emissive only.
 const SPOT_BASE = { par: 2.2, led: 1.4 };
+
+// The visible beam: not a solid cone, but light in haze. The shader fades
+// the surface out at the silhouette (fresnel) and toward the mouth, so the
+// cone has no hard edge - it reads as a glow around the real spotlight.
+function createBeamMaterial() {
+    return new THREE.ShaderMaterial({
+        uniforms: {
+            uColor: { value: new THREE.Color(0xffeecf) },
+            uOpacity: { value: 0.15 },
+            uLen: { value: 1 }
+        },
+        vertexShader: `
+            uniform float uLen;
+            varying float vT;
+            varying vec3 vN, vV;
+            void main() {
+                vT = clamp(position.y / uLen, 0.0, 1.0);
+                vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                vN = normalize(normalMatrix * normal);
+                vV = normalize(-mv.xyz);
+                gl_Position = projectionMatrix * mv;
+            }`,
+        fragmentShader: `
+            uniform vec3 uColor;
+            uniform float uOpacity;
+            varying float vT;
+            varying vec3 vN, vV;
+            void main() {
+                float fres = abs(dot(normalize(vN), normalize(vV)));
+                float edge = pow(fres, 1.8);
+                float axial = smoothstep(0.0, 0.12, vT) * (1.0 - 0.8 * vT);
+                gl_FragColor = vec4(uColor, uOpacity * edge * axial);
+            }`,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide
+    });
+}
 
 export function createLightModel(type = 'light-par', initial = {}) {
     const kind = LIGHT_TYPES.includes(type) ? type.slice(6) : 'par';
@@ -66,10 +115,7 @@ export function createLightModel(type = 'light-par', initial = {}) {
         color: 0x0c0c10, emissive: 0xfff4e2, emissiveIntensity: 1,
         roughness: 0.3, metalness: 0
     });
-    const matBeam = new THREE.MeshBasicMaterial({
-        color: 0xffeecf, transparent: true, opacity: 0.15, depthWrite: false,
-        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
-    });
+    const matBeam = createBeamMaterial();
 
     let spot = null;
     let beam = null;
@@ -77,12 +123,27 @@ export function createLightModel(type = 'light-par', initial = {}) {
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
+    // The fixture's own colour, from its two mixing sliders. Saturation 0 is
+    // white; otherwise lightness eases down as saturation climbs so a deep
+    // amber or purple still reads as light. The SAME tint colours the lens,
+    // the visible beam and the real spotlight - what you see is what glows.
+    function tintColor() {
+        const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
+        const h = ((Number(state.hue) % 360) + 360) % 360;
+        const l = 0.92 - 0.34 * s01;
+        return new THREE.Color().setHSL(h / 360, s01, l, THREE.SRGBColorSpace);
+    }
+
     function applyGlow() {
+        const tint = tintColor();
+        matLens.emissive.copy(tint);
+        matBeam.uniforms.uColor.value.copy(tint);
+        if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
-            matBeam.opacity = power01() * 0.16;
+            matBeam.uniforms.uOpacity.value = power01() * 0.14;
         }
     }
 
@@ -110,9 +171,11 @@ export function createLightModel(type = 'light-par', initial = {}) {
     }
 
     // The real light: one SpotLight, no shadow, decay 0 so the dimmer
-    // reads predictably at any throw distance.
+    // reads predictably at any throw distance. The 12 ft cutoff fades the
+    // beam out just past the 8 ft curtain top - no spill onto guests or
+    // scenery beyond the wall the fixture was aimed at.
     function addSpot(tiltG, halfAngleRad) {
-        spot = new THREE.SpotLight(0xfff2dd, 0, 0, halfAngleRad, 0.35, 0);
+        spot = new THREE.SpotLight(0xfff2dd, 0, 12, halfAngleRad, 0.35, 0);
         spot.position.set(0, 0, -0.2);
         spot.castShadow = false;
         const target = new THREE.Object3D();
@@ -174,11 +237,13 @@ export function createLightModel(type = 'light-par', initial = {}) {
             addSpot(tiltG, (state.focus / 2) * LIGHT_DEG);
 
             // Visible beam cone: tip at the lens, mouth toward the aim,
-            // radius grown to the focus angle over a 7 ft throw.
-            const len = 7;
+            // radius grown to the focus angle over a 6.5 ft throw - it tops
+            // out just under the 8 ft curtain rail instead of poking out.
+            const len = 6.5;
             const r = Math.tan((state.focus / 2) * LIGHT_DEG) * len;
             const geo = new THREE.CylinderGeometry(r, 0.001, len, 24, 1, true);
             geo.translate(0, len / 2, 0);
+            matBeam.uniforms.uLen.value = len;
             beam = new THREE.Mesh(geo, matBeam);
             beam.rotation.x = -Math.PI / 2;
             beam.position.z = -0.19;

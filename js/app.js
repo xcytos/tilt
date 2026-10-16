@@ -403,7 +403,14 @@ function frameElementsPlain() {
 // A fixture's numbers are the registered schema's business: anything the
 // schema does not know, or clamps, is dropped here - both for documents and
 // for a def's own elements. The registry validates again on the way in.
-function clampElemParams(type, params) {
+// A floor mount may only aim up: the lens sits ~0.4 ft above the ground,
+// so any tilt above -30 drives the wide end of the cone (focus up to 60)
+// into the floor. -30 keeps the lowest edge of a full-spread beam exactly
+// horizontal - the ground can never be lit by accident. Pole and rail
+// fixtures keep the full -90..90 range; they legitimately spot down.
+const FLOOR_TILT_MAX = -30;
+
+function clampElemParams(type, params, anchor) {
     const schema = LIGHT_PARAMS[type.slice(6)] || {};
     const out = {};
     if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
@@ -414,6 +421,9 @@ function clampElemParams(type, params) {
         if (!Number.isFinite(n)) continue;
         out[k] = Math.max(p.min, Math.min(p.max, n));
     }
+    if ('tilt' in out && /^(uplight|base)-/.test(anchor || '')) {
+        out.tilt = Math.min(out.tilt, FLOOR_TILT_MAX);
+    }
     return out;
 }
 
@@ -421,13 +431,13 @@ function normaliseElementList(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
     for (const el of raw) {
-        if (out.length >= 6) break;
+        if (out.length >= 20) break;
         if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
         if (!LIGHT_TYPES.includes(el.type)) continue;
         out.push({
             type: el.type,
             anchor: typeof el.anchor === 'string' ? el.anchor : '',
-            params: clampElemParams(el.type, el.params)
+            params: clampElemParams(el.type, el.params, el.anchor)
         });
     }
     return out;
@@ -441,7 +451,7 @@ function defElementsOf(def) {
         if (!Array.isArray(o.elements)) continue;
         for (const el of normaliseElementList([].concat(o.elements))) out.push(el);
     }
-    return out.slice(0, 6);
+    return out.slice(0, 20);
 }
 
 // Every mount point of one frame as plain data for the panel: id, kind and a
@@ -458,6 +468,7 @@ function anchorOptionsFor(frameId) {
         const n = counts[key];
         const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
             : a.kind === 'pole' ? `Pole ${n}`
+            : a.kind === 'uplight' ? `Floor ${n}`
             : `Base ${n}`;
         return { id: a.id, kind: a.kind, label };
     });
@@ -469,17 +480,38 @@ function frameAnchorsPlain() {
         .map(id => [id, anchorOptionsFor(id)]));
 }
 
-// Where a newly added fixture clamps: strips clamp to the rail, par and led
-// fixtures to a pole - and the next unused one of that kind, so three taps
-// of Add walk along the line instead of stacking in one spot.
+// Where a newly added fixture clamps. PAR and LED fixtures start on the
+// floor uplight hooks - the entrance-uplight case the design guide leads
+// with - three per curtain wall, stood off from the fabric; strips clamp
+// to the rail above. Pole and Rail stay one button away each.
 function defaultAnchorFor(frameId, type) {
     const opts = anchorOptionsFor(frameId);
-    const kind = type === 'light-strip' ? 'rail' : 'pole';
-    const pool = opts.filter(o => o.kind === kind);
-    if (pool.length) {
-        const used = frameElementsFor(frameId)
-            .filter(e => e.anchor && e.anchor.startsWith(kind + '-')).length;
-        return pool[used % pool.length].id;
+    // PAR and LED lead with the floor-uplight hooks; a frame without them
+    // falls back to the base plates, then the poles. Strips clamp high.
+    const kinds = type === 'light-strip' ? ['rail', 'pole'] : ['uplight', 'base', 'pole'];
+    for (const kind of kinds) {
+        const pool = opts.filter(o => o.kind === kind);
+        if (pool.length) {
+            const taken = new Set(frameElementsFor(frameId)
+                .filter(e => e.anchor).map(e => e.anchor));
+            if (kind === 'uplight') {
+                // Seat a new uplight on the next equal-bay hook of the
+                // emptier wall, so hand-added lights spread like the rig.
+                for (const side of ['L', 'R']) {
+                    const sidePool = pool.filter(o => o.id.startsWith(`uplight-${side}-`));
+                    if (!sidePool.length) continue;
+                    const usedSide = sidePool.filter(o => taken.has(o.id)).length;
+                    for (const k of wallUplightSeats(usedSide + 1)) {
+                        const cand = `uplight-${side}-${k}`;
+                        if (!taken.has(cand) && sidePool.some(o => o.id === cand)) {
+                            return cand;
+                        }
+                    }
+                }
+            }
+            const used = [...taken].filter(a => a.startsWith(kind + '-')).length;
+            return pool[used % pool.length].id;
+        }
     }
     return opts.length ? opts[0].id : '';
 }
@@ -708,7 +740,7 @@ function refreshPillarPlaces() {
 
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
-const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12 };
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0 };
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -728,8 +760,13 @@ function elementSpot(owner, anchors, anchorId) {
     const pos = owner.object3D.position, turn = owner.object3D.rotation.y;
     const c = Math.cos(turn), s = Math.sin(turn);
     // A rail fixture aims along its rail; poles and bases follow the frame.
+    // A floor uplight turns to face its own curtain: local -Z points at the
+    // wall, so the -86 tilt leans the beam into the fabric, never over it.
     const ry = a.kind === 'rail' && a.tangent
-        ? turn + Math.atan2(-a.tangent.z, a.tangent.x) : turn;
+        ? turn + Math.atan2(-a.tangent.z, a.tangent.x)
+        : a.kind === 'uplight' && a.normal
+            ? turn + Math.atan2(a.normal.x, a.normal.z)
+            : turn;
     return {
         x: pos.x + p.x * c + p.z * s,
         y: p.y + (MOUNT_Y[a.kind] || 0),
@@ -1168,8 +1205,18 @@ function onElementAdd(id, type) {
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     if (!LIGHT_TYPES.includes(type)) return false;
     const list = frameElementsFor(id).slice();
-    if (list.length >= 6) return false;
-    list.push({ type, anchor: defaultAnchorFor(id, type), params: {} });
+    if (list.length >= 20) return false;
+    const anchor = defaultAnchorFor(id, type);
+    const params = {};
+    // A floor mount is an uplight: start it aimed at the fabric above, not
+    // across the floor into the guests' eyes. -86 leans the beam ~4° into
+    // the curtain from its 1.2 ft standoff - it can never cross the fabric
+    // plane. Pole and rail fixtures keep the schema's own default.
+    if ((anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
+        && LIGHT_PARAMS[type.slice(6)].tilt) {
+        params.tilt = -86;
+    }
+    list.push({ type, anchor, params });
     frameElements.set(id, list);
     scheduleSave();
     return syncScene();
@@ -1195,12 +1242,19 @@ function onElementPatch(id, index, patch) {
     if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
         && patch.type !== entry.type) {
         // A different fixture on the same hook: fresh numbers, and possibly
-        // a different hook (strips clamp to the rail, par and led to a pole).
+        // a different hook (strips clamp to the rail, par and led to the
+        // floor uplights by default). A floor mount re-seeds the uplight aim.
         entry.type = patch.type;
         entry.params = {};
         entry.anchor = defaultAnchorFor(id, patch.type);
+        if ((entry.anchor.split('-')[0] === 'base' || entry.anchor.split('-')[0] === 'uplight')
+            && LIGHT_PARAMS[patch.type.slice(6)].tilt) {
+            entry.params.tilt = -86;
+        }
         structural = true;
     }
+    // The new hook may be a floor mount, which may only aim up.
+    entry.params = clampElemParams(entry.type, entry.params, entry.anchor);
     list[index] = { type: entry.type, anchor: entry.anchor, params: entry.params };
     frameElements.set(id, list);
     scheduleSave();
@@ -1216,6 +1270,63 @@ function onElementPatch(id, index, patch) {
         });
     }
     return true;
+}
+
+// Of a wall's 10 uplight hooks, the n that divide it into n equal bays -
+// the midpoint hook of each bay. n=10 is every hook; n=1 is the middle.
+function wallUplightSeats(n) {
+    const count = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
+    const seats = [];
+    for (let j = 0; j < count; j++) {
+        seats.push(Math.min(9, Math.max(0,
+            Math.round((j + 0.5) * 10 / count - 0.5))));
+    }
+    return seats;
+}
+
+// How many floor uplights stand on EACH curtain wall: the rig sizing knob,
+// a 1-10 slider in the panel. Every change re-seats the wall on the hooks
+// that divide it into n equal bays - the lights spread across the whole
+// wall, never bunched at the entrance gap. Survivors keep their tuned
+// params, extras go, missing seats plant with the entrance-rig numbers.
+// Other fixtures the user placed by hand are never touched.
+function onElementCount(id, n) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    const want = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
+    const list = frameElementsFor(id).slice();
+    let changed = false;
+    for (const side of ['L', 'R']) {
+        const seats = wallUplightSeats(want).map(k => `uplight-${side}-${k}`);
+        const mine = [];
+        for (let i = list.length - 1; i >= 0; i--) {
+            const e = list[i];
+            if (e && e.anchor && e.anchor.startsWith(`uplight-${side}-`)) {
+                mine.unshift(e);
+                list.splice(i, 1);
+            }
+        }
+        const kept = mine.slice(0, want);
+        if (mine.length > want) changed = true;
+        for (let i = 0; i < kept.length; i++) {
+            const e = kept[i];
+            const anchor = seats[i];
+            const moved = e.anchor !== anchor;
+            list.push(moved ? { type: e.type, anchor, params: { ...e.params } } : e);
+            if (moved) changed = true;
+        }
+        for (let i = kept.length; i < want && list.length < 20; i++) {
+            list.push({
+                type: 'light-par',
+                anchor: seats[i],
+                params: { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
+            });
+            changed = true;
+        }
+    }
+    if (!changed) return false;
+    frameElements.set(id, normaliseElementList(list));
+    scheduleSave();
+    return syncScene();
 }
 
 // Forget the project: reset the document to its defaults, drop every saved
@@ -1463,31 +1574,34 @@ panel = createPanel({
     onElementAdd: guard((id, type) => onElementAdd(id, type)),
     onElementRemove: guard((id, index) => onElementRemove(id, index)),
     onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
+    onElementCount: guard((id, n) => onElementCount(id, n)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
             .filter(Boolean);
         // A light keeps its own numbers: focus belongs to THAT fixture, it
-        // lands in its frame's fixture entry, and it never travels into
+        // lands in ITS OWN frame fixture entry (a Left/All mode edit writes
+        // every fixture in the group), and it never travels into
         // savedPresets under the rig's key - so no shared-id fan-out below.
         const first = picked[0];
         if (first && first.elementOf) {
-            const { frameId, index } = first.elementOf;
             const known = {};
             for (const m of picked) {
-                if (!m.setParams || !m.params) continue;
+                if (!m.setParams || !m.params || !m.elementOf) continue;
                 const mine = {};
                 for (const [k, v] of Object.entries(partial)) {
                     if (m.params[k]) mine[k] = v;
                 }
                 if (!Object.keys(mine).length) continue;
                 m.setParams(mine);
+                const mineList = frameElements.get(m.elementOf.frameId);
+                if (mineList && mineList[m.elementOf.index]) {
+                    Object.assign(mineList[m.elementOf.index].params, mine);
+                }
                 Object.assign(known, mine);
             }
             if (Object.keys(known).length) {
-                const list = frameElements.get(frameId);
-                if (list && list[index]) Object.assign(list[index].params, known);
                 scheduleSave();
                 scheduleRebuild();
             }

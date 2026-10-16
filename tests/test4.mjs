@@ -110,13 +110,25 @@ console.log('\nStage 2: anchors (where ELEMENTS attach)');
 const anchors = model.getAnchors();
 check('anchors exist', anchors.length > 0, `${anchors.length}`);
 const kinds = [...new Set(anchors.map(a => a.kind))].sort();
-check('has rail + pole + base anchors', kinds.join(',') === 'base,pole,rail', kinds.join(','));
+check('has rail + pole + base + uplight anchors',
+      kinds.join(',') === 'base,pole,rail,uplight', kinds.join(','));
 check('every anchor has position/tangent/normal', anchors.every(a =>
   a.position && a.tangent && a.normal &&
   Number.isFinite(a.position.x) && Number.isFinite(a.position.y) && Number.isFinite(a.position.z)));
 check('rail anchors lie on the rail (y within +/-1 of the pole height)',
       anchors.filter(a => a.kind === 'rail').every(a => a.position.y > 2 && a.position.y < 9));
 check('base anchors sit on the floor', anchors.filter(a => a.kind === 'base').every(a => a.position.y === 0));
+check('20 floor uplights (10 per wall), on the floor, clear of the wave band', (() => {
+  const ups = anchors.filter(a => a.kind === 'uplight');
+  const xs = anchors.filter(a => a.kind === 'rail').map(r => r.position.x);
+  return ups.length === 20
+    && ups.filter(a => a.side === 'L').length === 10
+    && ups.filter(a => a.side === 'R').length === 10
+    && ups.every(a => a.position.y === 0
+      && a.position.z <= -1
+      && a.position.x >= Math.min(...xs) - 0.5
+      && a.position.x <= Math.max(...xs) + 0.5);
+})());
 check('anchors are cached until rebuild', (() => {
   const first = model.getAnchors();
   return model.getAnchors() === first;
@@ -313,6 +325,47 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
             !!head && Math.abs(head.rotation.x - Math.PI / 3) < 1e-9,
             head ? `rx=${head.rotation.x.toFixed(3)}` : 'no head group');
     }
+    check(`${type}: RGBW mixing - hue and sat are in the schema`,
+          lm.params.hue && lm.params.hue.min === 0 && lm.params.hue.max === 360
+          && lm.params.hue.value === 40
+          && lm.params.sat && lm.params.sat.max === 100
+          && lm.params.sat.value === 35);
+    const probeTint = m => {
+      const s = spotsOf(m)[0];
+      if (s) return s.color;
+      let hit = null;
+      m.object3D.traverse(o => {
+        if (!hit && o.isMesh && o.material && o.material.emissive
+          && o.material.emissive.getHex() !== 0) hit = o.material.emissive;
+      });
+      return hit;
+    };
+    lm.setParams({ hue: 0, sat: 100 });
+    lm.build();
+    const red = probeTint(lm);
+    check(`${type}: hue/sat tint the emitted light (red at hue 0, sat 100)`,
+          !!red && red.r > 0.5 && red.r > red.g && red.r > red.b,
+          red ? `rgb(${red.r.toFixed(2)},${red.g.toFixed(2)},${red.b.toFixed(2)})` : 'no probe');
+    lm.setParams({ sat: 0 });
+    lm.build();
+    const white = probeTint(lm);
+    check(`${type}: saturation 0 is plain white`,
+          !!white && Math.abs(white.r - white.g) < 1e-3
+          && Math.abs(white.g - white.b) < 1e-3,
+          white ? `rgb(${white.r.toFixed(2)},${white.g.toFixed(2)},${white.b.toFixed(2)})` : 'no probe');
+    lm.setParams({ hue: 40, sat: 35 });
+    lm.build();
+    const warm = probeTint(lm);
+    check(`${type}: the warm-white default reads warm (r > g > b)`,
+          !!warm && warm.r > warm.g && warm.g > warm.b,
+          warm ? `rgb(${warm.r.toFixed(2)},${warm.g.toFixed(2)},${warm.b.toFixed(2)})` : 'no probe');
+    const spotD = spotsOf(lm)[0];
+    if (type !== 'light-strip') {
+      check(`${type}: the spot fades out at 12 ft (no spill past the wall)`,
+            !!spotD && spotD.distance === 12,
+            spotD ? `distance=${spotD.distance}` : 'no spot');
+    }
+
     lm.setTheme(true);
     lm.setTheme(false);
     lm.dispose();

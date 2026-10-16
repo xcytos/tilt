@@ -100,8 +100,19 @@ const o2File = path.join(TMP, 'o2tilt.layout.mjs');
 fs.writeFileSync(o2File, o2Src);
 const o2 = await import(pathToFileURL(o2File).href);
 
+// The S Curve def now seeds six lighting elements; the registry must know
+// the three light types to validate them - staged the same way as the frame.
+const lightSrc = read('js/elements/light.js').replace(
+  "from 'three'", `from '${pathToFileURL(path.join(HERE, 'vendor', 'three160.js')).href}'`);
+const lightFile = path.join(TMP, 'light.layout.mjs');
+fs.writeFileSync(lightFile, lightSrc);
+const light = await import(pathToFileURL(lightFile).href);
+
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', o2.createO2TiltModel, o2.PARAMS);
+for (const t of light.LIGHT_TYPES) {
+  registry.register(t, p => light.createLightModel(t, p), light.LIGHT_PARAMS[t.slice(6)]);
+}
 await registry.loadManifest();
 check('manifest lists the one S Curve', registry.list.length === 1
   && registry.list[0].id === 'o2tilt', `${registry.list.length}`);

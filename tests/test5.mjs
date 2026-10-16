@@ -225,5 +225,26 @@ for (const m of manifest.models) {
   }
 }
 
+console.log('\n7b. the S Curve def seeds the recommended entrance rig');
+{
+  const def = JSON.parse(fs.readFileSync(path.join(DECOR, 'models', 'o2tilt.json'), 'utf8'));
+  const els = def.objects[0].elements;
+  check('six floor PAR uplights, exactly',
+        Array.isArray(els) && els.length === 6
+        && els.every(e => e.type === 'light-par' && /^uplight-[LR]-\d+$/.test(e.anchor)));
+  check('three hooks per curtain wall (the S-curve walls, both sides)',
+        Array.isArray(els)
+        && els.filter(e => e.anchor.includes('-L-')).length === 3
+        && els.filter(e => e.anchor.includes('-R-')).length === 3);
+  check('aimed up (floor mounts may never point at the ground), wide wash, 40-70% power, warm white/amber',
+        Array.isArray(els) && els.every(e =>
+          e.params.tilt >= -90 && e.params.tilt <= -30
+          && e.params.focus >= 30 && e.params.focus <= 45
+          && e.params.power >= 40 && e.params.power <= 70
+          && e.params.hue === 40 && e.params.sat > 0 && e.params.sat <= 100));
+  check('the rig validates against the live schemas',
+        validateDef(def, types).length === 0);
+}
+
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
 process.exit(fails ? 1 : 0);

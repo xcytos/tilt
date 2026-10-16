@@ -618,6 +618,19 @@ check('pillars travel with their frame through the All-at-once row',
 check('your numbers reach the document and come back',
   /places: Object\.fromEntries/.test(app) && /onPlaceChange: guard\(/.test(app)
   && /next\.places !== undefined/.test(panel));
+check('the lighting rig travels through the document',
+  /elements: frameElementsPlain\(\)/.test(app)
+  && /savedDoc\.elements/.test(app)
+  && /defElementsOf\(def\)/.test(app));
+check('a floor mount starts aimed at the fabric, not across the floor',
+  /anchor\.split\('-'\)\[0\] === 'base'/.test(app) && /params\.tilt = -86/.test(app));
+check('the panel adds, retargets and removes lights through the rig callbacks',
+  /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
+  && /onElementPatch: guard\(/.test(app)
+  && /onElementAdd && onElementAdd\(/.test(panel)
+  && /onElementRemove && onElementRemove\(/.test(panel)
+  && /onElementPatch && onElementPatch\(/.test(panel)
+  && /frameAnchors: frameAnchorsPlain\(\)/.test(app));
 check('the panel gets the set list and the callback',
   /sets: LAYOUTS/.test(app) && /onSetChange: guard\(/.test(app));
 check('the panel renders the set picker', /param-set/.test(panel) && /onSetChange/.test(panel));

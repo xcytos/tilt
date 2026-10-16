@@ -1192,8 +1192,8 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // module imports nothing); app.js re-checks against the live registry.
 const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
 const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
-const ELEM_PER_FRAME = 6;
-const ELEM_TOTAL = 12;
+const ELEM_PER_FRAME = 20;
+const ELEM_TOTAL = 40;
 const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
 
 function cleanFrameElements(raw) {
@@ -1771,6 +1771,17 @@ const MAX_DROP = 5.0;
 const PLEAT_FREQ = 30;
 const PLEAT_DEPTH = 0.12;
 const ANCHOR_RAIL_SAMPLES = 24;
+// Floor uplight hooks: one per section of the wall, up to ten per side.
+// The panel's Per-wall slider (1-10) picks how many of them carry a
+// fixture; the anchors themselves always exist so any count is legal.
+const UPLIGHT_PER_SIDE = 10;
+// How far in front of its curtain wall a floor uplight stands. The stand
+// base frame is 1.6 ft square (reaches 0.8 ft off the line), so this keeps
+// the fixture clear of the plate while staying inside the wash throw.
+const UPLIGHT_STANDOFF = 1.35;
+// Front-side z floor: the stand base frames reach 0.8 ft off the wall
+// line, so a fixture's centre stays at least this far front of z=0.
+const UPLIGHT_MIN_Z = 1.15;
 
 // A stand is telescoping: a fixed sleeve standing out of the floor, with a
 // slimmer inner tube running out of its open top and on up to the rail.
@@ -2266,6 +2277,7 @@ function createO2TiltModel(initial = {}) {
 
         for (const side of [false, true]) {
             const pts = getStructuralPoints(state, side, ANCHOR_RAIL_SAMPLES);
+            const tag = side ? 'R' : 'L';
             for (let i = 0; i < pts.length; i++) {
                 const prv = pts[Math.max(i - 1, 0)];
                 const nxt = pts[Math.min(i + 1, pts.length - 1)];
@@ -2273,12 +2285,61 @@ function createO2TiltModel(initial = {}) {
                 const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
                 if (!side) normal.negate();
                 anchors.push({
-                    id: `rail-${side ? 'R' : 'L'}-${i}`,
+                    id: `rail-${tag}-${i}`,
                     kind: 'rail',
-                    side: side ? 'R' : 'L',
+                    side: tag,
                     position: pts[i].clone(),
                     tangent,
                     normal
+                });
+            }
+
+            // Floor uplights: one per section of the wall (ten per side),
+            // evenly spaced ALONG THE WALL'S X SPAN - curve-parameter
+            // spacing bunches up in the steep parts of the wave, and the
+            // samples themselves are too sparse to snap to, so the hook's
+            // point and tangent are interpolated from the rail polyline at
+            // its x. Each hook stands off on the guest-facing side and is
+            // then guaranteed a minimum z clearance from the stand base
+            // frames (1.6 ft square on the line) so no fixture ever sits
+            // on a plate. The standoff itself is pure -Z so the hooks keep
+            // their even x spacing; the blended normal only steers the
+            // fixture's aim back at the fabric.
+            const xs = pts.map(p => p.x);
+            const xIn = xs[0], xOut = xs[xs.length - 1];
+            const xLo = Math.min(xIn, xOut), xHi = Math.max(xIn, xOut);
+            const at = target => {
+                const xT = Math.max(xLo, Math.min(xHi, target));
+                let j = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    const xa = pts[i].x, xb = pts[i + 1].x;
+                    if (xT >= Math.min(xa, xb) && xT <= Math.max(xa, xb)) {
+                        j = i;
+                        break;
+                    }
+                }
+                const a = pts[j], b = pts[j + 1];
+                const u = Math.abs(b.x - a.x) < 1e-9
+                    ? 0 : Math.max(0, Math.min(1, (xT - a.x) / (b.x - a.x)));
+                return {
+                    p: a.clone().lerp(b, u),
+                    t: b.clone().sub(a).setY(0).normalize()
+                };
+            };
+            for (let k = 0; k < UPLIGHT_PER_SIDE; k++) {
+                const t = (k + 0.5) / UPLIGHT_PER_SIDE;
+                const { p, t: tangent } = at(xIn + (xOut - xIn) * t);
+                const front = new THREE.Vector3(-tangent.z, 0, tangent.x);
+                if (front.z > 0) front.negate();
+                front.add(new THREE.Vector3(0, 0, -1)).normalize();
+                const z = Math.min(p.z - UPLIGHT_STANDOFF, -UPLIGHT_MIN_Z);
+                anchors.push({
+                    id: `uplight-${tag}-${k}`,
+                    kind: 'uplight',
+                    side: tag,
+                    position: new THREE.Vector3(p.x, 0, z),
+                    tangent,
+                    normal: front
                 });
             }
         }
@@ -2513,23 +2574,33 @@ const LIGHT_NAMES = {
 };
 
 // Params stay range/toggle so registry validation, the panel and the
-// project clamps all keep their current contract.
+// project clamps all keep their current contract. Hue + Saturation are the
+// fixture's RGBW colour mixing as two sliders: Saturation 0 is plain white,
+// low saturation with Hue ~40 is warm white, high saturation is amber/gold
+// (hue 40) or deep purple (hue 280) - the palettes an entrance actually
+// asks for. Defaults are the wedding look: warm white.
 const LIGHT_PARAMS = {
     par: {
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 45,  unit: '°' },
-        focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' }
+        focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' },
+        hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
     },
     led: {
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 55,  unit: '°' },
-        wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' }
+        wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' },
+        hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
     },
     strip: {
         power:  { label: 'Power',  type: 'range', min: 0,  max: 100, step: 1,   value: 100, unit: '%' },
-        length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' }
+        length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
+        hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
+        sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
     }
 };
 
@@ -2542,6 +2613,45 @@ const LIGHT_DEG = Math.PI / 180;
 // the scene's own rig owns shadows and the bounded count keeps a stage
 // full of fixtures harmless. The strip is emissive only.
 const SPOT_BASE = { par: 2.2, led: 1.4 };
+
+// The visible beam: not a solid cone, but light in haze. The shader fades
+// the surface out at the silhouette (fresnel) and toward the mouth, so the
+// cone has no hard edge - it reads as a glow around the real spotlight.
+function createBeamMaterial() {
+    return new THREE.ShaderMaterial({
+        uniforms: {
+            uColor: { value: new THREE.Color(0xffeecf) },
+            uOpacity: { value: 0.15 },
+            uLen: { value: 1 }
+        },
+        vertexShader: `
+            uniform float uLen;
+            varying float vT;
+            varying vec3 vN, vV;
+            void main() {
+                vT = clamp(position.y / uLen, 0.0, 1.0);
+                vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                vN = normalize(normalMatrix * normal);
+                vV = normalize(-mv.xyz);
+                gl_Position = projectionMatrix * mv;
+            }`,
+        fragmentShader: `
+            uniform vec3 uColor;
+            uniform float uOpacity;
+            varying float vT;
+            varying vec3 vN, vV;
+            void main() {
+                float fres = abs(dot(normalize(vN), normalize(vV)));
+                float edge = pow(fres, 1.8);
+                float axial = smoothstep(0.0, 0.12, vT) * (1.0 - 0.8 * vT);
+                gl_FragColor = vec4(uColor, uOpacity * edge * axial);
+            }`,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide
+    });
+}
 
 function createLightModel(type = 'light-par', initial = {}) {
     const kind = LIGHT_TYPES.includes(type) ? type.slice(6) : 'par';
@@ -2565,10 +2675,7 @@ function createLightModel(type = 'light-par', initial = {}) {
         color: 0x0c0c10, emissive: 0xfff4e2, emissiveIntensity: 1,
         roughness: 0.3, metalness: 0
     });
-    const matBeam = new THREE.MeshBasicMaterial({
-        color: 0xffeecf, transparent: true, opacity: 0.15, depthWrite: false,
-        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
-    });
+    const matBeam = createBeamMaterial();
 
     let spot = null;
     let beam = null;
@@ -2576,12 +2683,27 @@ function createLightModel(type = 'light-par', initial = {}) {
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
+    // The fixture's own colour, from its two mixing sliders. Saturation 0 is
+    // white; otherwise lightness eases down as saturation climbs so a deep
+    // amber or purple still reads as light. The SAME tint colours the lens,
+    // the visible beam and the real spotlight - what you see is what glows.
+    function tintColor() {
+        const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
+        const h = ((Number(state.hue) % 360) + 360) % 360;
+        const l = 0.92 - 0.34 * s01;
+        return new THREE.Color().setHSL(h / 360, s01, l, THREE.SRGBColorSpace);
+    }
+
     function applyGlow() {
+        const tint = tintColor();
+        matLens.emissive.copy(tint);
+        matBeam.uniforms.uColor.value.copy(tint);
+        if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
-            matBeam.opacity = power01() * 0.16;
+            matBeam.uniforms.uOpacity.value = power01() * 0.14;
         }
     }
 
@@ -2609,9 +2731,11 @@ function createLightModel(type = 'light-par', initial = {}) {
     }
 
     // The real light: one SpotLight, no shadow, decay 0 so the dimmer
-    // reads predictably at any throw distance.
+    // reads predictably at any throw distance. The 12 ft cutoff fades the
+    // beam out just past the 8 ft curtain top - no spill onto guests or
+    // scenery beyond the wall the fixture was aimed at.
     function addSpot(tiltG, halfAngleRad) {
-        spot = new THREE.SpotLight(0xfff2dd, 0, 0, halfAngleRad, 0.35, 0);
+        spot = new THREE.SpotLight(0xfff2dd, 0, 12, halfAngleRad, 0.35, 0);
         spot.position.set(0, 0, -0.2);
         spot.castShadow = false;
         const target = new THREE.Object3D();
@@ -2673,11 +2797,13 @@ function createLightModel(type = 'light-par', initial = {}) {
             addSpot(tiltG, (state.focus / 2) * LIGHT_DEG);
 
             // Visible beam cone: tip at the lens, mouth toward the aim,
-            // radius grown to the focus angle over a 7 ft throw.
-            const len = 7;
+            // radius grown to the focus angle over a 6.5 ft throw - it tops
+            // out just under the 8 ft curtain rail instead of poking out.
+            const len = 6.5;
             const r = Math.tan((state.focus / 2) * LIGHT_DEG) * len;
             const geo = new THREE.CylinderGeometry(r, 0.001, len, 24, 1, true);
             geo.translate(0, len / 2, 0);
+            matBeam.uniforms.uLen.value = len;
             beam = new THREE.Mesh(geo, matBeam);
             beam.rotation.x = -Math.PI / 2;
             beam.position.z = -0.19;
@@ -3285,7 +3411,7 @@ function createPanel(opts) {
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
         onSetChange, onFramePillarsChange,
-        onElementAdd, onElementRemove, onElementPatch,
+        onElementAdd, onElementRemove, onElementPatch, onElementCount,
         onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
@@ -3429,6 +3555,9 @@ function createPanel(opts) {
     let activeTool = 'shape';
     // Which type the next Add light plants; remembered across rebuilds.
     let lastAddType = 'light-par';
+    // Which fixtures the light numbers reach: each on its own, one wall,
+    // or the whole rig. Session-local, like the type chooser.
+    let lightsMode = 'separate';
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -3995,10 +4124,12 @@ function createPanel(opts) {
     }
 
     // This frame's own lights, as one rig that only exists while the frame
-    // has any: a type chooser and Add at the top, then one card per fixture -
-    // where it clamps (Pole / Rail / Base, cycled along that line), its own
-    // numbers, and the way out. Every card edits ITS light only: the sliders
-    // emit against that one model, never through the shared-id fan-out.
+    // has any: a type chooser and Add at the top, a per-wall count (1-3,
+    // default 3), then a mode row - Separate is one card per fixture
+    // (mount, numbers, remove), while Left, Right and All are ONE set of
+    // numbers written to every fixture of that group at once. Grouped cards
+    // never retarget or remove; that stays Separate. Floor mounts may only
+    // aim up, so their tilt slider tops out at -30.
     function lightsBlock(id) {
         const entries = currentFrameElements[id] || [];
         const anchors = currentFrameAnchors[id] || [];
@@ -4016,7 +4147,7 @@ function createPanel(opts) {
             const count = document.createElement('span');
             count.className = 'text-[11px] text-gray-500 dark:text-zinc-400 '
                 + 'tabular-nums';
-            count.textContent = `${entries.length}/6`;
+            count.textContent = `${entries.length}/20`;
             head.appendChild(count);
         }
         wrap.appendChild(head);
@@ -4050,7 +4181,7 @@ function createPanel(opts) {
             typeBtns.set(c.id, btn);
             addRow.appendChild(btn);
         }
-        const atCap = entries.length >= 6;
+        const atCap = entries.length >= 20;
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
         addBtn.className = 'ml-auto px-2.5 py-1.5 rounded-md border text-xs '
@@ -4060,7 +4191,7 @@ function createPanel(opts) {
                     + 'dark:hover:bg-zinc-700');
         addBtn.textContent = 'Add';
         addBtn.title = atCap
-            ? 'Six lights per frame - the document cap.'
+            ? 'Twenty lights per frame - the document cap.'
             : 'Add this light to the frame';
         addBtn.disabled = atCap;
         addBtn.dataset.off = atCap ? '1' : '0';
@@ -4071,14 +4202,95 @@ function createPanel(opts) {
         addRow.appendChild(addBtn);
         wrap.appendChild(addRow);
 
-        // One card per fixture, in the order of its frame's own list.
+        // How many floor uplights stand on EACH wall: a 1-10 slider. Only
+        // frames with floor-uplight hooks offer it; committing a number
+        // plants or removes the rig lights and never touches hand-placed
+        // ones. It emits on release, not mid-drag: a count change rebuilds
+        // the rig under the panel.
+        if (anchors.some(o => o.kind === 'uplight')) {
+            const perWall = Math.max(0, ...['L', 'R'].map(s => entries
+                .filter(e => e && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
+                .length));
+            const cur = Math.max(1, Math.min(10, perWall || 3));
+            const cnt = rangeBlock('lightcount', {
+                label: 'Per wall', type: 'range', min: 1, max: 10, step: 1,
+                value: cur, unit: ' lights'
+            }, cur, true);
+            cnt.input.addEventListener('input', e => {
+                cnt.value.textContent = `${e.target.value} lights`;
+            });
+            cnt.input.addEventListener('change', e => {
+                const v = parseInt(e.target.value, 10);
+                if (Number.isFinite(v) && v !== perWall) {
+                    onElementCount && onElementCount(id, v);
+                }
+            });
+            live.selects.push(cnt.input);
+            wrap.appendChild(cnt.wrap);
+        }
+
+        // Mode row: which fixtures the numbers below reach. Separate keeps
+        // the per-fixture cards; Left / Right / All collapse to one card
+        // that writes every fixture in the group at once.
+        const modeRow = document.createElement('div');
+        modeRow.className = 'mt-2 flex items-center gap-2';
+        const modeBtns = new Map();
+        for (const [val, label, desc] of [
+            ['separate', 'Separate', 'Each fixture keeps its own numbers'],
+            ['left', 'Left', 'One set of numbers for the left curtain wall'],
+            ['right', 'Right', 'One set of numbers for the right curtain wall'],
+            ['all', 'All', 'One set of numbers for every fixture']
+        ]) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const on = val === lightsMode;
+            btn.className = chipCls(on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = label;
+            btn.title = desc;
+            btn.addEventListener('click', () => {
+                if (lightsMode === val) return;
+                lightsMode = val;
+                for (const [v, b] of modeBtns) {
+                    const act = v === lightsMode;
+                    b.className = chipCls(act);
+                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                }
+                paint();
+            });
+            live.buttons.push(btn);
+            modeBtns.set(val, btn);
+            modeRow.appendChild(btn);
+        }
+        wrap.appendChild(modeRow);
+
+        const body = document.createElement('div');
+        wrap.appendChild(body);
+
         const byInst = new Map();
         for (const g of currentGroups) {
             if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
         }
-        entries.forEach((entry, i) => {
+        const lmOf = i => {
             const g = byInst.get(i);
-            const lm = g && g.models && g.models[0];
+            return (g && g.models && g.models[0]) || null;
+        };
+        // Which wall a fixture stands on: every anchor id carries its side
+        // (uplight-L-0, rail-R-4, pole-L-1); a sideless anchor is only
+        // editable in Separate and All.
+        const sideOf = anchor => {
+            const hit = /-([LR])-\d+$/.exec(anchor || '');
+            return hit ? hit[1] : null;
+        };
+        const memberIdx = mode => entries.map((_, i) => i)
+            .filter(i => mode === 'all'
+                || sideOf(entries[i] && entries[i].anchor)
+                    === (mode === 'left' ? 'L' : 'R'));
+
+        // One card per fixture, in the order of its frame's own list.
+        const paintSeparate = () => {
+        entries.forEach((entry, i) => {
+            const lm = lmOf(i);
             const card = document.createElement('div');
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -4109,13 +4321,17 @@ function createPanel(opts) {
                     return at < 0 ? 0 : at;
                 };
                 const curKind0 = (entry.anchor || '').split('-')[0];
-                const kind = ['pole', 'rail', 'base'].includes(curKind0)
+                // Floor means the floor-uplight hooks when the frame has
+                // them, else the stand base plates.
+                const floorKind = anchors.some(o => o.kind === 'uplight')
+                    ? 'uplight' : 'base';
+                const kind = ['pole', 'rail', 'uplight', 'base'].includes(curKind0)
                     ? curKind0 : anchors[0].kind;
 
                 const mount = document.createElement('div');
                 mount.className = 'mt-1.5 flex items-center gap-1.5';
                 for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
-                    ['base', 'Base']]) {
+                    [floorKind, 'Floor']]) {
                     const has = poolFor(k).length > 0;
                     const on = has && k === kind;
                     const btn = document.createElement('button');
@@ -4171,7 +4387,12 @@ function createPanel(opts) {
             if (lm && lm.params) {
                 for (const [k, p] of Object.entries(lm.params)) {
                     if (p.type !== 'range') continue;
-                    const built = rangeBlock(`light-${i}-${k}`, p, lm.state[k]);
+                    // A floor mount may only aim up: the slider tops out at
+                    // -30 so the whole cone can never point at the ground.
+                    // (Mirrors FLOOR_TILT_MAX in app.js.)
+                    const pp = k === 'tilt' && /^(uplight|base)-/.test(entry.anchor || '')
+                        ? { ...p, max: -30 } : p;
+                    const built = rangeBlock(`light-${i}-${k}`, pp, lm.state[k]);
                     built.input.addEventListener('input', e => {
                         const v = parseFloat(e.target.value);
                         if (!Number.isFinite(v)) return;
@@ -4182,8 +4403,78 @@ function createPanel(opts) {
                     card.appendChild(built.wrap);
                 }
             }
-            wrap.appendChild(card);
+            body.appendChild(card);
         });
+        };
+
+        // One card for the whole group: the union of every fixture's
+        // numbers, one slider row per number, each change written to every
+        // fixture in the group that understands it. Mount and remove stay
+        // per-fixture, in Separate.
+        const paintGroup = mode => {
+            const idxs = memberIdx(mode);
+            const card = document.createElement('div');
+            card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            const wall = mode === 'all' ? 'Whole rig'
+                : mode === 'left' ? 'Left wall' : 'Right wall';
+            const ch = document.createElement('div');
+            ch.className = 'flex items-center justify-between';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
+            nameEl.textContent = `${wall} - ${idxs.length} light${idxs.length === 1 ? '' : 's'}`;
+            ch.appendChild(nameEl);
+            card.appendChild(ch);
+
+            const params = new Map();
+            for (const i of idxs) {
+                const lm = lmOf(i);
+                if (!lm || !lm.params) continue;
+                for (const [k, p] of Object.entries(lm.params)) {
+                    if (p.type !== 'range') continue;
+                    if (!params.has(k)) params.set(k, p);
+                }
+            }
+            if (!params.size) {
+                const note = document.createElement('p');
+                note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
+                note.textContent = !entries.length
+                    ? 'Add a light to the frame first.'
+                    : idxs.length
+                        ? 'These fixtures expose no numbers yet.'
+                        : `No lights on the ${mode} wall yet.`;
+                card.appendChild(note);
+            }
+            for (const [k, p] of params) {
+                const holder = idxs.map(lmOf)
+                    .find(lm => lm && lm.state && k in lm.state);
+                // One floor-mounted member is enough to keep the group's
+                // tilt slider inside the up-only range.
+                const floorTilt = k === 'tilt' && idxs.some(i => /^(uplight|base)-/
+                    .test((entries[i] || {}).anchor || ''));
+                const pp = floorTilt ? { ...p, max: -30 } : p;
+                const built = rangeBlock(`lightgrp-${mode}-${k}`, pp,
+                    holder ? holder.state[k] : pp.value);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    built.value.textContent = fmt(v, p.unit);
+                    const targets = idxs.map(lmOf)
+                        .filter(lm => lm && lm.params && lm.params[k]);
+                    emit({ [k]: v }, targets);
+                });
+                live.selects.push(built.input);
+                card.appendChild(built.wrap);
+            }
+            body.appendChild(card);
+        };
+
+        const paint = () => {
+            body.textContent = '';
+            if (lightsMode === 'separate') paintSeparate();
+            else paintGroup(lightsMode);
+        };
+        paint();
         return wrap;
     }
 
@@ -5460,7 +5751,14 @@ function frameElementsPlain() {
 // A fixture's numbers are the registered schema's business: anything the
 // schema does not know, or clamps, is dropped here - both for documents and
 // for a def's own elements. The registry validates again on the way in.
-function clampElemParams(type, params) {
+// A floor mount may only aim up: the lens sits ~0.4 ft above the ground,
+// so any tilt above -30 drives the wide end of the cone (focus up to 60)
+// into the floor. -30 keeps the lowest edge of a full-spread beam exactly
+// horizontal - the ground can never be lit by accident. Pole and rail
+// fixtures keep the full -90..90 range; they legitimately spot down.
+const FLOOR_TILT_MAX = -30;
+
+function clampElemParams(type, params, anchor) {
     const schema = LIGHT_PARAMS[type.slice(6)] || {};
     const out = {};
     if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
@@ -5471,6 +5769,9 @@ function clampElemParams(type, params) {
         if (!Number.isFinite(n)) continue;
         out[k] = Math.max(p.min, Math.min(p.max, n));
     }
+    if ('tilt' in out && /^(uplight|base)-/.test(anchor || '')) {
+        out.tilt = Math.min(out.tilt, FLOOR_TILT_MAX);
+    }
     return out;
 }
 
@@ -5478,13 +5779,13 @@ function normaliseElementList(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
     for (const el of raw) {
-        if (out.length >= 6) break;
+        if (out.length >= 20) break;
         if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
         if (!LIGHT_TYPES.includes(el.type)) continue;
         out.push({
             type: el.type,
             anchor: typeof el.anchor === 'string' ? el.anchor : '',
-            params: clampElemParams(el.type, el.params)
+            params: clampElemParams(el.type, el.params, el.anchor)
         });
     }
     return out;
@@ -5498,7 +5799,7 @@ function defElementsOf(def) {
         if (!Array.isArray(o.elements)) continue;
         for (const el of normaliseElementList([].concat(o.elements))) out.push(el);
     }
-    return out.slice(0, 6);
+    return out.slice(0, 20);
 }
 
 // Every mount point of one frame as plain data for the panel: id, kind and a
@@ -5515,6 +5816,7 @@ function anchorOptionsFor(frameId) {
         const n = counts[key];
         const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
             : a.kind === 'pole' ? `Pole ${n}`
+            : a.kind === 'uplight' ? `Floor ${n}`
             : `Base ${n}`;
         return { id: a.id, kind: a.kind, label };
     });
@@ -5526,17 +5828,38 @@ function frameAnchorsPlain() {
         .map(id => [id, anchorOptionsFor(id)]));
 }
 
-// Where a newly added fixture clamps: strips clamp to the rail, par and led
-// fixtures to a pole - and the next unused one of that kind, so three taps
-// of Add walk along the line instead of stacking in one spot.
+// Where a newly added fixture clamps. PAR and LED fixtures start on the
+// floor uplight hooks - the entrance-uplight case the design guide leads
+// with - three per curtain wall, stood off from the fabric; strips clamp
+// to the rail above. Pole and Rail stay one button away each.
 function defaultAnchorFor(frameId, type) {
     const opts = anchorOptionsFor(frameId);
-    const kind = type === 'light-strip' ? 'rail' : 'pole';
-    const pool = opts.filter(o => o.kind === kind);
-    if (pool.length) {
-        const used = frameElementsFor(frameId)
-            .filter(e => e.anchor && e.anchor.startsWith(kind + '-')).length;
-        return pool[used % pool.length].id;
+    // PAR and LED lead with the floor-uplight hooks; a frame without them
+    // falls back to the base plates, then the poles. Strips clamp high.
+    const kinds = type === 'light-strip' ? ['rail', 'pole'] : ['uplight', 'base', 'pole'];
+    for (const kind of kinds) {
+        const pool = opts.filter(o => o.kind === kind);
+        if (pool.length) {
+            const taken = new Set(frameElementsFor(frameId)
+                .filter(e => e.anchor).map(e => e.anchor));
+            if (kind === 'uplight') {
+                // Seat a new uplight on the next equal-bay hook of the
+                // emptier wall, so hand-added lights spread like the rig.
+                for (const side of ['L', 'R']) {
+                    const sidePool = pool.filter(o => o.id.startsWith(`uplight-${side}-`));
+                    if (!sidePool.length) continue;
+                    const usedSide = sidePool.filter(o => taken.has(o.id)).length;
+                    for (const k of wallUplightSeats(usedSide + 1)) {
+                        const cand = `uplight-${side}-${k}`;
+                        if (!taken.has(cand) && sidePool.some(o => o.id === cand)) {
+                            return cand;
+                        }
+                    }
+                }
+            }
+            const used = [...taken].filter(a => a.startsWith(kind + '-')).length;
+            return pool[used % pool.length].id;
+        }
     }
     return opts.length ? opts[0].id : '';
 }
@@ -5765,7 +6088,7 @@ function refreshPillarPlaces() {
 
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
-const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12 };
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0 };
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -5785,8 +6108,13 @@ function elementSpot(owner, anchors, anchorId) {
     const pos = owner.object3D.position, turn = owner.object3D.rotation.y;
     const c = Math.cos(turn), s = Math.sin(turn);
     // A rail fixture aims along its rail; poles and bases follow the frame.
+    // A floor uplight turns to face its own curtain: local -Z points at the
+    // wall, so the -86 tilt leans the beam into the fabric, never over it.
     const ry = a.kind === 'rail' && a.tangent
-        ? turn + Math.atan2(-a.tangent.z, a.tangent.x) : turn;
+        ? turn + Math.atan2(-a.tangent.z, a.tangent.x)
+        : a.kind === 'uplight' && a.normal
+            ? turn + Math.atan2(a.normal.x, a.normal.z)
+            : turn;
     return {
         x: pos.x + p.x * c + p.z * s,
         y: p.y + (MOUNT_Y[a.kind] || 0),
@@ -6225,8 +6553,18 @@ function onElementAdd(id, type) {
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     if (!LIGHT_TYPES.includes(type)) return false;
     const list = frameElementsFor(id).slice();
-    if (list.length >= 6) return false;
-    list.push({ type, anchor: defaultAnchorFor(id, type), params: {} });
+    if (list.length >= 20) return false;
+    const anchor = defaultAnchorFor(id, type);
+    const params = {};
+    // A floor mount is an uplight: start it aimed at the fabric above, not
+    // across the floor into the guests' eyes. -86 leans the beam ~4° into
+    // the curtain from its 1.2 ft standoff - it can never cross the fabric
+    // plane. Pole and rail fixtures keep the schema's own default.
+    if ((anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
+        && LIGHT_PARAMS[type.slice(6)].tilt) {
+        params.tilt = -86;
+    }
+    list.push({ type, anchor, params });
     frameElements.set(id, list);
     scheduleSave();
     return syncScene();
@@ -6252,12 +6590,19 @@ function onElementPatch(id, index, patch) {
     if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
         && patch.type !== entry.type) {
         // A different fixture on the same hook: fresh numbers, and possibly
-        // a different hook (strips clamp to the rail, par and led to a pole).
+        // a different hook (strips clamp to the rail, par and led to the
+        // floor uplights by default). A floor mount re-seeds the uplight aim.
         entry.type = patch.type;
         entry.params = {};
         entry.anchor = defaultAnchorFor(id, patch.type);
+        if ((entry.anchor.split('-')[0] === 'base' || entry.anchor.split('-')[0] === 'uplight')
+            && LIGHT_PARAMS[patch.type.slice(6)].tilt) {
+            entry.params.tilt = -86;
+        }
         structural = true;
     }
+    // The new hook may be a floor mount, which may only aim up.
+    entry.params = clampElemParams(entry.type, entry.params, entry.anchor);
     list[index] = { type: entry.type, anchor: entry.anchor, params: entry.params };
     frameElements.set(id, list);
     scheduleSave();
@@ -6273,6 +6618,63 @@ function onElementPatch(id, index, patch) {
         });
     }
     return true;
+}
+
+// Of a wall's 10 uplight hooks, the n that divide it into n equal bays -
+// the midpoint hook of each bay. n=10 is every hook; n=1 is the middle.
+function wallUplightSeats(n) {
+    const count = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
+    const seats = [];
+    for (let j = 0; j < count; j++) {
+        seats.push(Math.min(9, Math.max(0,
+            Math.round((j + 0.5) * 10 / count - 0.5))));
+    }
+    return seats;
+}
+
+// How many floor uplights stand on EACH curtain wall: the rig sizing knob,
+// a 1-10 slider in the panel. Every change re-seats the wall on the hooks
+// that divide it into n equal bays - the lights spread across the whole
+// wall, never bunched at the entrance gap. Survivors keep their tuned
+// params, extras go, missing seats plant with the entrance-rig numbers.
+// Other fixtures the user placed by hand are never touched.
+function onElementCount(id, n) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    const want = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
+    const list = frameElementsFor(id).slice();
+    let changed = false;
+    for (const side of ['L', 'R']) {
+        const seats = wallUplightSeats(want).map(k => `uplight-${side}-${k}`);
+        const mine = [];
+        for (let i = list.length - 1; i >= 0; i--) {
+            const e = list[i];
+            if (e && e.anchor && e.anchor.startsWith(`uplight-${side}-`)) {
+                mine.unshift(e);
+                list.splice(i, 1);
+            }
+        }
+        const kept = mine.slice(0, want);
+        if (mine.length > want) changed = true;
+        for (let i = 0; i < kept.length; i++) {
+            const e = kept[i];
+            const anchor = seats[i];
+            const moved = e.anchor !== anchor;
+            list.push(moved ? { type: e.type, anchor, params: { ...e.params } } : e);
+            if (moved) changed = true;
+        }
+        for (let i = kept.length; i < want && list.length < 20; i++) {
+            list.push({
+                type: 'light-par',
+                anchor: seats[i],
+                params: { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
+            });
+            changed = true;
+        }
+    }
+    if (!changed) return false;
+    frameElements.set(id, normaliseElementList(list));
+    scheduleSave();
+    return syncScene();
 }
 
 // Forget the project: reset the document to its defaults, drop every saved
@@ -6520,31 +6922,34 @@ panel = createPanel({
     onElementAdd: guard((id, type) => onElementAdd(id, type)),
     onElementRemove: guard((id, index) => onElementRemove(id, index)),
     onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
+    onElementCount: guard((id, n) => onElementCount(id, n)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
             .filter(Boolean);
         // A light keeps its own numbers: focus belongs to THAT fixture, it
-        // lands in its frame's fixture entry, and it never travels into
+        // lands in ITS OWN frame fixture entry (a Left/All mode edit writes
+        // every fixture in the group), and it never travels into
         // savedPresets under the rig's key - so no shared-id fan-out below.
         const first = picked[0];
         if (first && first.elementOf) {
-            const { frameId, index } = first.elementOf;
             const known = {};
             for (const m of picked) {
-                if (!m.setParams || !m.params) continue;
+                if (!m.setParams || !m.params || !m.elementOf) continue;
                 const mine = {};
                 for (const [k, v] of Object.entries(partial)) {
                     if (m.params[k]) mine[k] = v;
                 }
                 if (!Object.keys(mine).length) continue;
                 m.setParams(mine);
+                const mineList = frameElements.get(m.elementOf.frameId);
+                if (mineList && mineList[m.elementOf.index]) {
+                    Object.assign(mineList[m.elementOf.index].params, mine);
+                }
                 Object.assign(known, mine);
             }
             if (Object.keys(known).length) {
-                const list = frameElements.get(frameId);
-                if (list && list[index]) Object.assign(list[index].params, known);
                 scheduleSave();
                 scheduleRebuild();
             }

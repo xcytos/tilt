@@ -1,17 +1,90 @@
 {
-  "id": "o2tilt",
-  "name": "S Curve",
-  "objects": [
+ "id": "o2tilt",
+ "name": "S Curve",
+ "objects": [
+  {
+   "type": "o2tilt-frame",
+   "params": {
+    "gap": 3,
+    "pan": 0,
+    "pitch": 0,
+    "decline": 0,
+    "fabric": true
+   },
+   "elements": [
     {
-      "type": "o2tilt-frame",
-      "params": {
-        "gap": 3,
-        "pan": 0,
-        "pitch": 0,
-        "decline": 0,
-        "fabric": true
-      },
-      "elements": []
+     "type": "light-par",
+     "anchor": "uplight-L-1",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
+    },
+    {
+     "type": "light-par",
+     "anchor": "uplight-L-5",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
+    },
+    {
+     "type": "light-par",
+     "anchor": "uplight-L-8",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
+    },
+    {
+     "type": "light-par",
+     "anchor": "uplight-R-1",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
+    },
+    {
+     "type": "light-par",
+     "anchor": "uplight-R-5",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
+    },
+    {
+     "type": "light-par",
+     "anchor": "uplight-R-8",
+     "params": {
+      "power": 60,
+      "pan": 0,
+      "tilt": -86,
+      "focus": 36,
+      "hue": 40,
+      "sat": 40
+     }
     }
-  ]
+   ]
+  }
+ ]
 }
