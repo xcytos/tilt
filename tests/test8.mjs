@@ -838,6 +838,8 @@ check('the white room is a modern banquet hall', (() => {
     && /sceneModernCeiling\(group, size\)/.test(scenes)
     && /sceneDrapery\(group, size\)/.test(scenes)
     && /sceneStageSteps\(group, size\)/.test(scenes)
+    && /function sceneChairStacks\(group, size\)/.test(scenes)
+    && (scenes.match(/sceneChairStacks\(group, size\)/g) || []).length >= 3
     && /ambient: \{ color: 0xf2ede2, intensity: 0\.42 \}/.test(scenes)
     && /ACESFilmicToneMapping/.test(read('js/viewer.js'))
     && /toneMapping = THREE\.NoToneMapping/.test(read('js/viewer.js'));

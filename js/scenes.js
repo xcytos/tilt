@@ -268,6 +268,68 @@ function sceneStageSteps(group, size) {
     }
 }
 
+// Stacked banquet chairs along the side walls - the setup-day look every
+// stage room really has. One chair drawn from three parts (seat, back,
+// four legs), every part instanced: a whole wall of stacks is three draw
+// calls. Deterministic jitter, no Math.random.
+function sceneChairStacks(group, size) {
+    const seatMat = sceneMat(0x6e5f4a, { roughness: 0.9 });
+    const frameMat = sceneMat(0x8f8574, { metalness: 0.6, roughness: 0.4 });
+    const sites = [];
+    const perSide = size.wallZ >= 20 ? 3 : 2;
+    for (const sx of [-1, 1]) {
+        for (let i = 0; i < perSide; i++) {
+            const z = -size.d / 2 - 4
+                + i * ((size.wallZ + size.d) / (perSide + 0.6));
+            sites.push({
+                x: sx * (size.wallX - 2.4),
+                z,
+                // Backs to the wall: left stacks face +x, right face -x.
+                ry: sx > 0 ? -Math.PI / 2 : Math.PI / 2
+            });
+        }
+    }
+    const per = 5;              // chairs nested in one stack
+    const rise = 0.52;          // seat lift per nested chair
+    const count = sites.length * per;
+    const seats = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1.6, 0.09, 1.5), seatMat, count);
+    const backs = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1.6, 1.55, 0.09), seatMat, count);
+    const legs = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.028, 0.028, 0.46, 6), frameMat, count * 4);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const axis = new THREE.Vector3(0, 1, 0);
+    const v = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    let si = 0, li = 0;
+    for (const site of sites) {
+        const c = Math.cos(site.ry), s = Math.sin(site.ry);
+        for (let k = 0; k < per; k++) {
+            const y = -size.h + 0.46 + k * rise;
+            const jitter = (((k * 37 + si * 13) % 5) - 2) * 0.014;
+            q.setFromAxisAngle(axis, site.ry + jitter);
+            const place = (lx, ly, lz) => {
+                v.set(site.x + lx * c + lz * s, y + ly,
+                    site.z - lx * s + lz * c);
+                m.compose(v, q, one);
+            };
+            place(0, 0, 0);
+            seats.setMatrixAt(si, m);
+            place(0, 0.82, -0.7);
+            backs.setMatrixAt(si, m);
+            for (const [lx, lz] of [[-0.7, -0.6], [0.7, -0.6],
+                [-0.7, 0.6], [0.7, 0.6]]) {
+                place(lx, -0.23, lz);
+                legs.setMatrixAt(li++, m);
+            }
+            si++;
+        }
+    }
+    group.add(seats, backs, legs);
+}
+
 function buildWhiteStage(group, size) {
     // A banquet hall, not a lightbox: warm greige shell so the white
     // trims and the ivory drapery actually read, layered lamps instead
@@ -294,6 +356,7 @@ function buildWhiteStage(group, size) {
     }
     sceneSconce(group, size, -13 * wx, 9);
     sceneSconce(group, size, 13 * wx, 9);
+    sceneChairStacks(group, size);
     sceneUplights(group, size);
     return {
         background: new THREE.Color(0xe9e4db),
@@ -506,6 +569,7 @@ function buildBallroom(group, size) {
         sceneChandelier(group, size, -size.w * 0.28, 4, s * 0.62, false);
         sceneChandelier(group, size, size.w * 0.28, 4, s * 0.62, false);
     }
+    sceneChairStacks(group, size);
     sceneUplights(group, size);
 
     return {
