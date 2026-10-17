@@ -833,6 +833,16 @@ function stripPathFor(owner, anchors, entry) {
     });
 }
 
+// The stage follows its contents: whenever elements re-place, ask the
+// viewer to re-fit the room around the new footprint. Debounced so a
+// slider sweep rebuilds the scene once at the end, not per input event,
+// and cheap when the quantized size has not actually changed.
+let stageFitTimer = 0;
+function fitStageSoon() {
+    clearTimeout(stageFitTimer);
+    stageFitTimer = setTimeout(() => viewer.refreshStageSize(), 250);
+}
+
 function refreshElementPlaces() {
     let changed = false;
     for (const [key, models] of mounted) {
@@ -870,7 +880,9 @@ function refreshElementPlaces() {
 // The one writer: every model's transform comes from `savedPlaces`. Frames
 // first, because a pillar takes its coordinates from the frame it stands
 // beside. `layoutX` records the x written here so the viewer's own spacing
-// can start from zero instead of from a leftover position.
+// can start from zero instead of from a leftover position. Every path that
+// moves anything funnels through here, so this is also where the stage
+// re-fits itself to the new footprint.
 function applyPlaces() {
     for (const [key, models] of mounted) {
         const arr = savedPlaces.get(key) || [];
@@ -882,6 +894,7 @@ function applyPlaces() {
             m.layoutX = p.x;
         });
     }
+    fitStageSoon();
 }
 
 function num(v, fallback) {

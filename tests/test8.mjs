@@ -777,6 +777,32 @@ check('the strip is one neon-flex assembly, not a black tube', (() => {
     && !/TubeGeometry\(curve, 48, 0\.07/.test(light)
     && !/TubeGeometry\(lensCurve, 48, 0\.045/.test(light);
 })());
+check('the stage grows with its contents', (() => {
+  // A fixed 60x16 stage let rotated or widened frames hang off the edge
+  // or hover past it. The room is now derived: the viewer unions the
+  // models' world box, computeStageSize adds aisles and clamps, and the
+  // indoor scenes rebuild from that - only when the quantized size
+  // changes. Studio keeps its bare floor; garden and terrace have no
+  // raised stage to fit.
+  const scenes = read('js/scenes.js');
+  const viewer = read('js/viewer.js');
+  const app = read('js/app.js');
+  return /export const DEFAULT_STAGE_SIZE = \{/.test(scenes)
+    && /export function computeStageSize\(fp\)/.test(scenes)
+    && /SIZE_MARGIN_X = 3\.5/.test(scenes)
+    && /SIZE_W_MAX = 140/.test(scenes)
+    && /function sceneRoom\(group, size,/.test(scenes)
+    && /build\(id, size\)/.test(scenes)
+    && /computeStageSize, DEFAULT_STAGE_SIZE/.test(viewer)
+    && /stageFootprint\(\)/.test(viewer)
+    && /updateWorldMatrix\(true, true\)/.test(viewer)
+    && /refreshStageSize\(\)/.test(viewer)
+    && /_stageKey/.test(viewer)
+    && /next === 'studio' \? null/.test(viewer)
+    && /function fitStageSoon\(\)/.test(app)
+    && /viewer\.refreshStageSize\(\)/.test(app)
+    && /fitStageSoon\(\);/.test(app);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)

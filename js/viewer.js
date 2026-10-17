@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { SceneRig, DEFAULT_SCENE, isScene } from './scenes.js';
+import { SceneRig, DEFAULT_SCENE, isScene, computeStageSize, DEFAULT_STAGE_SIZE } from './scenes.js';
 
 const FLOOR_SIZE = 200;
 const GRID_CELLS = 100;
@@ -242,13 +242,62 @@ export class Viewer {
         for (const m of this.models) if (m.setTheme) m.setTheme(isDark);
     }
 
+    // The world the models stand in is sized by the models: every mesh's
+    // world bounding box unions into one footprint, and the stage grows to
+    // hold it (with aisles). Studio adds nothing - it has no stage.
+    stageFootprint() {
+        const box = new THREE.Box3();
+        const tmp = new THREE.Box3();
+        let any = false;
+        for (const m of this.models) {
+            if (!m.object3D || !m.object3D.visible) continue;
+            // Placements land on object3D between renders, so the cached
+            // matrices can be a frame stale - refresh the chain first.
+            m.object3D.updateWorldMatrix(true, true);
+            tmp.setFromObject(m.object3D);
+            if (tmp.isEmpty()) continue;
+            box.union(tmp);
+            any = true;
+        }
+        return any ? box : null;
+    }
+
+    // The size the current contents ask for. Quantized inside
+    // computeStageSize, so tiny jitter never counts as a change.
+    _stageSizeFor() {
+        if (this.sceneId === 'studio') return null;
+        const box = this.stageFootprint();
+        return box ? computeStageSize({
+            minX: box.min.x, maxX: box.max.x,
+            minZ: box.min.z, maxZ: box.max.z
+        }) : Object.assign({}, DEFAULT_STAGE_SIZE);
+    }
+
+    static _sizeKey(size) {
+        return size ? `${size.w}x${size.d}/${size.wallX},${size.wallZ},${size.wallH}` : 'studio';
+    }
+
+    // Re-fit the room to whatever now stands on the stage - after a move,
+    // an add, a SET switch or a load. Returns true when the room rebuilt.
+    refreshStageSize() {
+        if (this.sceneId === 'studio') return false;
+        const size = this._stageSizeFor();
+        if (Viewer._sizeKey(size) === this._stageKey) return false;
+        this._stageKey = Viewer._sizeKey(size);
+        this.rig.build(this.sceneId, size);
+        this._setEnv();
+        return true;
+    }
+
     // Swap the world the models stand in. Unknown ids fall back to the
     // studio, so a hand-edited project can never leave an empty scene.
     setScene(id) {
         const next = isScene(id) ? id : DEFAULT_SCENE;
         if (next === this.sceneId) return next;
         this.sceneId = next;
-        this.rig.build(next);
+        const size = next === 'studio' ? null : this._stageSizeFor();
+        this._stageKey = Viewer._sizeKey(size);
+        this.rig.build(next, size);
         this._setEnv();
         return next;
     }

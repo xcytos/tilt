@@ -23,15 +23,43 @@ export function isScene(id) {
     return SCENES.some(s => s.id === id);
 }
 
-// Feet. The stage is wide enough for the widest "all at once" row, and the
-// room wraps it so the camera never looks at empty sky from inside a wall.
-const STAGE_W = 60;
-const STAGE_D = 16;
-const STAGE_H = 1.2;
+// Feet. The stage is no longer a constant: it grows with whatever the set
+// currently stands - `computeStageSize` turns a content footprint into a
+// stage (and walls around it), so a wide cross-flow or a moved frame can
+// never hang off the edge or hover over the lower floor. The defaults are
+// what a classic SET needs, and the minimum a room is still a room.
+export const DEFAULT_STAGE_SIZE = {
+    w: 60, d: 16, h: 1.2, wallX: 30, wallZ: 16, wallH: 26
+};
 const MAT_T = 0.08;
-const WALL_Z = 16;
-const WALL_X = 30;
-const WALL_H = 26;
+const SIZE_MARGIN_X = 3.5;   // aisle between the outermost panel and the stage edge
+const SIZE_MARGIN_Z = 3;     // room in front of / behind the deepest element
+const SIZE_W_MIN = 44, SIZE_W_MAX = 140;
+const SIZE_D_MIN = 18, SIZE_D_MAX = 60;
+
+// Turn a content bounding box (feet, world) into the stage that holds it.
+// Pure math, no three.js - the viewer feeds it a Box3's min/max and this
+// returns the room dimensions. Odd sizes round UP to the next 2 ft so the
+// stage never clips what it was measured against.
+export function computeStageSize(fp) {
+    if (!fp || !Number.isFinite(fp.minX) || !Number.isFinite(fp.maxX)
+        || !Number.isFinite(fp.minZ) || !Number.isFinite(fp.maxZ)) {
+        return Object.assign({}, DEFAULT_STAGE_SIZE);
+    }
+    const spanW = fp.maxX - fp.minX + SIZE_MARGIN_X * 2;
+    const spanD = fp.maxZ - fp.minZ + SIZE_MARGIN_Z * 2;
+    const w = Math.min(SIZE_W_MAX,
+        Math.max(SIZE_W_MIN, Math.ceil(spanW / 2) * 2));
+    const d = Math.min(SIZE_D_MAX,
+        Math.max(SIZE_D_MIN, Math.ceil(spanD / 2) * 2));
+    return {
+        w, d,
+        h: DEFAULT_STAGE_SIZE.h,
+        wallX: w / 2 + 8,
+        wallZ: Math.max(16, d / 2 + 8),
+        wallH: Math.min(40, Math.max(24, Math.round(w / 2.3)))
+    };
+}
 
 function sceneMat(color, extra) {
     return new THREE.MeshStandardMaterial(
@@ -129,40 +157,51 @@ function scenePlankTexture(base, line, repeat) {
 
 // Floor + three walls + a raised stage: the shell every indoor scene starts
 // from. The carpet's top face is y = 0, so frames stand on the red mat.
-function sceneRoom(group, floorColor, wallColor, skirtColor, carpetColor) {
-    sceneGround(group, 170, 120, sceneMat(floorColor, { roughness: 0.9 }), -STAGE_H);
+// Every dimension comes from `size` - the room grows with its contents.
+function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) {
+    const groundW = Math.max(170, size.wallX * 2 + 50);
+    const groundD = Math.max(120, size.wallZ * 2 + 40);
+    sceneGround(group, groundW, groundD,
+        sceneMat(floorColor, { roughness: 0.9 }), -size.h);
     const wall = sceneMat(wallColor, { roughness: 0.95 });
-    const midY = WALL_H / 2 - STAGE_H;
-    sceneWall(group, WALL_X * 2 + 6, WALL_H, wall, 0, midY, WALL_Z, Math.PI);
-    sceneWall(group, WALL_Z + 28, WALL_H, wall, -WALL_X, midY, -6, Math.PI / 2);
-    sceneWall(group, WALL_Z + 28, WALL_H, wall, WALL_X, midY, -6, -Math.PI / 2);
-    sceneBox(group, STAGE_W, STAGE_H - MAT_T, STAGE_D,
+    const midY = size.wallH / 2 - size.h;
+    sceneWall(group, size.wallX * 2 + 6, size.wallH, wall,
+        0, midY, size.wallZ, Math.PI);
+    sceneWall(group, size.wallZ + 28, size.wallH, wall,
+        -size.wallX, midY, -6, Math.PI / 2);
+    sceneWall(group, size.wallZ + 28, size.wallH, wall,
+        size.wallX, midY, -6, -Math.PI / 2);
+    sceneBox(group, size.w, size.h - MAT_T, size.d,
         sceneMat(skirtColor, { roughness: 0.85 }),
-        0, -MAT_T - (STAGE_H - MAT_T) / 2, 0);
-    sceneBox(group, STAGE_W - 1.4, MAT_T, STAGE_D - 1.4,
+        0, -MAT_T - (size.h - MAT_T) / 2, 0);
+    sceneBox(group, size.w - 1.4, MAT_T, size.d - 1.4,
         sceneMat(carpetColor, { roughness: 0.96 }), 0, -MAT_T / 2, 0);
     return wall;
 }
 
-function sceneUplights(group) {
-    sceneLamp(group, -7, 0.5, 2.5, 70, 34, 0xffd7a8);
-    sceneLamp(group, 7, 0.5, 2.5, 70, 34, 0xffd7a8);
+function sceneUplights(group, size) {
+    const x = size.w * 0.117;   // ~7 ft on the default 60 ft stage
+    sceneLamp(group, -x, 0.5, 2.5, 70, 34, 0xffd7a8);
+    sceneLamp(group, x, 0.5, 2.5, 70, 34, 0xffd7a8);
 }
 
-function sceneSconce(group, x, y) {
+function sceneSconce(group, size, x, y) {
     sceneBox(group, 0.9, 1.8, 0.2,
         sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 2, roughness: 0.5 }),
-        x, y, WALL_Z - 0.5);
-    sceneLamp(group, x, y, WALL_Z - 1.4, 55, 26, 0xffdcae);
+        x, y, size.wallZ - 0.5);
+    sceneLamp(group, x, y, size.wallZ - 1.4, 55, 26, 0xffdcae);
 }
 
-function buildWhiteStage(group) {
-    sceneRoom(group, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
+function buildWhiteStage(group, size) {
+    sceneRoom(group, size, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
     const trim = sceneMat(0xffffff, { roughness: 0.6 });
-    for (const x of [-18, -6, 6, 18]) sceneBox(group, 8, 11, 0.1, trim, x, 7.5, WALL_Z - 0.2);
-    sceneSconce(group, -13, 9);
-    sceneSconce(group, 13, 9);
-    sceneUplights(group);
+    const wx = size.wallX / 30;  // fittings track the wall they hang on
+    for (const x of [-18, -6, 6, 18]) {
+        sceneBox(group, 8, 11, 0.1, trim, x * wx, 7.5, size.wallZ - 0.2);
+    }
+    sceneSconce(group, size, -13 * wx, 9);
+    sceneSconce(group, size, 13 * wx, 9);
+    sceneUplights(group, size);
     return {
         background: new THREE.Color(0xf4f2ee),
         fog: null,
@@ -172,12 +211,13 @@ function buildWhiteStage(group) {
     };
 }
 
-function buildBallroom(group) {
-    sceneRoom(group, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+function buildBallroom(group, size) {
+    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+    const wx = size.wallX / 30;
     for (const x of [-20, -8, 8, 20]) {
-        sceneBox(group, 1.6, 20, 0.5, sceneMat(0xf7f0e2), x, 10, WALL_Z - 0.4);
+        sceneBox(group, 1.6, 20, 0.5, sceneMat(0xf7f0e2), x * wx, 10, size.wallZ - 0.4);
     }
-    for (const x of [-14, -5, 5, 14]) sceneSconce(group, x, 8.5);
+    for (const x of [-14, -5, 5, 14]) sceneSconce(group, size, x * wx, 8.5);
 
     // Chandelier: ring, chain, core and a ring of bulbs, with one lamp to
     // carry it onto the floor.
@@ -199,7 +239,7 @@ function buildBallroom(group) {
         sceneBulb(group, Math.cos(a) * 3.2, 15.3, 4 + Math.sin(a) * 3.2, 0xffe3ae);
     }
     sceneLamp(group, 0, 15, 4, 420, 90, 0xffe3b8);
-    sceneUplights(group);
+    sceneUplights(group, size);
 
     return {
         background: new THREE.Color(0xefe6d6),
@@ -224,7 +264,7 @@ function sceneTree(group, x, z, scale) {
     }
 }
 
-function buildGardenNight(group) {
+function buildGardenNight(group, size) {
     sceneGround(group, 260, 200, sceneMat(0x466b34, { roughness: 1 }), 0);
     for (const [x, z, s] of [
         [-14, 12, 1.1], [14, 12, 1.2], [-22, 8, 0.9], [22, 8, 1],
@@ -249,7 +289,7 @@ function buildGardenNight(group) {
     };
 }
 
-function buildTerrace(group) {
+function buildTerrace(group, size) {
     const planks = scenePlankTexture('#8a6a49', '#6b4f34', 16);
     const deck = sceneMat(0xffffff, { roughness: 0.8 });
     deck.map = planks;
@@ -258,7 +298,7 @@ function buildTerrace(group) {
 
     sceneBox(group, 90, 3, 1, sceneMat(0xd9d2c7, { roughness: 0.9 }), 0, 1.5, 26);
     for (const x of [-24, 24]) sceneBox(group, 6, 2.4, 3, sceneMat(0x6f6a60), x, 1.2, 20);
-    sceneUplights(group);
+    sceneUplights(group, size);
 
     return {
         background: sceneSky('#22305f', '#c96a3a', '#f7c884'),
@@ -297,11 +337,15 @@ export class SceneRig {
         this.id = DEFAULT_SCENE;
     }
 
-    build(id) {
+    // `size` is the room the contents ask for (see computeStageSize);
+    // null/undefined falls back to the classic defaults.
+    build(id, size) {
         this.clear();
         this.id = isScene(id) ? id : DEFAULT_SCENE;
         const make = SCENE_BUILDERS[this.id];
-        this.settings = make ? make(this.group) : null;
+        this.size = make
+            ? (size || Object.assign({}, DEFAULT_STAGE_SIZE)) : null;
+        this.settings = make ? make(this.group, this.size) : null;
         return this.settings;
     }
 
