@@ -17,6 +17,8 @@
 //   onFlowerMove(id,patch) - live placement change ({x|z|ry})
 //   onFlowerRemove(id)     - take a panel out of the scene
 //   buildFlowerPlacement(fp)- DOM with X / Depth / Turn sliders for one panel
+//   getFlowerQuality()     - scene-wide quality level: 'high'|'medium'|'low'
+//   onFlowerQualityChange(q)- switch the scene's flower detail level
 //   live                   - the panel's live registry (buttons pushed here)
 //   emptyNote(text)        - the panel's empty-state helper
 // }
@@ -62,6 +64,55 @@ export function createFlowerChip(ctx) {
         return b;
     }
 
+    // Repaint hook: panel.setFlowerQuality() calls this after app.js changes the
+    // level so the segmented control's active state follows without a full rebuild.
+    let qualityPaint = null;
+
+    // Scene-wide quality: a 3-way segmented control (High / Medium / Low) that drives
+    // the petal/leaf tessellation of every flower panel in the scene.
+    function qualityBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-2';
+        wrap.appendChild(sectionTitle('Quality'));
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-1';
+        const levels = [
+            ['high', 'High', 'Full petal detail - richest look, heaviest'],
+            ['medium', 'Medium', 'Balanced detail - default, good on most devices'],
+            ['low', 'Low', 'Lightest detail - for weaker devices']
+        ];
+        const current = () => (ctx.getFlowerQuality ? ctx.getFlowerQuality() : 'medium');
+        const buttons = [];
+        for (const [level, label, tip] of levels) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.dataset.level = level;
+            b.textContent = label;
+            b.title = tip;
+            b.addEventListener('click', () => {
+                if (ctx.onFlowerQualityChange) ctx.onFlowerQualityChange(level);
+            });
+            ctx.live.buttons.push(b);
+            row.appendChild(b);
+            buttons.push(b);
+        }
+        qualityPaint = () => {
+            const cur = current();
+            for (const b of buttons) {
+                const active = b.dataset.level === cur;
+                b.className = 'flex-1 h-7 rounded-md text-[11px] font-semibold border '
+                    + 'transition-colors ' + (active
+                        ? 'bg-sky-600 border-sky-600 text-white'
+                        : 'bg-white dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 '
+                            + 'text-gray-600 dark:text-zinc-300 hover:bg-gray-50 '
+                            + 'dark:hover:bg-zinc-700/60');
+            }
+        };
+        qualityPaint();
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     // Panels already in the scene: placement sliders (X / Depth / Turn) and a
     // Remove, so a mounted object can be positioned, turned and taken out.
     function mountedBlock() {
@@ -100,6 +151,7 @@ export function createFlowerChip(ctx) {
     function block() {
         const wrap = document.createElement('div');
         wrap.className = 'mb-2';
+        wrap.appendChild(qualityBlock());
         wrap.appendChild(sectionTitle('Arrangements'));
 
         const flowerList = list();
@@ -155,5 +207,8 @@ export function createFlowerChip(ctx) {
         return wrap;
     }
 
-    return { chip, block };
+    // panel.setFlowerQuality() repaints the segmented control after a level change.
+    function setQuality() { if (qualityPaint) qualityPaint(); }
+
+    return { chip, block, setQuality };
 }

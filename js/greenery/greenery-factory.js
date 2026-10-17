@@ -17,12 +17,15 @@ export const GreeneryEngine = (function () {
   const T = THREE;
 
   let material = null;    // one shared material for all greenery (colour via instanceColor)
-  let geoCache = new Map(); // type -> built geometry (several types can coexist)
+  let geoCache = new Map(); // "type@detail" -> built geometry (several types + quality levels)
 
   function getMaterial() {
     if (!material) {
-      material = new T.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.66, metalness: 0, side: T.DoubleSide,
+      // Lambert, not Standard: leaves are matte, and the PBR per-fragment cost is a
+      // large share of the multi-million-triangle flower panels on weak mobile GPUs.
+      // Lambert keeps vertexColors + instanceColor tinting intact.
+      material = new T.MeshLambertMaterial({
+        color: 0xffffff, side: T.DoubleSide,
         vertexColors: true // required for InstancedMesh.instanceColor to tint diffuse
       });
     }
@@ -33,21 +36,25 @@ export const GreeneryEngine = (function () {
   function has(type) { return !!G.get(type); }
   function get(type) { return G.get(type); }
 
-  function ensureGeometry(type) {
+  // Build (or reuse) the species' geometries at a quality detail level. Cached per
+  // species+detail so several species and quality levels coexist without thrashing.
+  function ensureGeometry(type, detail) {
     const s = G.get(type);
     if (!s) throw new Error('Unknown greenery type: "' + type + '"');
-    let built = geoCache.get(type);
+    const d = detail != null ? detail : 1;
+    const key = type + '@' + d;
+    let built = geoCache.get(key);
     if (built) return built;
-    built = G.buildGeometries(s);
-    geoCache.set(type, built);
+    built = G.buildGeometries(s, d);
+    geoCache.set(key, built);
     return built;
   }
 
-  function estimateTriangles(type, count) {
-    return G.trianglesOf(ensureGeometry(type)) * Math.max(0, count | 0);
+  function estimateTriangles(type, count, detail) {
+    return G.trianglesOf(ensureGeometry(type, detail)) * Math.max(0, count | 0);
   }
 
-  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation }.
+  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation, detail }.
   // Throws for an unknown type — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -57,7 +64,7 @@ export const GreeneryEngine = (function () {
     if (!items.length) return { meshes: [], triangles: 0, instances: 0 };
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
-    const built = ensureGeometry(type);
+    const built = ensureGeometry(type, (opts && opts.detail));
     const geo = built.geometry;
     const mat = getMaterial();
     const im = new T.InstancedMesh(geo, mat, items.length);

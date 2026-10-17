@@ -33,12 +33,13 @@ export function createFlowerPanelModel(initial = {}) {
     panel.rotation.y = Math.PI;
     root.add(panel);
 
-    const scene = FlowerScene.create({ scale: FT });
+    const scene = FlowerScene.create({ scale: FT, quality: initial.quality });
     panel.add(scene.group);
 
     const state = {
         settings: FlowerModel.normalize(initial.settings || {}),
-        arrangementId: initial.arrangementId || null
+        arrangementId: initial.arrangementId || null,
+        quality: scene.getQuality()
     };
 
     function build() {
@@ -83,6 +84,17 @@ export function createFlowerPanelModel(initial = {}) {
             state.settings = FlowerModel.normalize(settings);
             model.dirty = true;
         },
+        // Quality is scene-global (the host passes the same level to every panel).
+        // Marks dirty only when the level actually changes, so a rebuild follows.
+        setQuality(q) {
+            if (scene.setQuality(q)) {
+                state.quality = scene.getQuality();
+                model.dirty = true;
+                return true;
+            }
+            return false;
+        },
+        getQuality() { return scene.getQuality(); },
         dispose
     };
 

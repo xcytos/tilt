@@ -18,12 +18,15 @@ export const FlowerEngine = (function () {
   const T = THREE;
 
   let petalMaterial = null;   // one shared material for all petals (colours via instanceColor)
-  let geoCache = new Map();   // type -> built geometries (multiple species can coexist)
+  let geoCache = new Map();   // "type@detail" -> built geometries (several species + quality levels can coexist)
 
   function getPetalMaterial() {
     if (!petalMaterial) {
-      petalMaterial = new T.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.72, metalness: 0, side: T.DoubleSide,
+      // Lambert, not Standard: flowers are matte petals lit by the scene, and the
+      // full-PBR per-fragment cost of Standard is what stalls weak mobile GPUs at
+      // millions of petals. Lambert keeps vertexColors + instanceColor tinting.
+      petalMaterial = new T.MeshLambertMaterial({
+        color: 0xffffff, side: T.DoubleSide,
         vertexColors: true // required for InstancedMesh.instanceColor to tint diffuse
       });
     }
@@ -35,25 +38,27 @@ export const FlowerEngine = (function () {
   function get(type) { return C.get(type); }
   function petalsPerFlower(type) { const s = C.get(type); return s ? C.petalsPerFlower(s) : 0; }
 
-  // Build (or reuse) the species' geometries. Cached per species so several species
-  // (main panel + flower borders) can be built at once without thrashing.
-  function ensureGeometry(type) {
+  // Build (or reuse) the species' geometries at a quality detail level. Cached per
+  // species+detail so several species and quality levels can be built without thrashing.
+  function ensureGeometry(type, detail) {
     const s = C.get(type);
     if (!s) throw new Error('Unknown flower type: "' + type + '"');
-    let built = geoCache.get(type);
+    const d = detail != null ? detail : 1;
+    const key = type + '@' + d;
+    let built = geoCache.get(key);
     if (built) return built;
-    built = C.buildGeometries(s);
-    geoCache.set(type, built);
+    built = C.buildGeometries(s, d);
+    geoCache.set(key, built);
     return built;
   }
 
   // Estimated triangles to render `flowerCount` flowers of `type`.
-  function estimateTriangles(type, flowerCount) {
-    const built = ensureGeometry(type);
+  function estimateTriangles(type, flowerCount, detail) {
+    const built = ensureGeometry(type, detail);
     return C.trianglesOf(built) * Math.max(0, flowerCount | 0);
   }
 
-  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S }
+  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S, detail }
   // Throws for an unknown species — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -62,7 +67,8 @@ export const FlowerEngine = (function () {
     const flowers = (opts && opts.flowers) || [];
     const colors = (opts && opts.colors) || [];
     const S = (opts && opts.S) || 1;
-    const built = ensureGeometry(type);
+    const detail = (opts && opts.detail) != null ? opts.detail : 1;
+    const built = ensureGeometry(type, detail);
     const pm = getPetalMaterial();
     const rings = C.buildRings({ flowers, colors, S, petalMaterial: pm, layers: built.layers });
     const centre = built.center

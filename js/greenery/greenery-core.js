@@ -32,9 +32,16 @@ export const GreeneryCore = (function () {
   // A flat, slightly cupped blade in the XY plane: base at (0,0,0), tip at (0,length,0),
   // width across X, cup/lift in Z. `profile(u)` shapes the half-width along the length.
   // `lobes` cut split-like notches (monstera); `holes` punch elliptical fenestrations.
+
+  // Quality detail factor (1 = full tessellation). buildGeometries sets this around the
+  // synchronous model.build() so every species' blades/tubes scale down together without
+  // editing each species.
+  let _detail = 1;
+
   function makeBlade(opts) {
     opts = opts || {};
-    const L = opts.lengthSegs || 10, W = opts.widthSegs || 10;
+    const L = Math.max(3, Math.round((opts.lengthSegs || 10) * _detail));
+    const W = Math.max(3, Math.round((opts.widthSegs  || 10) * _detail));
     const length = opts.length != null ? opts.length : 1;
     const halfW = opts.halfWidth != null ? opts.halfWidth : 0.3;
     const profile = typeof opts.profile === 'function'
@@ -89,7 +96,7 @@ export const GreeneryCore = (function () {
   // Sweeps a circle of varying radius along a polyline (stems, branches, rachises).
   // pts: [{x,y,z}]; radius: number or fn(t) with t in [0,1].
   function makeTube(pts, radius, radialSegs) {
-    const R = radialSegs || 6, n = pts.length;
+    const R = Math.max(3, Math.round((radialSegs || 6) * _detail)), n = pts.length;
     if (n < 2) return makeBlade({ length: 0.001 });
     const pos = [], uv = [], idx = [];
     const rad = typeof radius === 'function' ? radius : (t => radius);
@@ -208,8 +215,11 @@ export const GreeneryCore = (function () {
   }
 
   // Build (once) the model's single merged geometry. Cached by the factory.
-  function buildGeometries(model) {
-    const geometry = normalizeLongAxis(model.build(HELPERS));
+  function buildGeometries(model, detail) {
+    _detail = detail != null ? detail : 1;
+    let geometry;
+    try { geometry = normalizeLongAxis(model.build(HELPERS)); }
+    finally { _detail = 1; }
     withWhiteColor(geometry);
     geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
     return { geometry };

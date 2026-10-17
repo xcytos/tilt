@@ -343,6 +343,9 @@ export function parseProject(raw) {
         // Flower panels mounted around the scene. Each references an arrangement
         // in the Studio's own library by id (see the Studio's localStorage).
         flowerPanels: cleanFlowerPanels(data.flowerPanels),
+        // Scene-wide flower geometry quality (drives the petal/leaf tessellation).
+        flowerQuality: ['high', 'medium', 'low'].includes(data.flowerQuality)
+            ? data.flowerQuality : 'medium',
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

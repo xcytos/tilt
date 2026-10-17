@@ -96,6 +96,10 @@ const mounted = new Map();
 // around the stage. Unlike frames/pillars/lights they belong to no preset, so
 // they live in their own list (each with a placement) rather than in `mounted`.
 let flowerPanels = [];
+// Scene-wide flower geometry quality: 'high' | 'medium' | 'low'. One level for the
+// whole scene (matching "my device can/can't handle this"), persisted in the project
+// doc and applied to every mounted panel. 'medium' is the safe mobile default.
+let flowerQuality = 'medium';
 let lastPrimary = null;
 let panel = null;
 let rebuildQueued = false;
@@ -150,6 +154,7 @@ function buildDoc() {
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
         flowerPanels: flowerPanelsPlain(),
+        flowerQuality,
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -938,7 +943,8 @@ function refreshFlowerPanelPlaces() {
 function mountFlowerPanel(entry) {
     const model = createFlowerPanelModel({
         settings: entry && entry.settings,
-        arrangementId: entry && entry.arrangementId
+        arrangementId: entry && entry.arrangementId,
+        quality: flowerQuality
     });
     model.build();
     viewer.addModel(model);
@@ -1001,6 +1007,21 @@ function removeFlowerPanel(id) {
     if (!unmountFlowerPanel(id)) return;
     scheduleSave();
     if (panel && panel.setMountedFlowers) panel.setMountedFlowers(mountedFlowersPlain());
+}
+
+// Scene-wide flower quality change (Flowers chip selector). Applies to every mounted
+// panel, rebuilds the ones that changed, and repaints the selector's active state.
+function setFlowerQuality(q) {
+    const next = ['high', 'medium', 'low'].includes(q) ? q : 'medium';
+    if (next === flowerQuality) return;
+    flowerQuality = next;
+    let changed = false;
+    for (const fp of flowerPanels) {
+        if (fp.model && fp.model.setQuality && fp.model.setQuality(next)) changed = true;
+    }
+    if (changed) scheduleRebuild();
+    if (panel && panel.setFlowerQuality) panel.setFlowerQuality(next);
+    scheduleSave();
 }
 
 // The arrangement library lives in the Flower Studio's own localStorage (same
@@ -1931,6 +1952,11 @@ try {
 }
 stage('scene');
 
+// Restore the scene-wide flower quality before mounting panels (they build at it).
+if (savedDoc && ['high', 'medium', 'low'].includes(savedDoc.flowerQuality)) {
+    flowerQuality = savedDoc.flowerQuality;
+}
+
 // Mount any flower panels the document carried, now the stage exists. Each is
 // independent of the preset boards, so it just joins the scene at its place.
 // Prefer the live Studio arrangement (matched by id) so edits there keep
@@ -2004,10 +2030,12 @@ panel = createPanel({
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     flowerArrangements: studioArrangements(),
     flowerMounted: mountedFlowersPlain(),
+    flowerQuality,
     onFlowerMount: guard(arr => mountArrangement(arr)),
     onFlowerMove: (id, patch) => setFlowerPlace(id, patch),
     onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
+    onFlowerQualityChange: guard(q => setFlowerQuality(q)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])

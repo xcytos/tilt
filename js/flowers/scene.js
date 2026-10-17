@@ -21,6 +21,18 @@ export const FlowerScene = (function () {
   const engine = FlowerEngine;
   const greenEngine = GreeneryEngine;
 
+  // Quality levels -> geometry detail factor (1 = full tessellation). These scale every
+  // petal/leaf segment count down for weaker GPUs. 'medium' is the safe mobile default.
+  const QUALITY_DETAIL = { high: 1, medium: 0.5, low: 0.33 };
+  function detailFor(q) {
+    const k = String(q || 'medium').toLowerCase();
+    return QUALITY_DETAIL[k] != null ? QUALITY_DETAIL[k] : QUALITY_DETAIL.medium;
+  }
+  function normalizeQuality(q) {
+    const k = String(q || 'medium').toLowerCase();
+    return QUALITY_DETAIL[k] != null ? k : 'medium';
+  }
+
   function hashSeed(str) {
     let h = 0; str = String(str);
     for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) >>> 0; }
@@ -36,12 +48,15 @@ export const FlowerScene = (function () {
     };
   }
 
-  // options: { scale = world units per foot (default 1), log(msg,data), warn(msg) }
+  // options: { scale = world units per foot (default 1), quality = 'high'|'medium'|'low'
+  //           (default 'medium'), log(msg,data), warn(msg) }
   function create(options) {
     const opts = options || {};
     const scale = opts.scale != null ? opts.scale : 1;
     const log = opts.log || function () {};
     const warn = opts.warn || function () {};
+    let quality = normalizeQuality(opts.quality);
+    let detail = detailFor(quality);
 
     const group = new T.Group();
     let activeFlowerMeshes = [];
@@ -58,6 +73,14 @@ export const FlowerScene = (function () {
         if (Array.isArray(m.material)) m.material.forEach(mm => mm && mm.dispose && mm.dispose());
         else if (m.material.dispose) m.material.dispose();
       }
+    }
+    // Arrangements rebuild after the host mounted the panel, so the
+    // shadow flags have to be set here too - the viewer's mount-time
+    // sweep never sees these meshes.
+    function addMesh(parent, m) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      parent.add(m);
     }
     function releaseFlowerMeshes() {
       if (activeFlowerMeshes.length) { try { engine.release(activeFlowerMeshes); } catch (e) { log('flower release failed', e); } activeFlowerMeshes = []; }
@@ -102,9 +125,10 @@ export const FlowerScene = (function () {
         const res = greenEngine.build({
           type, items: byType[type],
           color: meta ? meta.color : '#4a7c3f',
-          colorVariation: item.colorVariation != null ? item.colorVariation : 0.3
+          colorVariation: item.colorVariation != null ? item.colorVariation : 0.3,
+          detail
         });
-        for (let i = 0; i < res.meshes.length; i++) greeneryGroup.add(res.meshes[i]);
+        for (let i = 0; i < res.meshes.length; i++) addMesh(greeneryGroup, res.meshes[i]);
         greeneryMeshes = greeneryMeshes.concat(res.meshes);
         count += res.instances; tri += res.triangles; types.push(type);
       }
@@ -129,7 +153,7 @@ export const FlowerScene = (function () {
       const mesh = new T.Mesh(geo, mat);
       mesh.position.z = 0.006 * scale; // just above foam top (z=0) to avoid z-fighting
       mesh.userData.layerId = layer.id;
-      group.add(mesh);
+      addMesh(group, mesh);
       borderFrameMeshes[layer.id] = mesh;
     }
 
@@ -148,9 +172,9 @@ export const FlowerScene = (function () {
         return { x: xy[0], y: xy[1], seed: 100000 + j + lh * 977, colorIndex: cIdx[j] || 0, spin: rotMax ? (r() * 2 - 1) * rotMax : 0 };
       });
       const S = (layer.flowerSize / 12) * scale;
-      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S });
+      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail });
       borderFlowerMeshes[layer.id] = result.meshes;
-      for (let i = 0; i < result.meshes.length; i++) group.add(result.meshes[i]);
+      for (let i = 0; i < result.meshes.length; i++) addMesh(group, result.meshes[i]);
       return { count: flowers.length, triangles: result.triangles };
     }
 
@@ -163,10 +187,11 @@ export const FlowerScene = (function () {
       const res = greenEngine.build({
         type: layer.species, items: inst,
         color: meta ? meta.color : '#4a7c3f',
-        colorVariation: layer.colorVariation != null ? layer.colorVariation : 0.3
+        colorVariation: layer.colorVariation != null ? layer.colorVariation : 0.3,
+        detail
       });
       borderGreeneryMeshes[layer.id] = res.meshes;
-      for (let i = 0; i < res.meshes.length; i++) group.add(res.meshes[i]);
+      for (let i = 0; i < res.meshes.length; i++) addMesh(group, res.meshes[i]);
       return { count: res.instances, triangles: res.triangles };
     }
 
@@ -187,7 +212,7 @@ export const FlowerScene = (function () {
         new T.MeshStandardMaterial({ color: new T.Color(0x84977b), roughness: 1 })
       );
       backingMesh.position.z = -foamDepth / 2;
-      group.add(backingMesh);
+      addMesh(group, backingMesh);
 
       const allPositions = model.positions(s, scale);
       const counts = model.counts(s, allPositions.length);
@@ -199,9 +224,9 @@ export const FlowerScene = (function () {
 
       let result = { meshes: [], triangles: 0, petalsPerFlower: 0 };
       if (showFlowers) {
-        result = engine.build({ type: s.flowerType, flowers, colors: palette, S });
+        result = engine.build({ type: s.flowerType, flowers, colors: palette, S, detail });
         activeFlowerMeshes = result.meshes;
-        for (let i = 0; i < activeFlowerMeshes.length; i++) group.add(activeFlowerMeshes[i]);
+        for (let i = 0; i < activeFlowerMeshes.length; i++) addMesh(group, activeFlowerMeshes[i]);
       }
 
       // Border layers (outside -> inside). Independent of Flowers/Greenery toggles:
@@ -231,9 +256,21 @@ export const FlowerScene = (function () {
         greenery: gre.count,
         greeneryTypes: gre.types,
         petalsPerFlower: result.petalsPerFlower,
+        quality,
         triangles, frames: frameCount
       };
     }
+
+    // Swap the quality level. Returns true if it changed (caller should rebuild);
+    // geometry caches are keyed per detail level so switching back is instant.
+    function setQuality(q) {
+      const next = normalizeQuality(q);
+      if (next === quality) return false;
+      quality = next;
+      detail = detailFor(next);
+      return true;
+    }
+    function getQuality() { return quality; }
 
     function dispose() {
       releaseFlowerMeshes(); releaseBacking(); releaseBorderFrames();
@@ -242,7 +279,7 @@ export const FlowerScene = (function () {
       while (group.children.length) group.remove(group.children[0]);
     }
 
-    return { group, build, dispose };
+    return { group, build, dispose, setQuality, getQuality };
   }
 
   return { create };

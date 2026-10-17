@@ -131,7 +131,7 @@ export function createPanel(opts) {
         onFrameSpacing,
         onPlaceChange,
         onFoldChange,
-        onFlowerMount, onFlowerOpenStudio,
+        onFlowerMount, onFlowerOpenStudio, onFlowerQualityChange,
         shadowInfo, onShadowToggle, onShadowBoxToggle,
         onShelfChange, themeIsDark = false,
         folds = []
@@ -145,6 +145,9 @@ export function createPanel(opts) {
     // shows these so a finger can move, turn or remove each one. Refreshed
     // structurally (mount / remove) via setMountedFlowers.
     let mountedFlowers = Array.isArray(opts.flowerMounted) ? opts.flowerMounted : [];
+    // Scene-wide flower quality level; the chip's segmented control reads this and
+    // app.js pushes changes through setFlowerQuality() so the active state follows.
+    let flowerQuality = opts.flowerQuality || 'medium';
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
@@ -413,6 +416,8 @@ export function createPanel(opts) {
         onFlowerMove: (id, patch) => { if (opts.onFlowerMove) opts.onFlowerMove(id, patch); },
         onFlowerRemove: id => { if (opts.onFlowerRemove) opts.onFlowerRemove(id); },
         buildFlowerPlacement,
+        getFlowerQuality: () => flowerQuality,
+        onFlowerQualityChange: q => { if (opts.onFlowerQualityChange) opts.onFlowerQualityChange(q); },
         live,
         emptyNote
     });
@@ -2458,6 +2463,12 @@ export function createPanel(opts) {
         setMountedFlowers(list) {
             mountedFlowers = Array.isArray(list) ? list : [];
             renderIfChanged(true);
+            return this;
+        },
+        // Quality is scene-wide: just repaint the segmented control's active state.
+        setFlowerQuality(q) {
+            flowerQuality = q || 'medium';
+            if (flowerChip && flowerChip.setQuality) flowerChip.setQuality();
             return this;
         },
         setError(text) {

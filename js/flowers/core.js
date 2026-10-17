@@ -52,8 +52,11 @@ export const FlowerCore = (function () {
     opts = opts || {};
     const length = opts.length != null ? opts.length : 0.3;
     const width  = opts.width  != null ? opts.width  : 0.12;   // max half-width
-    const ls     = opts.lengthSegs || 6;
-    const ws     = opts.widthSegs  || 4;
+    // Quality detail divisor (1 = full, 0.5 = half the segments, ...). Scales the
+    // tessellation down for weaker GPUs; floor of 2x2 keeps a petal a petal.
+    const detail = opts.detail != null ? opts.detail : 1;
+    const ls     = Math.max(2, Math.round((opts.lengthSegs || 6) * detail));
+    const ws     = Math.max(2, Math.round((opts.widthSegs  || 4) * detail));
     const halfW  = profileFn(opts.profile);
     const cup     = opts.cup     != null ? opts.cup     : 0.02;  // centre lift at base
     const cupFade = opts.cupFade != null ? opts.cupFade : 0.65;  // cup loss toward tip
@@ -248,25 +251,28 @@ export const FlowerCore = (function () {
   }
 
   // Pre-build a species' geometries (petal rings + centre) once; reused across rebuilds.
-  function buildGeometries(species) {
+  // `detail` (default 1) scales every tessellation down for the quality level.
+  function buildGeometries(species, detail) {
+    const d = detail != null ? detail : 1;
+    const domeW = Math.max(4, Math.round(12 * d)), domeH = Math.max(3, Math.round(7 * d));
     const layers = (species.layers || []).map(l => {
       const layer = Object.assign({}, l);
-      layer._geometry = makePetalGeometry(l.petal || {});
+      layer._geometry = makePetalGeometry(Object.assign({}, l.petal || {}, { detail: d }));
       return layer;
     });
     let center = null;
     if (species.center) {
       center = Object.assign({}, species.center);
       if (species.center.kind === 'dome') {
-        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.4, 12, 7);
+        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.4, domeW, domeH);
       } else if (species.center.kind === 'cone') {
-        center._geometry = new T.ConeGeometry(species.center.radius || 0.04, species.center.height || 0.12, 12, 1);
+        center._geometry = new T.ConeGeometry(species.center.radius || 0.04, species.center.height || 0.12, Math.max(6, Math.round(12 * d)), 1);
         center._geometry.rotateX(Math.PI / 2); // point along +Z (toward viewer)
         center._geometry.computeVertexNormals();
         withWhiteColor(center._geometry);
         center._geometry.userData.triangles = (center._geometry.index ? center._geometry.index.count : center._geometry.attributes.position.count) / 3;
       } else {
-        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.35, 12, 7);
+        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.35, domeW, domeH);
       }
     }
     return { layers, center };
