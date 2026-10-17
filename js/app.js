@@ -8,6 +8,7 @@ import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
 import { RECIPES, recipeById, recipeFor } from './recipes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
+import { createFlowerPanelModel, FLOWERPANEL_PARAMS, FLOWERPANEL_ID } from './objects/flowerpanel.js';
 import { createLightModel, LIGHT_TYPES, LIGHT_PARAMS, LIGHT_NAMES } from './elements/light.js';
 import {
     loadProject, saveProject, clearProject, applySaved, projectToJSON,
@@ -36,6 +37,10 @@ try {
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
+// A flower panel is a floor-standing arrangement authored in the Studio. It is
+// not a shelf preset - the Flowers tool mounts it into the scene (see Phase 6) -
+// but the type must be registered so project docs validate and instantiate.
+registry.register(FLOWERPANEL_ID, createFlowerPanelModel, FLOWERPANEL_PARAMS);
 // One lighting module, three registered type adaptors - each with its own
 // params schema, so the panel renders PAR/LED/strip from the same code.
 for (const t of LIGHT_TYPES) {
@@ -87,6 +92,10 @@ const framePillars = new Map();
 // travel with it, and each keeps its own numbers.
 const frameElements = new Map();
 const mounted = new Map();
+// Free-standing flower panels: arrangements authored in the Studio and placed
+// around the stage. Unlike frames/pillars/lights they belong to no preset, so
+// they live in their own list (each with a placement) rather than in `mounted`.
+let flowerPanels = [];
 let lastPrimary = null;
 let panel = null;
 let rebuildQueued = false;
@@ -140,6 +149,7 @@ function buildDoc() {
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
+        flowerPanels: flowerPanelsPlain(),
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -247,11 +257,13 @@ function scheduleRebuild() {
     requestAnimationFrame(() => {
         rebuildQueued = false;
         for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
+        for (const fp of flowerPanels) if (fp.model && fp.model.dirty && fp.model.build) fp.model.build();
         // Re-place only. A pillar follows its frame's end through the
         // swing, and a light rides the same anchor it clamped to; the camera
         // is left alone so dragging a slider never yanks the view around.
         refreshPillarPlaces();
         refreshElementPlaces();
+        refreshFlowerPanelPlaces();
         applyPlaces();
     });
 }
@@ -899,6 +911,104 @@ function applyPlaces() {
         });
     }
     fitStageSoon();
+}
+
+// ---- flower panels -------------------------------------------------------
+// Each is its own model with its own placement, hydrated from the document's
+// top-level `flowerPanels` field (see project.js) and written back on save.
+function nextFlowerPanelId() {
+    const ids = new Set(flowerPanels.map(f => f.id));
+    let n = flowerPanels.length + 1;
+    while (ids.has('panel-' + n)) n++;
+    return 'panel-' + n;
+}
+
+function placeFlowerPanel(fp) {
+    if (!fp.model || !fp.model.object3D) return;
+    fp.model.object3D.position.x = fp.x;
+    fp.model.object3D.position.z = fp.z;
+    fp.model.object3D.rotation.y = (fp.ry || 0) * Math.PI / 180;
+}
+
+function refreshFlowerPanelPlaces() {
+    for (const fp of flowerPanels) placeFlowerPanel(fp);
+}
+
+// entry: { id?, name?, arrangementId?, settings, x?, z?, ry? } -> the live panel.
+function mountFlowerPanel(entry) {
+    const model = createFlowerPanelModel({
+        settings: entry && entry.settings,
+        arrangementId: entry && entry.arrangementId
+    });
+    model.build();
+    viewer.addModel(model);
+    const fp = {
+        id: (entry && entry.id) || nextFlowerPanelId(),
+        model,
+        name: (entry && entry.name) || '',
+        arrangementId: (entry && entry.arrangementId) || null,
+        x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
+        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
+    };
+    flowerPanels.push(fp);
+    placeFlowerPanel(fp);
+    return fp;
+}
+
+function unmountFlowerPanel(id) {
+    const i = flowerPanels.findIndex(f => f.id === id);
+    if (i < 0) return false;
+    viewer.removeModel(flowerPanels[i].model);
+    flowerPanels.splice(i, 1);
+    return true;
+}
+
+function flowerPanelsPlain() {
+    return flowerPanels.map(fp => ({
+        id: fp.id,
+        name: fp.name,
+        arrangementId: fp.arrangementId,
+        settings: fp.model && fp.model.getSettings ? fp.model.getSettings() : undefined,
+        x: fp.x, z: fp.z, ry: fp.ry
+    }));
+}
+
+// The arrangement library lives in the Flower Studio's own localStorage (same
+// origin). TILT only lists and mounts them - it never stores the library itself,
+// so edits made in the Studio keep persisting there and flow through by id.
+const STUDIO_STORE = 'flower-panel-studio-v2';
+function studioArrangements() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(STUDIO_STORE) || '[]');
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter(x => x && x.id && x.settings && typeof x.settings === 'object')
+            .map(x => ({ id: String(x.id), settings: x.settings, updatedAt: x.updatedAt || '' }));
+    } catch { return []; }
+}
+
+// Mount one Studio arrangement into the scene, near the origin and nudged
+// apart so several stack visibly. Persists as a flowerPanels[] snapshot.
+function mountArrangement(arr) {
+    if (!arr || !arr.settings) return null;
+    const n = flowerPanels.length;
+    const fp = mountFlowerPanel({
+        arrangementId: arr.id,
+        name: (arr.settings && arr.settings.name) || '',
+        settings: arr.settings,
+        x: (n % 5) * 6 - 12,
+        z: 10,
+        ry: 0
+    });
+    scheduleSave();
+    return fp;
+}
+
+function openStudio() {
+    const id = projectId();
+    const url = './studio/' + (id ? `?p=${encodeURIComponent(id)}` : '');
+    window.open(url, '_blank');
 }
 
 function num(v, fallback) {
@@ -1790,6 +1900,26 @@ try {
 }
 stage('scene');
 
+// Mount any flower panels the document carried, now the stage exists. Each is
+// independent of the preset boards, so it just joins the scene at its place.
+// Prefer the live Studio arrangement (matched by id) so edits there keep
+// persisting here; fall back to the snapshot the document carries.
+if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
+    const lib = studioArrangements();
+    for (const entry of savedDoc.flowerPanels) {
+        try {
+            const live = entry.arrangementId && lib.find(a => a.id === entry.arrangementId);
+            mountFlowerPanel({
+                id: entry.id,
+                name: (live && live.settings && live.settings.name) || entry.name,
+                arrangementId: entry.arrangementId,
+                settings: (live && live.settings) || entry.settings,
+                x: entry.x, z: entry.z, ry: entry.ry
+            });
+        } catch (err) { console.error('[flowerpanel]', err); }
+    }
+}
+
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
@@ -1838,6 +1968,9 @@ panel = createPanel({
     onElementCount: guard((id, n) => onElementCount(id, n)),
     onFrameSpacing: guard((id, ft) => setFrameSpacing(id, ft)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
+    flowerArrangements: studioArrangements(),
+    onFlowerMount: guard(arr => mountArrangement(arr)),
+    onFlowerOpenStudio: () => openStudio(),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -1907,6 +2040,22 @@ panel = createPanel({
     onShelfChange: () => syncDock()
 });
 stage('panel');
+
+// The Studio posts here whenever it saves, updates or deletes an arrangement,
+// so the shelf list and any mounted panel that references it by id stay in
+// step without a reload.
+if (typeof BroadcastChannel !== 'undefined') {
+    const flowers = new BroadcastChannel('flowerpanel-changed');
+    flowers.onmessage = () => {
+        const lib = studioArrangements();
+        if (panel && panel.setFlowerArrangements) panel.setFlowerArrangements(lib);
+        for (const fp of flowerPanels) {
+            const live = fp.arrangementId && lib.find(a => a.id === fp.arrangementId);
+            if (live && live.settings) fp.model.setSettings(live.settings);
+        }
+        scheduleRebuild();
+    };
+}
 
 // The canvas lives above the dock, not under it: whenever the shelf opens,
 // closes, or reflows, the container shrinks or grows by the dock's height

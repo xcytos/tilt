@@ -9,6 +9,9 @@
 // Node the tests run the parser under.
 import { LAYOUT_IDS } from './layouts.js';
 import { COLORWAY_IDS, DEFAULT_COLORWAY } from './colorways.js';
+// Pure (no three.js): the flower arrangement's authority for turning whatever a
+// document carries into a full, clamped settings object.
+import { FlowerModel } from './flowermodel.js';
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -268,6 +271,43 @@ function cleanSetPresets(raw) {
     return out;
 }
 
+// Mounted flower panels: each references an arrangement in the Studio's own
+// library by id (the library lives in the Studio's localStorage, not here) plus
+// a placement. A fallback copy of `settings` travels with it so a scene still
+// opens when the Studio entry has since been removed; app.js prefers the live
+// Studio arrangement (matched by id) so edits there keep persisting here.
+const FLOWER_PANEL_LIMIT = 12;
+const FP_ID_RE = /^[a-z0-9-]{1,40}$/;
+
+// Returns normalized settings, or null when `raw` is not an object at all.
+function cleanArrangementSettings(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    try { return FlowerModel.normalize(raw); } catch { return null; }
+}
+
+function cleanFlowerPanels(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const p of raw) {
+        if (out.length >= FLOWER_PANEL_LIMIT) break;
+        if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+        if (typeof p.id !== 'string' || !FP_ID_RE.test(p.id)) continue;
+        const settings = cleanArrangementSettings(p.settings);
+        if (!settings) continue;
+        out.push({
+            id: p.id,
+            name: typeof p.name === 'string' ? p.name.trim().slice(0, 60) : '',
+            arrangementId: typeof p.arrangementId === 'string' && FP_ID_RE.test(p.arrangementId)
+                ? p.arrangementId : null,
+            settings,
+            x: clampN(p.x, -300, 300, 0),
+            z: clampN(p.z, -300, 300, 0),
+            ry: clampN(p.ry, -360, 360, 0)
+        });
+    }
+    return out;
+}
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 export function parseProject(raw) {
@@ -300,6 +340,9 @@ export function parseProject(raw) {
         folds: cleanFolds(data.folds),
         spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
+        // Flower panels mounted around the scene. Each references an arrangement
+        // in the Studio's own library by id (see the Studio's localStorage).
+        flowerPanels: cleanFlowerPanels(data.flowerPanels),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],

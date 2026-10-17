@@ -283,6 +283,7 @@ function sceneSconce(group, size, x, y) {
 // wall-panel trim, drapery folds flanking the stage, and shallow centre
 // steps up onto it. The white-and-red identity stays.
 function sceneModernCeiling(group, size) {
+    const mark = group.children.length;
     const ceilY = size.wallH - size.h;
     const w = size.wallX * 2;
     const back = size.wallZ;
@@ -316,6 +317,12 @@ function sceneModernCeiling(group, size) {
     for (const sx of [-1, 1]) {
         sceneBox(group, 0.12, 0.12, depth, cove,
             sx * (size.wallX - 0.35), ceilY - 0.45, cz);
+    }
+    // The ceiling shades the camera, not the room: these halls are lit
+    // by their own lamps, so the key light passes through the roof
+    // instead of parking the whole hall in one giant shadow.
+    for (let i = mark; i < group.children.length; i++) {
+        group.children[i].userData.noShadow = true;
     }
 }
 
@@ -529,6 +536,7 @@ function buildWhiteStage(group, size) {
 // A coffered ceiling: a slab with a grid of beams hanging below it, so the
 // slab reads as recessed panels. Gold trim strips line the beam bottoms.
 function sceneCofferedCeiling(group, size) {
+    const mark = group.children.length;
     const ceilY = size.wallH - size.h;
     const back = size.wallZ;
     const front = -(size.d / 2 + 18);   // reaches over the dance floor
@@ -557,6 +565,11 @@ function sceneCofferedCeiling(group, size) {
     for (const sx of [-1, 1]) {
         sceneBox(group, 0.14, 0.14, depth, cove,
             sx * (size.wallX - 0.35), ceilY - 0.5, cz);
+    }
+    // The coffered roof shades the camera, not the hall - the practicals
+    // do the lighting (see sceneModernCeiling).
+    for (let i = mark; i < group.children.length; i++) {
+        group.children[i].userData.noShadow = true;
     }
 }
 
@@ -1044,7 +1057,9 @@ export class SceneRig {
                 if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
                 const r = o.geometry.boundingSphere
                     ? o.geometry.boundingSphere.radius : 0;
-                o.castShadow = r < 80;
+                // huge slabs never cast; ceilings opt out so the key
+                // doesn't park the whole hall in one shadow
+                o.castShadow = r < 80 && !o.userData.noShadow;
             });
         }
         return this.settings;

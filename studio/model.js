@@ -1,4 +1,6 @@
-/* Pure arrangement calculations. Browser + Node compatible. */
+/* Pure arrangement calculations. Browser + Node compatible.
+ * GENERATED from js/flowermodel.js by tools/build-flowermodel.mjs - do not edit this copy.
+ * Edit js/flowermodel.js and re-run: node tools/build-flowermodel.mjs */
 (function (root, factory) {
   'use strict';
   const api = factory();

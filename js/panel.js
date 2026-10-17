@@ -1,4 +1,5 @@
 import { PILLAR_ID } from './objects/pillar.js';
+import { createFlowerChip, FLOWER_CHIP_ID } from './objects/flowerchip.js';
 import { VERSION } from './version.js';
 
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
@@ -130,9 +131,15 @@ export function createPanel(opts) {
         onFrameSpacing,
         onPlaceChange,
         onFoldChange,
+        onFlowerMount, onFlowerOpenStudio,
         onShelfChange, themeIsDark = false,
         folds = []
     } = opts;
+
+    // Flower arrangements are authored in the Studio's own library; the panel
+    // lists them so a tap mounts one into the scene. Kept mutable so the list
+    // can be refreshed (Studio save / BroadcastChannel) without a full rebuild.
+    let flowerList = Array.isArray(opts.flowerArrangements) ? opts.flowerArrangements : [];
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
@@ -310,6 +317,19 @@ export function createPanel(opts) {
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
+
+    // The Flowers chip ships in its own module (objects/flowerchip.js) - wire
+    // it into the toolbar right after Lights and hand it what it needs.
+    const flowerChip = createFlowerChip({
+        icon,
+        getFlowerList: () => flowerList,
+        onMount: arr => { if (opts.onFlowerMount) opts.onFlowerMount(arr); },
+        onOpenStudio: () => { if (opts.onFlowerOpenStudio) opts.onFlowerOpenStudio(); },
+        live,
+        emptyNote
+    });
+    TOOLS.splice(TOOLS.findIndex(t => t.id === 'lights') + 1, 0, flowerChip.chip);
+
     let liveTheme = themeIsDark;
     let lastSignature = null;
 
@@ -1965,9 +1985,11 @@ export function createPanel(opts) {
             activeId_ || '',
             JSON.stringify(pillarShape),
             JSON.stringify(elemShape),
-            (current && current.name) || ''
+            (current && current.name) || '',
+            flowerList.map(a => (a && a.id) || '').join(',')
         ].join('|');
     }
+
 
     function render() {
         setSelectRef = null;
@@ -2013,6 +2035,9 @@ export function createPanel(opts) {
                 host.appendChild(lookBlock());
                 anything = true;
             }
+        } else if (activeTool === FLOWER_CHIP_ID) {
+            host.appendChild(flowerChip.block());
+            anything = true;
         } else {
             // Frame groups get sections; pillars ride inside their frame's
             // Pillars group, so they never get a section of their own.
@@ -2256,6 +2281,13 @@ export function createPanel(opts) {
         },
 
         setBusy(value) { busy = !!value; applyBusy(); },
+        // Swap in a fresh arrangement list (Studio save / BroadcastChannel) and
+        // repaint just the shelf if the Flowers tool is showing.
+        setFlowerArrangements(list) {
+            flowerList = Array.isArray(list) ? list : [];
+            renderIfChanged(true);
+            return this;
+        },
         setError(text) {
             msg.textContent = text || '';
             msg.classList.toggle('hidden', !text);

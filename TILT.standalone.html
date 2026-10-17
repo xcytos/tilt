@@ -590,6 +590,14 @@
     </script>
     <script type="module">
 import * as THREE from 'three';
+import './rose.js';
+import './marigold.js';
+import './chrysanthemum.js';
+import './dahlia.js';
+import './gerbera.js';
+import './monstera.js';
+import './eucalyptus.js';
+import './boston-fern.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
@@ -707,6 +715,7 @@ function sceneBulb(group, x, y, z, color) {
 // Vertical gradient, stretched across the screen by scene.background. Used
 // for the skies; the flat scenes use a plain colour instead.
 function sceneSky(top, mid, bottom) {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 256;
@@ -722,7 +731,83 @@ function sceneSky(top, mid, bottom) {
     return tex;
 }
 
+function cssHex(n) {
+    return '#' + (n >>> 0).toString(16).padStart(6, '0');
+}
+
+function shadeHex(n, f) {
+    const c = (v) => Math.min(255, Math.max(0, Math.round(v * f)));
+    return (c((n >> 16) & 255) << 16) | (c((n >> 8) & 255) << 8)
+        | c(n & 255);
+}
+
+// Deterministic noise for baked textures: same seed, same surface, so a
+// rebuild never shimmers.
+function texRng(seed) {
+    let s = seed >>> 0;
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+
+// Soft mottled plaster/paint: hundreds of faint seeded flecks over the
+// base so walls and floors stop reading as flat cards.
+function sceneMottleTexture(color, amount, seed) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    g.fillStyle = cssHex(color);
+    g.fillRect(0, 0, 128, 128);
+    const rng = texRng(seed);
+    for (let i = 0; i < 520; i++) {
+        g.globalAlpha = 0.025 + rng() * (amount * 0.7);
+        g.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
+        const s = 2 + rng() * 5;
+        g.fillRect(rng() * 128, rng() * 128, s, s);
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+}
+
+// Linen weave: a faint cross-hatch, for drapery and table cloths.
+function sceneWeaveTexture(color, seed) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    g.fillStyle = cssHex(color);
+    g.fillRect(0, 0, 128, 128);
+    const rng = texRng(seed);
+    g.strokeStyle = 'rgba(0,0,0,0.05)';
+    g.lineWidth = 1;
+    for (let i = 0; i <= 128; i += 6) {
+        g.globalAlpha = 0.5 + rng() * 0.5;
+        g.beginPath(); g.moveTo(i + 0.5, 0); g.lineTo(i + 0.5, 128); g.stroke();
+        g.beginPath(); g.moveTo(0, i + 0.5); g.lineTo(128, i + 0.5); g.stroke();
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+}
+
+// Bake a texture into a material: the map carries the colour, so the
+// base tint goes white instead of multiplying the surface dark.
+function sceneMap(mat, tex, rx, ry) {
+    if (!tex) return mat;
+    mat.map = tex;
+    mat.color.setHex(0xffffff);
+    if (rx) tex.repeat.set(rx, ry);
+    return mat;
+}
+
 function scenePlankTexture(base, line, repeat) {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
     const g = canvas.getContext('2d');
@@ -752,12 +837,19 @@ function scenePlankTexture(base, line, repeat) {
 // Floor + three walls + a raised stage: the shell every indoor scene starts
 // from. The carpet's top face is y = 0, so frames stand on the red mat.
 // Every dimension comes from `size` - the room grows with its contents.
-function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) {
+function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor, floorKind) {
     const groundW = Math.max(170, size.wallX * 2 + 50);
     const groundD = Math.max(120, size.wallZ * 2 + 40);
-    sceneGround(group, groundW, groundD,
-        sceneMat(floorColor, { roughness: 0.9 }), -size.h);
+    const floorMat = sceneMat(floorColor, { roughness: 0.9 });
+    if (floorKind === 'plank') {
+        sceneMap(floorMat, scenePlankTexture(cssHex(floorColor),
+            cssHex(shadeHex(floorColor, 0.72)), 1), 10, 6);
+    } else {
+        sceneMap(floorMat, sceneMottleTexture(floorColor, 0.05, 22), 12, 8);
+    }
+    sceneGround(group, groundW, groundD, floorMat, -size.h);
     const wall = sceneMat(wallColor, { roughness: 0.95 });
+    sceneMap(wall, sceneMottleTexture(wallColor, 0.045, 11), 5, 2.5);
     const midY = size.wallH / 2 - size.h;
     sceneWall(group, size.wallX * 2 + 6, size.wallH, wall,
         0, midY, size.wallZ, Math.PI);
@@ -769,21 +861,23 @@ function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) 
         sceneMat(skirtColor, { roughness: 0.85 }),
         0, -MAT_T - (size.h - MAT_T) / 2, 0);
     sceneBox(group, size.w - 1.4, MAT_T, size.d - 1.4,
-        sceneMat(carpetColor, { roughness: 0.96 }), 0, -MAT_T / 2, 0);
+        sceneMap(sceneMat(carpetColor, { roughness: 0.96 }),
+            sceneMottleTexture(carpetColor, 0.1, 33), 6, 2),
+        0, -MAT_T / 2, 0);
     return wall;
 }
 
 function sceneUplights(group, size) {
     const x = size.w * 0.117;   // ~7 ft on the default 60 ft stage
-    sceneLamp(group, -x, 0.5, 2.5, 70, 34, 0xffd7a8);
-    sceneLamp(group, x, 0.5, 2.5, 70, 34, 0xffd7a8);
+    sceneLamp(group, -x, 0.5, 2.5, 40, 30, 0xffd7a8);
+    sceneLamp(group, x, 0.5, 2.5, 40, 30, 0xffd7a8);
 }
 
 function sceneSconce(group, size, x, y) {
     sceneBox(group, 0.9, 1.8, 0.2,
-        sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 2, roughness: 0.5 }),
+        sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 1.2, roughness: 0.5 }),
         x, y, size.wallZ - 0.5);
-    sceneLamp(group, x, y, size.wallZ - 1.4, 55, 26, 0xffdcae);
+    sceneLamp(group, x, y, size.wallZ - 1.4, 30, 22, 0xffdcae);
 }
 
 // ---- modern banquet hall (the white room) -----------------------------
@@ -798,13 +892,14 @@ function sceneModernCeiling(group, size) {
     const depth = back - front;
     const cz = (back + front) / 2;
     sceneBox(group, w + 4, 0.25, depth + 2,
-        sceneMat(0xf6f5f2, { roughness: 0.95 }), 0, ceilY + 0.85, cz);
-    // Downlight grid: one instanced recessed can per cell.
+        sceneMat(0xeae5dc, { roughness: 0.95 }), 0, ceilY + 0.85, cz);
+    // Downlight grid: one instanced recessed can per cell - a warm pin,
+    // not a bare bulb; the tone-mapped room keeps it from strobing.
     const cols = Math.max(4, Math.round(w / 10));
     const rows = Math.max(3, Math.round(depth / 12));
     const canGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.08, 12);
-    const canMat = sceneMat(0xffffff,
-        { emissive: 0xfff8ec, emissiveIntensity: 3, roughness: 0.4 });
+    const canMat = sceneMat(0xfff6e6,
+        { emissive: 0xffe8c4, emissiveIntensity: 1.5, roughness: 0.4 });
     const cans = new THREE.InstancedMesh(canGeo, canMat, (cols + 1) * (rows + 1));
     const m = new THREE.Matrix4();
     let k = 0;
@@ -816,9 +911,9 @@ function sceneModernCeiling(group, size) {
         }
     }
     group.add(cans);
-    // Cool cove line around the ceiling edge.
-    const cove = sceneMat(0xf3f6ff,
-        { emissive: 0xdfe8ff, emissiveIntensity: 1.5, roughness: 0.6 });
+    // Warm cove line around the ceiling edge.
+    const cove = sceneMat(0xf5efe2,
+        { emissive: 0xffdfae, emissiveIntensity: 0.9, roughness: 0.6 });
     sceneBox(group, w, 0.12, 0.12, cove, 0, ceilY - 0.45, back - 0.35);
     for (const sx of [-1, 1]) {
         sceneBox(group, 0.12, 0.12, depth, cove,
@@ -829,7 +924,8 @@ function sceneModernCeiling(group, size) {
 // Drapery: soft vertical folds of ivory, flanking the stage on the back
 // wall - half-round columns of cloth, tight at the top, full at the hem.
 function sceneDrapery(group, size) {
-    const ivory = sceneMat(0xf7f3ea, { roughness: 0.95 });
+    const ivory = sceneMap(sceneMat(0xf7f3ea, { roughness: 0.95 }),
+        sceneWeaveTexture(0xf7f3ea, 7), 2, 5);
     const h = size.wallH * 0.72;
     for (const sx of [-1, 1]) {
         const cx = sx * size.w * 0.33;
@@ -861,13 +957,145 @@ function sceneStageSteps(group, size) {
     }
 }
 
+// Stacked banquet chairs along the side walls - the setup-day look every
+// stage room really has. One chair drawn from three parts (seat, back,
+// four legs), every part instanced: a whole wall of stacks is three draw
+// calls. Deterministic jitter, no Math.random.
+// One instanced chair army from a list of sites: { x, z, ry, lift }.
+// Seats, backs and legs are three draw calls no matter how many chairs.
+function sceneChairArmy(group, size, sites) {
+    const seatMat = sceneMat(0x6e5f4a, { roughness: 0.9 });
+    const frameMat = sceneMat(0x8f8574, { metalness: 0.6, roughness: 0.4 });
+    const count = sites.length;
+    const seats = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1.6, 0.09, 1.5), seatMat, count);
+    const backs = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1.6, 1.55, 0.09), seatMat, count);
+    const legs = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.028, 0.028, 0.46, 6), frameMat, count * 4);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const axis = new THREE.Vector3(0, 1, 0);
+    const v = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    let si = 0, li = 0;
+    for (const site of sites) {
+        const c = Math.cos(site.ry), s = Math.sin(site.ry);
+        const y = -size.h + 0.46 + (site.lift || 0);
+        const jitter = (((si * 13) % 5) - 2) * 0.014;
+        q.setFromAxisAngle(axis, site.ry + jitter);
+        const place = (lx, ly, lz) => {
+            v.set(site.x + lx * c + lz * s, y + ly,
+                site.z - lx * s + lz * c);
+            m.compose(v, q, one);
+        };
+        place(0, 0, 0);
+        seats.setMatrixAt(si, m);
+        place(0, 0.82, -0.7);
+        backs.setMatrixAt(si, m);
+        for (const [lx, lz] of [[-0.7, -0.6], [0.7, -0.6],
+            [-0.7, 0.6], [0.7, 0.6]]) {
+            place(lx, -0.23, lz);
+            legs.setMatrixAt(li++, m);
+        }
+        si++;
+    }
+    group.add(seats, backs, legs);
+}
+
+// Round banquet tables set for service in front of the stage - the gala
+// layout: dance floor nearest the stage, guest tables beyond it, every
+// chair turned so the seated guest faces the program. Floor-length
+// cloths, gold charger rim, a bloom centerpiece, eight seats a table.
+// Everything instanced; positions scale off the derived room size.
+function sceneDiningTables(group, size, aisle) {
+    const clothMat = sceneMap(sceneMat(0xf2ead8, { roughness: 0.95 }),
+        sceneWeaveTexture(0xf2ead8, 9), 3, 3);
+    const topMat = sceneMat(0xf6f0e2, { roughness: 0.9 });
+    const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
+    const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
+    const sites = [];
+    const rows = [-size.d / 2 - 4.5, -size.d / 2 - 13.5];
+    if (aisle) {
+        // Ceremony layout: two blocks of tables either side of a central
+        // open aisle running straight to the stage steps.
+        const inner = Math.max(9, size.w * 0.15);
+        const outer = inner + 11;
+        for (const sx of [-1, 1]) {
+            for (const x of [inner, outer]) {
+                for (const z of rows) {
+                    sites.push({ x: sx * x, z });
+                }
+            }
+        }
+    } else {
+        // Gala pockets: one column a side, flanking the dance floor; x
+        // pulls in with the room so chairs never crowd the parquet edge.
+        const x = Math.min(size.wallX - 8, size.w * 0.35);
+        for (const sx of [-1, 1]) {
+            for (const z of rows) {
+                sites.push({ x: sx * x, z });
+            }
+        }
+    }
+    const n = sites.length;
+    const cloths = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.45, 2.68, 2.5, 24), clothMat, n);
+    const tops = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.5, 2.5, 0.12, 24), topMat, n);
+    const rims = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.53, 2.53, 0.08, 24), goldMat, n);
+    const blooms = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(0.38, 10, 8), bloomMat, n);
+    const vases = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.14, 0.2, 0.75, 10), goldMat, n);
+    const m = new THREE.Matrix4();
+    const q0 = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    const chairSites = [];
+    const perTable = 8;
+    const chairR = 3.7;
+    let ci = 0;
+    for (const t of sites) {
+        const set = (mesh, y, scale) => {
+            m.compose(
+                new THREE.Vector3(t.x, -size.h + y, t.z), q0,
+                scale ? new THREE.Vector3(scale, 1, scale) : one);
+            mesh.setMatrixAt(ci, m);
+        };
+        set(cloths, 1.25);
+        set(tops, 2.56);
+        set(rims, 2.42);
+        set(vases, 3.0);
+        set(blooms, 3.55);
+        ci++;                      // next table, next instance slot
+        for (let k = 0; k < perTable; k++) {
+            const a = (k / perTable) * Math.PI * 2;
+            const cx = t.x + Math.cos(a) * chairR;
+            const cz = t.z + Math.sin(a) * chairR;
+            chairSites.push({
+                x: cx,
+                z: cz,
+                // Every chair faces the stage (front of room is -z).
+                ry: Math.atan2(-cx, -cz)
+            });
+        }
+    }
+    group.add(cloths, tops, rims, vases, blooms);
+    sceneChairArmy(group, size, chairSites);
+}
+
 function buildWhiteStage(group, size) {
-    sceneRoom(group, size, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
+    // A banquet hall, not a lightbox: warm greige shell so the white
+    // trims and the ivory drapery actually read, a floor a clear step
+    // darker than the walls so tables and chairs sit ON something, and
+    // layered lamps instead of one white blast.
+    sceneRoom(group, size, 0xc7bfb2, 0xe6e1d8, 0xeae5dc, 0xb01818);
     sceneModernCeiling(group, size);
     sceneDrapery(group, size);
     sceneStageSteps(group, size);
-    const trim = sceneMat(0xffffff, { roughness: 0.6 });
-    const panelIn = sceneMat(0xeceae4, { roughness: 0.85 });
+    const trim = sceneMat(0xf4f0e8, { roughness: 0.6 });
+    const panelIn = sceneMat(0xdcd6cb, { roughness: 0.85 });
     const wx = size.wallX / 30;  // fittings track the wall they hang on
     for (const x of [-18, -6, 6, 18]) {
         sceneBox(group, 8, 11, 0.1, trim, x * wx, 7.5, size.wallZ - 0.2);
@@ -884,13 +1112,14 @@ function buildWhiteStage(group, size) {
     }
     sceneSconce(group, size, -13 * wx, 9);
     sceneSconce(group, size, 13 * wx, 9);
+    sceneDiningTables(group, size, true);
     sceneUplights(group, size);
     return {
-        background: new THREE.Color(0xf4f2ee),
+        background: new THREE.Color(0xe9e4db),
         fog: null,
-        ambient: { color: 0xffffff, intensity: 0.7 },
-        key: { color: 0xffffff, intensity: 1.3 },
-        fill: { color: 0xfff1de, intensity: 0.45 }
+        ambient: { color: 0xf2ede2, intensity: 0.42 },
+        key: { color: 0xfff4e2, intensity: 1.0 },
+        fill: { color: 0xffe9d2, intensity: 0.32 }
     };
 }
 
@@ -1061,7 +1290,7 @@ function sceneDanceFloor(group, size) {
 }
 
 function buildBallroom(group, size) {
-    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56, 'plank');
     sceneCofferedCeiling(group, size);
     sceneDanceFloor(group, size);
 
@@ -1096,6 +1325,7 @@ function buildBallroom(group, size) {
         sceneChandelier(group, size, -size.w * 0.28, 4, s * 0.62, false);
         sceneChandelier(group, size, size.w * 0.28, 4, s * 0.62, false);
     }
+    sceneDiningTables(group, size);
     sceneUplights(group, size);
 
     return {
@@ -1406,6 +1636,19 @@ class SceneRig {
         this.size = make
             ? (size || Object.assign({}, DEFAULT_STAGE_SIZE)) : null;
         this.settings = make ? make(this.group, this.size) : null;
+        if (this.settings) {
+            // Everything in the room lives in the key light's shadow:
+            // cast unless you're a huge slab (the ground plane), receive
+            // always - that's what gives walls their depth.
+            this.group.traverse((o) => {
+                if (!o.isMesh && !o.isInstancedMesh) return;
+                o.receiveShadow = true;
+                if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+                const r = o.geometry.boundingSphere
+                    ? o.geometry.boundingSphere.radius : 0;
+                o.castShadow = r < 80;
+            });
+        }
         return this.settings;
     }
 
@@ -1567,6 +1810,8 @@ function recipeFor(scene, colorway, set) {
 
 // Layout data only: no three.js, so this import still resolves in the plain
 // Node the tests run the parser under.
+// Pure (no three.js): the flower arrangement's authority for turning whatever a
+// document carries into a full, clamped settings object.
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -1826,6 +2071,43 @@ function cleanSetPresets(raw) {
     return out;
 }
 
+// Mounted flower panels: each references an arrangement in the Studio's own
+// library by id (the library lives in the Studio's localStorage, not here) plus
+// a placement. A fallback copy of `settings` travels with it so a scene still
+// opens when the Studio entry has since been removed; app.js prefers the live
+// Studio arrangement (matched by id) so edits there keep persisting here.
+const FLOWER_PANEL_LIMIT = 12;
+const FP_ID_RE = /^[a-z0-9-]{1,40}$/;
+
+// Returns normalized settings, or null when `raw` is not an object at all.
+function cleanArrangementSettings(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    try { return FlowerModel.normalize(raw); } catch { return null; }
+}
+
+function cleanFlowerPanels(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const p of raw) {
+        if (out.length >= FLOWER_PANEL_LIMIT) break;
+        if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+        if (typeof p.id !== 'string' || !FP_ID_RE.test(p.id)) continue;
+        const settings = cleanArrangementSettings(p.settings);
+        if (!settings) continue;
+        out.push({
+            id: p.id,
+            name: typeof p.name === 'string' ? p.name.trim().slice(0, 60) : '',
+            arrangementId: typeof p.arrangementId === 'string' && FP_ID_RE.test(p.arrangementId)
+                ? p.arrangementId : null,
+            settings,
+            x: clampN(p.x, -300, 300, 0),
+            z: clampN(p.z, -300, 300, 0),
+            ry: clampN(p.ry, -360, 360, 0)
+        });
+    }
+    return out;
+}
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 function parseProject(raw) {
@@ -1858,6 +2140,9 @@ function parseProject(raw) {
         folds: cleanFolds(data.folds),
         spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
+        // Flower panels mounted around the scene. Each references an arrangement
+        // in the Studio's own library by id (see the Studio's localStorage).
+        flowerPanels: cleanFlowerPanels(data.flowerPanels),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
             : [],
@@ -2077,6 +2362,2531 @@ async function duplicateProject(name) {
 // one place: tools/serve.mjs reads it from here so the log and the UI can
 // never disagree about which build is running.
 const VERSION = '0.5.0';
+
+// ---- js/flowermodel.js ----
+/* Pure arrangement calculations - shared ESM source of truth.
+ * Both the TILT bundle (js/flowermodel.js) and the Studio (studio/model.js,
+ * GENERATED by tools/build-flowermodel.mjs) are built from this one file, so the
+ * placement math and settings schema can never drift between the two apps. */
+const FlowerModel = (function () {
+  'use strict';
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  // '' / null / undefined / non-numeric -> default; a real number (including 0) is kept and clamped.
+  const num = (value, fallback) => (value === '' || value == null || Number.isNaN(Number(value)) ? fallback : Number(value));
+  const cleanHex = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#ffffff';
+  // Known species + their packing factor (multiplies the grid step; <1 packs tighter).
+  // Kept here (pure, no THREE) so positions and the estimated count always agree.
+  const FLOWER_TYPES = ['rose', 'marigold', 'chrysanthemum', 'dahlia', 'gerbera'];
+  const SPECIES_PACK = { rose: 1.0, marigold: 0.9, chrysanthemum: 0.94, dahlia: 0.88, gerbera: 1.04 };
+  const cleanType = value => (typeof value === 'string' && FLOWER_TYPES.indexOf(value) >= 0 ? value : 'rose');
+  // Pattern system -----------------------------------------------------------
+  const PATTERNS = ['random', 'nongrouping', 'clustered', 'gradient', 'stripes'];
+  const MIX_INTENSITIES = ['low', 'medium', 'high'];
+  const GROUPING_LIMITS = ['strict', 'balanced', 'loose'];
+  const CLUSTER_SIZES = ['small', 'medium', 'large'];
+  const PATTERN_DIRS = ['ltr', 'rtl', 'ttb', 'btt', 'diag'];
+  // Border designer -----------------------------------------------------------
+  // Border is a dynamic, ordered list of layers (outside -> inside). Each layer is a
+  // 'frame' (solid ring) or 'flower' (band of blossoms). Any count up to BORDER_MAX_LAYERS.
+  const BORDER_LAYER_TYPES = ['frame', 'flower', 'greenery'];
+  const BORDER_MAX_LAYERS = 6;
+  const LEGACY_BORDER_COMPONENTS = ['fb1', 'frame', 'fb2']; // old fixed trio, migration only
+  const BORDER_ARRANGEMENTS = ['continuous', 'spaced', 'alternating', 'paired', 'mixed'];
+  const BORDER_COLOR_MODES = ['independent', 'palette'];
+  // Greenery designer ---------------------------------------------------------
+  // Greenery is a separate category of 3D element (not a flower species). These lists
+  // are pure data so the placement engine stays node-testable without THREE.
+  const DESIGN_MODES = ['flowers', 'greenery', 'mixed']; // what composites in the scene
+  const COMPOSITIONS = ['greenery-base', 'foliage-clusters', 'flower-dominant']; // mixed-mode flower/greenery balance
+  const GREENERY_MODES = ['single', 'mixed'];            // one greenery item vs several
+  const GREENERY_CATEGORIES = ['individual-leaf', 'spray', 'bush', 'garland', 'filler', 'branch'];
+  const GREENERY_LAYERS = ['structural', 'volume', 'filler', 'trailing'];
+  const GREENERY_DIRECTIONS = ['upright', 'diag', 'outward', 'mixed'];
+  // Per-type inventory metadata. lengthIn/widthIn are the real long-axis inches at
+  // sizeScale=1 (geometry is normalised so its long axis = 1, see greenery-core).
+  // footprintSqIn is the MEASURED projected (XY) area of the geometry at sizeScale=1 —
+  // calibrated from the actual model, not a generic circle. coverageMethod
+  // 'projected-footprint' means estimated coverage is derived from this footprint, never
+  // from density alone.
+  // `bounds` = the model's projected bounding box in long-axis units, relative to the
+  // attachment origin (stem base at 0,0). Measured from the actual geometry. Placement
+  // uses it to keep the FULL rotated+scaled footprint inside the usable panel (not just
+  // the instance origin), so leaves cannot overhang the border/frame.
+  const GREENERY_META = {
+    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 13, footprintSqIn: 131, bounds: [-0.360, -0.133, 0.360, 0.867], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.182, -0.002, 0.209, 0.998], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+  };
+  const GREENERY_TYPES = Object.keys(GREENERY_META);
+  const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
+  const GREENERY_MAX_ITEMS = 6;
+  // Deterministic lightness shift (per-channel) so independent multi-colour borders can
+  // alternate between a colour and its shades without touching the main palette.
+  function shadeHex(hex, dl) {
+    const h = String(hex || '').replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(h)) return '#ffffff';
+    const ch = i => Math.max(0, Math.min(255, parseInt(h.slice(i, i + 2), 16) + dl));
+    return '#' + [ch(0), ch(2), ch(4)].map(v => v.toString(16).padStart(2, '0')).join('');
+  }
+  const cleanEnum = (value, list, def) => (list.indexOf(value) >= 0 ? value : def);
+  // Deterministic PRNG (mulberry32) + string/point hashes. Same seed -> same arrangement,
+  // so a saved design can be recreated exactly.
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function hashStr(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
+  function hash2(a, b) { let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+  function shuffle(arr, rand) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; }
+  function bboxOf(positions) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < positions.length; i++) { const p = positions[i]; if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
+    return { x0, y0, x1, y1, w: Math.max(1e-6, x1 - x0), h: Math.max(1e-6, y1 - y0) };
+  }
+  // Maps a position to t in [0,1] along the chosen pattern direction.
+  function axisFn(dir) {
+    switch (dir) {
+      case 'rtl': return (x, y, bb) => 1 - (x - bb.x0) / bb.w;
+      case 'ttb': return (x, y, bb) => (y - bb.y0) / bb.h;
+      case 'btt': return (x, y, bb) => 1 - (y - bb.y0) / bb.h;
+      case 'diag': return (x, y, bb) => (((x - bb.x0) / bb.w) + ((y - bb.y0) / bb.h)) / 2;
+      default: return (x, y, bb) => (x - bb.x0) / bb.w; // ltr
+    }
+  }
+  // Spatial hash -> list of nearby flower indices (direct adjacency on the hex grid).
+  function buildNeighbors(positions, bb) {
+    const n = positions.length;
+    const spacing = Math.sqrt((bb.w * bb.h) / Math.max(1, n)); // ~one grid step
+    const radius = spacing * 1.25, r2 = radius * radius;
+    const cell = radius, grid = new Map();
+    for (let i = 0; i < n; i++) {
+      const gx = Math.floor(positions[i][0] / cell), gy = Math.floor(positions[i][1] / cell);
+      const k = gx + ',' + gy; let arr = grid.get(k); if (!arr) { arr = []; grid.set(k, arr); } arr.push(i);
+    }
+    const neighbors = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = positions[i][0], y = positions[i][1], gx = Math.floor(x / cell), gy = Math.floor(y / cell), list = [];
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+        const arr = grid.get((gx + ox) + ',' + (gy + oy)); if (!arr) continue;
+        for (let a = 0; a < arr.length; a++) { const j = arr[a]; if (j === i) continue; const dx = positions[j][0] - x, dy = positions[j][1] - y; if (dx * dx + dy * dy <= r2) list.push(j); }
+      }
+      neighbors[i] = list;
+    }
+    return neighbors;
+  }
+  function normalizeFlowerBorder(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    return {
+      id: String(r.id || ''),
+      type: 'flower',
+      enabled: !!r.enabled,
+      flowerType: cleanType(r.flowerType),
+      flowerSize: [2, 3, 4, 5, 6].includes(Number(r.flowerSize)) ? Number(r.flowerSize) : 4,
+      width: clamp(num(r.width, 4), 1, 12),
+      density: clamp(num(r.density, 70), 10, 100),
+      colorMode: cleanEnum(r.colorMode, BORDER_COLOR_MODES, 'independent'),
+      color: /^#[0-9a-f]{6}$/i.test(r.color || '') ? r.color : '#ffc0cb',
+      arrangement: cleanEnum(r.arrangement, BORDER_ARRANGEMENTS, 'continuous'),
+      rotation: clamp(num(r.rotation, 30), 0, 180)
+    };
+  }
+  function normalizeFrameBorder(raw, width, height) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const maxFrameIn = Math.min(24, Math.min(width, height) * 6 - 0.5);
+    return {
+      id: String(r.id || ''),
+      type: 'frame',
+      enabled: !!r.enabled,
+      width: clamp(num(r.width, 6), 1, Math.max(1, maxFrameIn)),
+      color: /^#[0-9a-f]{6}$/i.test(r.color || '') ? r.color : '#D4AF37',
+      depth: clamp(num(r.depth, 2), 0.5, 4)
+    };
+  }
+  // A greenery border layer: one species placed as a clipped band of leaves.
+  function normalizeGreeneryBorderLayer(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    return {
+      id: String(r.id || ''),
+      type: 'greenery',
+      enabled: !!r.enabled,
+      species: cleanGreeneryType(r.species),
+      width: clamp(num(r.width, 4), 1, 12),
+      sizeScale: clamp(num(r.sizeScale, 1), 0.4, 2.5),
+      density: clamp(num(r.density, 70), 10, 100),
+      overlap: clamp(num(r.overlap, 0.5), 0, 1),
+      rotationVariation: clamp(num(r.rotationVariation, 60), 0, 180),
+      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1)
+    };
+  }
+  // Border is now an ordered `layers` array (outside -> inside). Accepts the new array
+  // form, or migrates the legacy fixed trio { fb1, frame, fb2, order } / flat fields.
+  function normalizeBorder(settings, width, height) {
+    const rawBorder = settings.border && typeof settings.border === 'object' ? settings.border : null;
+    let layers = [];
+    if (rawBorder && Array.isArray(rawBorder.layers)) {
+      layers = rawBorder.layers.slice(0, BORDER_MAX_LAYERS).map(l => {
+        if (l && l.type === 'frame') return normalizeFrameBorder(l, width, height);
+        if (l && l.type === 'greenery') return normalizeGreeneryBorderLayer(l);
+        return normalizeFlowerBorder(l);
+      });
+    } else if (rawBorder) {
+      // Legacy fixed trio: keep every configured component (enabled or not) so re-enabling
+      // later preserves its settings. Enabled ones follow the saved outside->inside order.
+      const order = Array.isArray(rawBorder.order) ? rawBorder.order.filter(id => LEGACY_BORDER_COMPONENTS.includes(id)) : [];
+      const seq = order.concat(LEGACY_BORDER_COMPONENTS.filter(id => !order.includes(id)));
+      for (const id of seq) {
+        if (id === 'frame') layers.push(normalizeFrameBorder(rawBorder.frame, width, height));
+        else layers.push(normalizeFlowerBorder(rawBorder[id]));
+      }
+    } else if (settings.borderEnabled || settings.borderWidth != null || settings.borderColor != null) {
+      // Very old flat fields: a single frame (enabled only when borderEnabled is set).
+      layers.push(normalizeFrameBorder({ enabled: !!settings.borderEnabled, width: settings.borderWidth, color: settings.borderColor }, width, height));
+    }
+    // Unique ids for the layer list + order/reorder UI.
+    const seen = new Set();
+    layers.forEach((l, i) => {
+      let id = l.id || ('bd' + (i + 1));
+      let n = 1;
+      while (seen.has(id)) { id = ('bd' + (i + 1)) + '-' + (++n); }
+      l.id = id; seen.add(id);
+    });
+    // Combined widths of ENABLED layers are clamped so borders can never consume the panel.
+    const enabled = layers.filter(l => l.enabled);
+    const maxTotalIn = Math.max(2, Math.min(width, height) * 6 - 3); // leave >=0.5 ft inner area
+    let total = enabled.reduce((sum, l) => sum + l.width, 0);
+    if (total > maxTotalIn && total > 0) {
+      const k = maxTotalIn / total;
+      enabled.forEach(l => { l.width = Math.max(1, Math.round(l.width * k * 2) / 2); });
+    }
+    return { layers };
+  }
+  function normalizeGreeneryItem(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const meta = GREENERY_META[cleanGreeneryType(r.type)];
+    return {
+      type: meta.id,
+      enabled: r.enabled === undefined ? true : !!r.enabled,
+      sizeScale: clamp(num(r.sizeScale, 1), 0.4, 2.5),
+      density: clamp(num(r.density, 70), 10, 100),
+      proportion: clamp(num(r.proportion, 100), 1, 100),
+      layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
+      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1)
+    };
+  }
+  function normalizeGreenery(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    let items = Array.isArray(r.items) ? r.items.slice(0, GREENERY_MAX_ITEMS).map(normalizeGreeneryItem) : [];
+    if (!items.length) items = [normalizeGreeneryItem({ type: GREENERY_TYPES[0] })];
+    // Mixed proportions are renormalized to a usable spread (they don't have to sum to 100
+    // on input). Single mode keeps exactly one active item.
+    const mode = cleanEnum(r.mode, GREENERY_MODES, 'single');
+    if (mode === 'single') items = [items[0]];
+    else {
+      const total = items.reduce((sum, it) => sum + it.proportion, 0) || 1;
+      items = items.map(it => ({ ...it, proportion: Math.round(it.proportion / total * 100) }));
+      const drift = 100 - items.reduce((sum, it) => sum + it.proportion, 0);
+      if (items.length) items[0].proportion = clamp(items[0].proportion + drift, 1, 100);
+    }
+    return {
+      mode,
+      direction: cleanEnum(r.direction, GREENERY_DIRECTIONS, 'mixed'),
+      overlap: clamp(num(r.overlap, 0.5), 0, 1),
+      rotationVariation: clamp(num(r.rotationVariation, 60), 0, 180),
+      seed: Number.isFinite(Number(r.seed)) ? (Math.abs(Math.floor(Number(r.seed))) >>> 0) : 1,
+      items
+    };
+  }
+  function normalize(settings = {}) {
+    const width = clamp(num(settings.width, 8), 1, 30);
+    const height = clamp(num(settings.height, 8), 1, 30);
+    const flowerSize = [4, 5, 6].includes(Number(settings.flowerSize)) ? Number(settings.flowerSize) : 5;
+    const coverage = clamp(num(settings.coverage, 100), 70, 100);
+    const flowerType = cleanType(settings.flowerType);
+    let colors = Array.isArray(settings.colors) ? settings.colors.slice(0, 5) : [];
+    if (!colors.length) colors = [{ id: 1, name: 'White', hex: '#ffffff' }];
+    colors = colors.map((c, i) => ({ id: Number(c.id) || i + 1, name: String(c.name || 'Color'), hex: cleanHex(c.hex) }));
+    const pattern = cleanEnum(settings.pattern, PATTERNS, 'nongrouping');
+    const mixIntensity = cleanEnum(settings.mixIntensity, MIX_INTENSITIES, 'high');
+    const groupingLimit = cleanEnum(settings.groupingLimit, GROUPING_LIMITS, 'balanced');
+    const clusterSize = cleanEnum(settings.clusterSize, CLUSTER_SIZES, 'small');
+    const patternDirection = cleanEnum(settings.patternDirection, PATTERN_DIRS, 'ltr');
+    const seed = Number.isFinite(Number(settings.seed)) ? (Math.abs(Math.floor(Number(settings.seed))) >>> 0) : 1;
+    // Border designer: `border.layers` is canonical (ordered outside->inside); legacy
+    // {fb1,frame,fb2,order} / flat fields migrate via normalizeBorder.
+    const border = normalizeBorder(settings, width, height);
+    const borderActive = border.layers.some(l => l.enabled);
+    const firstFrame = border.layers.find(l => l.type === 'frame');
+    // Design mode: what composites in the scene. Legacy arrangements default to 'flowers'
+    // so the existing flower-only look is preserved on load. The UI exposes this as two
+    // independent checkboxes (Flowers on + Greenery on); when either flag is present it
+    // wins so a saved pair of booleans round-trips exactly. Both-off falls back to flowers.
+    let designMode = cleanEnum(settings.designMode, DESIGN_MODES, 'flowers');
+    if (settings.flowersOn !== undefined || settings.greeneryOn !== undefined) {
+      const f = settings.flowersOn === undefined ? designMode !== 'greenery' : !!settings.flowersOn;
+      const g = settings.greeneryOn === undefined ? designMode !== 'flowers' : !!settings.greeneryOn;
+      designMode = f && g ? 'mixed' : f ? 'flowers' : g ? 'greenery' : 'flowers';
+    }
+    const flowersOn = designMode !== 'greenery';
+    const greeneryOn = designMode !== 'flowers';
+    // Composition style only matters in mixed mode (flowers + greenery together).
+    const composition = designMode === 'mixed' ? cleanEnum(settings.composition, COMPOSITIONS, 'greenery-base') : null;
+    const greenery = normalizeGreenery(settings.greenery);
+    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery };
+  }
+  // Look up a border layer by id (or accept the layer object itself).
+  function findBorderLayer(s, which) {
+    if (!which) return null;
+    if (typeof which === 'object') return which;
+    return (s.border && s.border.layers ? s.border.layers : []).find(l => l.id === which) || null;
+  }
+  // Concentric bands for the enabled layers (outside -> inside) + total inset.
+  function borderBands(settings) {
+    const s = normalize(settings), b = s.border;
+    const enabled = b.layers.filter(l => l.enabled);
+    let inset = 0;
+    const bands = [];
+    for (const l of enabled) {
+      const widthFt = l.width / 12;
+      bands.push({ id: l.id, type: l.type, widthFt, outerInsetFt: inset, innerInsetFt: inset + widthFt, layer: l });
+      inset += widthFt;
+    }
+    return { bands, totalInsetFt: inset, enabled };
+  }
+  // Inner floral area (feet) — panel minus the combined width of every enabled border.
+  function innerArea(settings) {
+    const s = normalize(settings);
+    if (!s.borderEnabled) return { width: s.width, height: s.height };
+    const { totalInsetFt } = borderBands(s);
+    return { width: Math.max(0.1, s.width - 2 * totalInsetFt), height: Math.max(0.1, s.height - 2 * totalInsetFt) };
+  }
+  function positions(settings, scale = 0.72) {
+    const s = normalize(settings);
+    // Flowers fill the inner floral area (panel minus border), not the full panel.
+    const area = innerArea(s);
+    const W = area.width * scale, H = area.height * scale;
+    const pack = SPECIES_PACK[s.flowerType] || 1;
+    const diameter = s.flowerSize / 12 * scale;
+    // Coverage 100% is "full coverage": a solid wall of flowers with no foam showing through.
+    // Pack denser and let the outer ring overhang the panel edge so borders and corners are
+    // covered. Below 100%, thin a normal (sparser) grid down to the requested proportion so
+    // partial coverage stays cheap on mobile.
+    const full = s.coverage >= 100;
+    const step = diameter * (full ? 0.65 : 0.76) * pack;
+    const rowStep = step * 0.866;
+    // Overhang hides the panel edge when there is no border. With a border the frame
+    // covers the edge, so flowers must stay strictly inside the inner area.
+    const over = (full && !s.borderEnabled) ? diameter * 0.45 : 0;
+    const out = [];
+    if (full) {
+      // Full coverage: a hex grid centred on the panel so every edge overhangs by the
+      // same amount (right/top no longer left short). Integer stepping from the lower
+      // left left one side sparse and the other overflowing; centring fixes that.
+      // Candidate points are filtered by a symmetric bound instead of an integer column
+      // count, so small packing-factor differences still change the flower count.
+      const extentX = W / 2 + over - diameter * 0.5;
+      const extentY = H / 2 + over - diameter * 0.5;
+      const boundX = extentX + step * 0.5;
+      const boundY = extentY + rowStep * 0.5;
+      const rMax = Math.ceil(boundY / rowStep) + 1;
+      const cMax = Math.ceil(boundX / step) + 1;
+      for (let r = -rMax; r <= rMax; r++) {
+        const y = r * rowStep;
+        if (Math.abs(y) > boundY) continue;
+        const odd = (((r % 2) + 2) % 2) === 1;
+        const offset = odd ? step / 2 : 0;
+        for (let c = -cMax; c <= cMax; c++) {
+          const x = c * step + offset;
+          if (Math.abs(x) <= boundX) out.push([x, y]);
+        }
+      }
+    } else {
+      // Partial coverage: normal (sparse) grid; thinned below.
+      let row = 0;
+      for (let y = -H / 2 + diameter * 0.5; y <= H / 2 - diameter * 0.5 + 1e-9; y += rowStep, row++) {
+        const offset = (row % 2) * step / 2;
+        for (let x = -W / 2 + diameter * 0.5 + offset; x <= W / 2 - diameter * 0.5 + 1e-9; x += step) out.push([x, y]);
+      }
+    }
+    // Foliage-clusters composition (mixed mode): relocate the flower lattice into the
+    // shared cluster field so flowers nest within/around foliage instead of forming a flat
+    // wall. COUNT still tracks coverage (× a composition thin factor); only WHICH cells are
+    // filled changes. Every region keeps a base weight so no corner goes conspicuously empty.
+    if (s.designMode === 'mixed' && s.composition === 'foliage-clusters') {
+      const tune = compositionParams(s.composition);
+      const target = Math.max(1, Math.round(out.length * s.coverage / 100 * tune.flowerThin));
+      const clusters = foliageClusters(s, W, H, (s.seed ^ 0x1f2e3d4c) >>> 0);
+      return pickWeightedSubset(out, target,
+        (x, y) => clusterWeightAt(clusters, x, y, tune.flowerBase, tune.flowerCluster),
+        (s.seed ^ hashStr('flowers')) >>> 0);
+    }
+    const target = Math.max(1, Math.ceil(out.length * s.coverage / 100));
+    if (target >= out.length) return out;
+    // Deterministic seeded shuffle, then keep the first N. A plain every-kth filter
+    // banded by row order and left visible striping; shuffling scatters the gaps evenly.
+    const order = out.map((_, i) => i);
+    let seed = (0x9e3779b9 ^ out.length ^ (s.coverage * 2654435761)) >>> 0;
+    const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = order[i]; order[i] = order[j]; order[j] = t; }
+    return order.slice(0, target).sort((a, b) => a - b).map(i => out[i]);
+  }
+  function counts(settings, count) {
+    const s = normalize(settings), n = Math.max(0, Number.isFinite(count) ? count : positions(s).length);
+    const base = Math.floor(n / s.colors.length), extra = n % s.colors.length;
+    return s.colors.map((c, i) => ({ ...c, count: base + (i < extra ? 1 : 0) }));
+  }
+
+  // ---- flower border placement ---------------------------------------------
+  // Grid step factor for a flower border from its arrangement style + density.
+  function borderSpacingFactor(comp) {
+    const base = { continuous: 0.65, spaced: 1.15, alternating: 0.8, paired: 0.9, mixed: 0.8 }[comp.arrangement] || 0.8;
+    const dens = 1.3 - (comp.density / 100) * 0.6; // density 0 -> looser, 100 -> tighter
+    return clamp(base * dens, 0.5, 1.6);
+  }
+  // Flower centres for one flower border: a hex grid clipped to its rectangular band
+  // (between outerInset and innerInset), ordered around the perimeter for colour patterns.
+  function borderPositions(settings, which, scale = 0.72) {
+    const s = normalize(settings);
+    const comp = findBorderLayer(s, which);
+    if (!comp || !comp.enabled || comp.type !== 'flower') return [];
+    const band = borderBands(s).bands.find(bd => bd.id === comp.id);
+    if (!band) return [];
+    const W = s.width * scale, H = s.height * scale;
+    const outerHW = W / 2 - band.outerInsetFt * scale;
+    const outerHH = H / 2 - band.outerInsetFt * scale;
+    const innerHW = W / 2 - band.innerInsetFt * scale;
+    const innerHH = H / 2 - band.innerInsetFt * scale;
+    if (innerHW <= 0.01 || innerHH <= 0.01) return [];
+    const pack = SPECIES_PACK[comp.flowerType] || 1;
+    const diameter = comp.flowerSize / 12 * scale;
+    const step = diameter * borderSpacingFactor(comp) * pack;
+    const rowStep = step * 0.866;
+    const m = diameter / 2 * 0.35; // keep flowers inside their band
+    const out = [];
+    const rMax = Math.ceil(outerHH / rowStep) + 1, cMax = Math.ceil(outerHW / step) + 1;
+    for (let rw = -rMax; rw <= rMax; rw++) {
+      const y = rw * rowStep;
+      if (Math.abs(y) > outerHH) continue;
+      const odd = (((rw % 2) + 2) % 2) === 1, offset = odd ? step / 2 : 0;
+      for (let c = -cMax; c <= cMax; c++) {
+        const x = c * step + offset;
+        if (Math.abs(x) > outerHW) continue;
+        if (Math.abs(x) > outerHW - m || Math.abs(y) > outerHH - m) continue; // inside outer band
+        if (Math.abs(x) <= innerHW + m && Math.abs(y) <= innerHH + m) continue; // outside inner hole
+        out.push([x, y]);
+      }
+    }
+    // Angular (perimeter) order so alternating/paired/mixed read correctly around the frame.
+    out.sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
+    return out;
+  }
+  // Greenery border: one species placed as a leaf band clipped to the ring between the
+  // layer's outerInset and innerInset. A perimeter walk (not a lattice clip) is used because
+  // a band can be much thinner than one leaf step, which would leave a lattice clip empty.
+  // Walks 1..N concentric rings around the band, spacing leaves by the species' natural
+  // step, so all four sides get an even hedge. Leaf bodies may overhang slightly inward
+  // but origins never leave the band.
+  function greeneryBorderPositions(settings, which, scale = 0.72) {
+    const s = normalize(settings);
+    const layer = findBorderLayer(s, which);
+    if (!layer || !layer.enabled || layer.type !== 'greenery') return [];
+    const band = borderBands(s).bands.find(bd => bd.id === layer.id);
+    if (!band) return [];
+    const meta = GREENERY_META[layer.species] || GREENERY_META[GREENERY_TYPES[0]];
+    const W = s.width * scale, H = s.height * scale;
+    const outerHW = W / 2 - band.outerInsetFt * scale, outerHH = H / 2 - band.outerInsetFt * scale;
+    const innerHW = W / 2 - band.innerInsetFt * scale, innerHH = H / 2 - band.innerInsetFt * scale;
+    if (outerHW <= 0.01 || outerHH <= 0.01) return [];
+    const t = Math.max(0.01, (band.innerInsetFt - band.outerInsetFt) * scale); // band thickness (scene ft)
+    const step = greeneryStep(meta.footprintSqIn * layer.sizeScale * layer.sizeScale, layer.overlap, scale);
+    const rowStep = step * 0.866;
+    const gSeed = ((s.greenery.seed >>> 0) ^ hashStr(layer.id)) >>> 0;
+    const rand = mulberry32((gSeed ^ hashStr(meta.id)) >>> 0);
+    const mOut = t * 0.2, mIn = t * 0.2; // keep origins off the band's outer and inner edges
+    // One ring = the perimeter of a rectangle inset from the band's outer edge.
+    // Returns evenly spaced points (corners included once each).
+    const walkRing = (hw, hh, spacing) => {
+      if (hw <= 0.01 || hh <= 0.01) return [];
+      const per = 4 * hw + 4 * hh;
+      const n = Math.max(8, Math.round(per / spacing));
+      const segs = [2 * hw, 2 * hh, 2 * hw, 2 * hh];
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        let d = (i + 0.5) * per / n, e = 0;
+        while (e < 3 && d > segs[e]) { d -= segs[e]; e++; }
+        if (e === 0) pts.push([-hw + d, -hh]);
+        else if (e === 1) pts.push([hw, -hh + d]);
+        else if (e === 2) pts.push([hw - d, hh]);
+        else pts.push([-hw, hh - d]);
+      }
+      return pts;
+    };
+    // Concentric rings from the outer band edge inward, while they still clear the hole.
+    const sites = [];
+    for (let r = 0; r < 4; r++) {
+      const hw = outerHW - mOut - r * rowStep, hh = outerHH - mOut - r * rowStep;
+      if (hw <= innerHW + mIn || hh <= innerHH + mIn) break;
+      sites.push(...walkRing(hw, hh, step));
+    }
+    if (!sites.length) sites.push(...walkRing(Math.max(0.02, outerHW - mOut), Math.max(0.02, outerHH - mOut), step));
+    const target = Math.max(1, Math.round(sites.length * layer.density / 100));
+    const kept = pickSubset(sites, target, gSeed);
+    const scaleW = meta.lengthIn / 12 * scale * layer.sizeScale;
+    const rotMax = (layer.rotationVariation || 0) * Math.PI / 180;
+    const jit = step * 0.24;
+    const out = [];
+    for (let i = 0; i < kept.length; i++) {
+      let [x, y] = kept[i];
+      const jx = (rand() * 2 - 1) * jit, jy = (rand() * 2 - 1) * jit;
+      x = clamp(x + jx, -(outerHW - mOut), outerHW - mOut);
+      y = clamp(y + jy, -(outerHH - mOut), outerHH - mOut);
+      // If jitter pushed the origin into the inner hole, shove it back out to the ring edge.
+      if (innerHW > 0.01 && innerHH > 0.01 && Math.abs(x) <= innerHW + mIn && Math.abs(y) <= innerHH + mIn) {
+        const dxOut = (innerHW + mIn) - Math.abs(x), dyOut = (innerHH + mIn) - Math.abs(y);
+        if (dxOut < dyOut) x = Math.sign(x || 1) * (innerHW + mIn);
+        else y = Math.sign(y || 1) * (innerHH + mIn);
+      }
+      const sc = scaleW * (0.9 + rand() * 0.2);
+      // Fan leaves outward from the panel centre, with rotation-variation jitter.
+      const base = Math.atan2(y, x) - Math.PI / 2;
+      const rot = base + (rand() * 2 - 1) * rotMax;
+      out.push({ key: 0, type: meta.id, layer: meta.defaultLayer, x, y, z: 0.009, rot, variant: rand(), seed: (gSeed + i * 2654435761) >>> 0, scale: sc });
+    }
+    return out;
+  }
+  // Effective colour list for a flower border. Independent mode uses the picked colour
+  // (plus deterministic shades for multi-colour styles); palette mode reuses the main palette.
+  function borderEffectivePalette(settings, which, mainHexes) {
+    const s = normalize(settings);
+    const comp = findBorderLayer(s, which);
+    if (!comp) return [];
+    if (comp.colorMode === 'palette' && Array.isArray(mainHexes) && mainHexes.length) return mainHexes.slice(0, 5);
+    const multi = ['alternating', 'paired', 'mixed'].includes(comp.arrangement);
+    if (!multi) return [comp.color];
+    return [comp.color, shadeHex(comp.color, 50), shadeHex(comp.color, -50)];
+  }
+  // Deterministic colour indices along a border for its arrangement style.
+  function borderColorIndices(n, paletteLen, arrangement, seed) {
+    if (n <= 0) return [];
+    if (paletteLen <= 1) return new Array(n).fill(0);
+    const out = new Array(n);
+    const rand = mulberry32(((seed >>> 0) ^ hashStr(arrangement)) >>> 0);
+    for (let i = 0; i < n; i++) {
+      switch (arrangement) {
+        case 'alternating': out[i] = i % paletteLen; break;
+        case 'paired': out[i] = Math.floor(i / 2) % paletteLen; break;
+        case 'mixed': out[i] = Math.floor(rand() * paletteLen) % paletteLen; break;
+        default: out[i] = 0; // continuous / spaced use a single colour
+      }
+    }
+    return out;
+  }
+  // All orderings of the enabled components, for the border-order selector.
+  function orderOptions(enabledIds) {
+    const perms = [];
+    const permute = (arr, cur) => {
+      if (!arr.length) { perms.push(cur.slice()); return; }
+      for (let i = 0; i < arr.length; i++) permute(arr.slice(0, i).concat(arr.slice(i + 1)), cur.concat([arr[i]]));
+    };
+    permute((enabledIds || []).slice(), []);
+    return perms;
+  }
+
+  // ---- greenery placement engine -------------------------------------------
+  const greeneryLayerIndex = name => { const i = GREENERY_LAYERS.indexOf(name); return i >= 0 ? i : 1; };
+  // Items actually placed: single -> exactly one; mixed -> every enabled item.
+  function greeneryActiveItems(g) {
+    if (!g) return [];
+    if (g.mode === 'single') return g.items.slice(0, 1);
+    return g.items.filter(it => it.enabled);
+  }
+  // Deterministic subset (seeded shuffle, keep first N) so density thins a fixed grid
+  // evenly instead of leaving row striping — same technique as flower coverage.
+  function pickSubset(arr, target, seed) {
+    const order = arr.map((_, i) => i);
+    const rand = mulberry32((seed >>> 0) || 1);
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = order[i]; order[i] = order[j]; order[j] = t; }
+    const keep = Math.min(Math.max(1, target), arr.length);
+    return order.slice(0, keep).sort((a, b) => a - b).map(i => arr[i]);
+  }
+  // Grid step (world units) for an item from its footprint + the overlap setting.
+  //
+  // OVERLAP (0.0–1.0) = how tightly pieces are packed. It sets the lattice step relative
+  // to the piece's equivalent footprint diameter D:
+  //     step = D * (0.95 − 0.35 * overlap),  clamped to [0.60·D, 0.95·D]
+  //   overlap 0.0 → 0.95·D  (loose; neighbours just touch)
+  //   overlap 1.0 → 0.60·D  (tight; ~40% overlap) — the 0.60 floor stops pieces from
+  //                         collapsing into an uncontrolled pile no matter the setting.
+  // Overlap only controls SPACING. Piece COUNT comes from density (fraction of this
+  // lattice filled) and Size/Rotation stay independent of it.
+  function greeneryStep(footprintSqIn, overlap, scale) {
+    const dIn = 2 * Math.sqrt(footprintSqIn / Math.PI);   // equivalent-circle diameter (in)
+    const dW = dIn / 12 * scale;                          // -> world units
+    return dW * clamp(0.95 - clamp(overlap, 0, 1) * 0.35, 0.60, 0.95);
+  }
+  // ---- foliage-cluster composition (mixed mode only) -------------------------
+  // Composition styles tune how flowers and greenery share the panel in 'mixed' mode.
+  // 'greenery-base' keeps the historic behaviour (uniform greenery lattice + uniform
+  // flower wall). 'foliage-clusters' is the foliage-led target: greenery forms organic
+  // clusters and flowers nest within/around them. 'flower-dominant' keeps a dense flower
+  // wall and thins greenery to a supporting background.
+  const COMPOSITION_TUNE = {
+    'greenery-base':    { flowerThin: 1.00, flowerBase: 1.00, flowerCluster: 0.0, greeneryThin: 1.00, greeneryBase: 1.00, greeneryCluster: 0.0 },
+    'foliage-clusters': { flowerThin: 0.82, flowerBase: 0.38, flowerCluster: 0.75, greeneryThin: 1.00, greeneryBase: 0.12, greeneryCluster: 1.00 },
+    'flower-dominant':  { flowerThin: 1.00, flowerBase: 1.00, flowerCluster: 0.0, greeneryThin: 0.55, greeneryBase: 0.55, greeneryCluster: 0.30 }
+  };
+  function compositionParams(composition) {
+    return COMPOSITION_TUNE[composition] || COMPOSITION_TUNE['greenery-base'];
+  }
+  // Deterministic cluster field: a jittered grid of blobs whose radii overlap so
+  // neighbouring clusters merge into organic masses instead of isolated piles.
+  function foliageClusters(s, W, H, seed) {
+    const rand = mulberry32((seed >>> 0) || 1);
+    const area = Math.max(0.01, W * H);
+    // ~1 blob per 3 world-units² (≈6 real sq ft), clamped to a sane count.
+    const targetCount = clamp(Math.round(area / 3.0), 3, 40);
+    const cols = Math.max(2, Math.round(Math.sqrt(Math.max(1, targetCount * (W / H)))));
+    const rows = Math.max(2, Math.round(targetCount / cols));
+    const cellW = W / cols, cellH = H / rows;
+    const clusters = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cx = ((c + 0.5) / cols - 0.5) * W + (rand() * 2 - 1) * cellW * 0.4;
+        const cy = ((r + 0.5) / rows - 0.5) * H + (rand() * 2 - 1) * cellH * 0.4;
+        // Radius spans ~0.5–0.9× the cell so adjacent blobs touch/overlap (organic merges).
+        const rr = Math.max(cellW, cellH) * (0.5 + rand() * 0.4);
+        clusters.push({ x: cx, y: cy, r: Math.max(0.2, rr), strength: 0.7 + rand() * 0.6 });
+      }
+    }
+    return clusters;
+  }
+  // Spatial weight at a point: a smooth radial falloff per cluster plus a constant base
+  // so no region is ever fully empty (avoids conspicuous holes).
+  function clusterWeightAt(clusters, x, y, base, boost) {
+    let w = base;
+    for (let i = 0; i < clusters.length; i++) {
+      const cl = clusters[i];
+      const dx = x - cl.x, dy = y - cl.y;
+      const d = Math.sqrt(dx * dx + dy * dy) / cl.r;
+      if (d < 1) { const f = (1 - d * d); w += boost * cl.strength * f * f; }
+    }
+    return w;
+  }
+  // Weighted subset (Efraimidis-Spirakis reservoir): deterministic given `seed`, biases
+  // selection toward high-weight cells while still sampling low-weight ones (base > 0).
+  function pickWeightedSubset(cands, target, weightFn, seed) {
+    if (!cands.length) return [];
+    const rand = mulberry32((seed >>> 0) || 1);
+    const scored = new Array(cands.length);
+    for (let i = 0; i < cands.length; i++) {
+      const w = Math.max(1e-6, weightFn(cands[i][0], cands[i][1]));
+      scored[i] = { c: cands[i], k: Math.pow(rand(), 1 / w) };
+    }
+    scored.sort((a, b) => b.k - a.k);
+    const keep = Math.min(Math.max(1, target), cands.length);
+    const out = new Array(keep);
+    for (let i = 0; i < keep; i++) out[i] = scored[i].c;
+    return out;
+  }
+  function greeneryRotation(g, direction, x, y, rand) {
+    const jitter = (rand() * 2 - 1) * g.rotationVariation * Math.PI / 180;
+    let base;
+    switch (direction) {
+      case 'upright': base = 0; break;                                  // tip toward +y
+      case 'diag':    base = Math.PI / 4; break;
+      case 'outward': base = Math.atan2(y, x) - Math.PI / 2; break;      // tip radially out
+      default:        base = rand() * Math.PI * 2; break;                // 'mixed'
+    }
+    return base + jitter;
+  }
+  // Layered placement: structural -> volume -> filler -> trailing, large pieces first so
+  // smaller fillers are not hidden behind them. Returns a flat instance list stamped with
+  // the owning item's key + type so the scene can group by type and the estimate by item.
+  // Depth (z) is chosen so greenery interleaves with the flowers in a mixed panel:
+  //   behind flowers   = just above the foam front face (z=0), below the flower heads
+  //   between flowers  = within the flower-head height band
+  //   in front         = above the tallest flower petal
+  // In greenery-only mode (no flowers) we only need a small stagger above the foam.
+  function greeneryZ(item, layerIdx, flowerTopZ) {
+    if (flowerTopZ > 0) {
+      switch (item.layer) {
+        // Frame plane is z=0.006; structural greenery sits just above it so the order is
+        // frame < greenery base < flower heads (verified against app.js scene structure).
+        case 'structural': return 0.010;                    // behind the flower heads
+        case 'volume':     return flowerTopZ * 0.45;        // among the petals (between)
+        case 'filler':     return flowerTopZ * 0.85;        // near the top (between/front)
+        default:           return flowerTopZ + 0.02;        // trailing -> clearly in front
+      }
+    }
+    return 0.005 + layerIdx * 0.010;                        // greenery-only stagger above foam
+  }
+  // Does a placed footprint stay inside the usable half-bounds? Uses the model's projected
+  // bounding box (meta.bounds) rotated by `rot`, scaled by `s`, translated to (x,y).
+  // Returns { fits, dx, dy } where dx/dy is the minimal inward shift (world) to bring the
+  // footprint inside (0 when already inside). Orientation- and scale-aware, so the FULL
+  // leaf body is contained — not just the instance origin.
+  function footprintFit(meta, x, y, rot, s, halfW, halfH) {
+    const b = meta.bounds;
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const corners = [[b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]]];
+    for (let i = 0; i < 4; i++) {
+      const lx = corners[i][0], ly = corners[i][1];
+      const wx = x + (lx * cs - ly * sn) * s, wy = y + (lx * sn + ly * cs) * s;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+    }
+    const tol = 1e-6;
+    let dx = 0, dy = 0;
+    if (minX < -halfW - tol) dx = -halfW - minX;
+    else if (maxX > halfW + tol) dx = halfW - maxX;
+    if (minY < -halfH - tol) dy = -halfH - minY;
+    else if (maxY > halfH + tol) dy = halfH - maxY;
+    const fits = minX >= -halfW - tol && maxX <= halfW + tol && minY >= -halfH - tol && maxY <= halfH + tol;
+    return { fits, dx, dy };
+  }
+  let _lastOmitted = 0;                 // pieces dropped by containment on the last call
+  function greeneryPositions(settings, scale = 0.72) {
+    const s = normalize(settings), g = s.greenery;
+    const area = innerArea(s);
+    const W = area.width * scale, H = area.height * scale;
+    const gSeed = (g.seed >>> 0);
+    // Tallest flower petal sits at ~0.14*S above the foam (S = head diameter in world).
+    const flowerTopZ = s.designMode === 'mixed' ? 0.14 * (s.flowerSize / 12) * scale : 0;
+    const out = [];
+    _lastOmitted = 0;
+    // Composition tuning (mixed mode only). The cluster field is computed ONCE so every
+    // species lands in the same organic masses (they co-locate rather than scattering
+    // independently). It uses the SAME seed and inner-area extents as the flower layer,
+    // so flowers and foliage coordinate.
+    const mixed = s.designMode === 'mixed';
+    const tune = mixed ? compositionParams(s.composition) : compositionParams('greenery-base');
+    const useClusters = mixed && (s.composition === 'foliage-clusters' || s.composition === 'flower-dominant');
+    const clusters = useClusters ? foliageClusters(s, W, H, (s.seed ^ 0x1f2e3d4c) >>> 0) : null;
+    const ordered = g.items.map((item, key) => ({ item, key }))
+      .filter(({ item, key }) => (g.mode === 'single' ? key === 0 : item.enabled))
+      .sort((a, b) => greeneryLayerIndex(a.item.layer) - greeneryLayerIndex(b.item.layer));
+    for (const { item, key } of ordered) {
+      const meta = GREENERY_META[item.type];
+      if (!meta) continue;
+      // Lattice spacing must track the ACTUAL placed size (sizeScale), not the size-1
+      // footprint: a 2.1x leaf is 2.1x wider, so its grid cell must be 2.1x too. Otherwise
+      // big leaves crammed onto a size-1 lattice overlap so hard that the containment
+      // filter omits nearly every piece (the "only 1 leaf placed" bug).
+      const step = greeneryStep(meta.footprintSqIn * item.sizeScale * item.sizeScale, g.overlap, scale);
+      const rowStep = step * 0.866;
+      // Centred hex lattice of candidate ORIGINS across the usable (inner) area.
+      const cands = [];
+      const cMax = Math.ceil((W / 2) / step) + 1, rMax = Math.ceil((H / 2) / rowStep) + 1;
+      for (let r = -rMax; r <= rMax; r++) {
+        const y = r * rowStep;
+        if (Math.abs(y) > H / 2) continue;
+        const odd = (((r % 2) + 2) % 2) === 1, offset = odd ? step / 2 : 0;
+        for (let c = -cMax; c <= cMax; c++) {
+          const x = c * step + offset;
+          if (Math.abs(x) <= W / 2) cands.push([x, y]);
+        }
+      }
+      // Density selects the FRACTION of lattice cells to fill (fullness), not a hidden
+      // piece-count multiplier. In mixed mode `proportion` is each item's SHARE of the
+      // panel: it scales that item's lattice fill, so a low-proportion species can never
+      // dominate the composition. Single mode uses the full density (proportion = 100).
+      const share = g.mode === 'mixed' ? (item.proportion || 100) / 100 : 1;
+      const target = Math.round(cands.length * item.density / 100 * share * tune.greeneryThin);
+      // Foliage-clusters: bias lattice fill toward the cluster field (dense organic masses
+      // + a low base so gaps between clusters still get sparse connecting leaves). Flower-
+      // dominant: milder clustering over a thinned lattice. Greenery-base: uniform (historic).
+      const kept = clusters
+        ? pickWeightedSubset(cands, target,
+            (x, y) => clusterWeightAt(clusters, x, y, tune.greeneryBase, tune.greeneryCluster),
+            gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9))
+        : pickSubset(cands, target, gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9));
+      const layerIdx = greeneryLayerIndex(item.layer);
+      const z = greeneryZ(item, layerIdx, flowerTopZ);
+      const scaleW = meta.lengthIn / 12 * scale * item.sizeScale;    // geometry long axis = 1
+      const rand = mulberry32((gSeed ^ hashStr(item.type) ^ (key * 2654435761)) >>> 0);
+      const jit = step * 0.24;
+      for (let i = 0; i < kept.length; i++) {
+        let [x, y] = kept[i];
+        const jx = (rand() * 2 - 1) * jit, jy = (rand() * 2 - 1) * jit;
+        x = clamp(x + jx, -W / 2, W / 2);
+        y = clamp(y + jy, -H / 2, H / 2);
+        const sc = scaleW * (0.9 + rand() * 0.2);                     // subtle size variation
+        let rot = greeneryRotation(g, g.direction, x, y, rand);
+        // HARD CONTAINMENT: keep the full rotated+scaled footprint inside the usable panel
+        // (which already excludes the border bands via innerArea). If a leaf would overhang
+        // an edge, nudge the origin inward once; if it still cannot fit, omit the piece.
+        let fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+        if (!fit.fits) {
+          x = clamp(x + fit.dx, -W / 2, W / 2);
+          y = clamp(y + fit.dy, -H / 2, H / 2);
+          rot = greeneryRotation(g, g.direction, x, y, rand);
+          fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+          if (!fit.fits) { _lastOmitted++; continue; }
+        }
+        out.push({
+          key, type: item.type, layer: item.layer, x, y, z,
+          rot, scale: sc,
+          variant: rand(),
+          seed: (gSeed + i * 2654435761 + key * 40503) >>> 0
+        });
+      }
+    }
+    return out;
+  }
+  // Quantity per item + honest estimated panel coverage. Coverage uses a saturating
+  // union model from projected footprint (covered = 1 - e^-load), so it is NEVER the
+  // density setting: overlap makes extra pieces cover progressively less new area.
+  // GREENERY_LOAD_K is CALIBRATED (not guessed): rasterizing the real placed geometry on a
+  // 5x8ft panel and solving K = -ln(1-measured)/load gives ~0.97 (monstera), ~0.97
+  // (eucalyptus) and ~1.28 (boston-fern). 1.05 balances them and stops the old K=1.5 from
+  // over-stating coverage by ~15 points. See tests/greenery-engine-tests.js.
+  const GREENERY_LOAD_K = 1.05;
+  function greeneryEstimate(settings, scale = 0.72) {
+    const s = normalize(settings), g = s.greenery;
+    const area = innerArea(s);
+    // area.width (ft) * 12 = in; panel area in in² = (w*12)*(h*12) = w*h*144.
+    const panelIn2 = area.width * area.height * 144;
+    const inst = greeneryPositions(s, scale);
+    const active = greeneryActiveItems(g);
+    const byKey = new Map();
+    for (const it of inst) { const arr = byKey.get(it.key) || []; arr.push(it); byKey.set(it.key, arr); }
+    const items = [];
+    let loadSum = 0;
+    active.forEach(item => {
+      const key = g.mode === 'single' ? 0 : g.items.indexOf(item);
+      const arr = byKey.get(key) || [];
+      const meta = GREENERY_META[item.type];
+      // Coverage load uses the ACTUAL placed size: a leaf at sizeScale s covers s²x the
+      // size-1 footprint, so counting the size-1 area would understate coverage.
+      loadSum += arr.length * (meta ? meta.footprintSqIn * item.sizeScale * item.sizeScale : 0);
+      items.push({ type: item.type, label: meta ? meta.label : item.type, count: arr.length, proportion: item.proportion });
+    });
+    const coveredLoad = panelIn2 > 0 ? loadSum / panelIn2 : 0;
+    const estimatedCoverage = 1 - Math.exp(-coveredLoad * GREENERY_LOAD_K);
+    // totalItems is the pieces actually placed; omitted counts those dropped because their
+    // footprint could not fit inside the usable panel (reported honestly, never hidden).
+    return { items, totalItems: inst.length, estimatedCoverage, omitted: _lastOmitted };
+  }
+  function greeneryOmitted() { return _lastOmitted; }
+
+  // ---- colour distribution (patterns) --------------------------------------
+  // Assign a colour index to every position. Returns { colorIndex, satisfied, unsatisfied }.
+  // Colour proportions always come from counts() so switching patterns rearranges but
+  // never changes how much of each colour is used.
+
+  function assignRandom(quotas, rand) {
+    const list = [];
+    for (let ci = 0; ci < quotas.length; ci++) for (let k = 0; k < quotas[ci]; k++) list.push(ci);
+    shuffle(list, rand);
+    return { colorIndex: list, satisfied: true, unsatisfied: 0 };
+  }
+
+  function assignNonGrouping(positions, quotas, s, rand) {
+    const n = positions.length, m = quotas.length;
+    const neighbors = buildNeighbors(positions, bboxOf(positions));
+    // groupingLimit sets the same-colour-neighbour cap: strict = never, balanced = allow
+    // the occasional one, loose = permit small clusters. mixIntensity decides whether we
+    // rank candidates by "fewest same-colour neighbours" (high/medium) or by "keep colour
+    // proportions" (low). Cap 0 on a thinned hex lattice can be impossible to fully meet,
+    // so we count and report those cases rather than claim success.
+    const cap = { strict: 0, balanced: 1, loose: 2 }[s.groupingLimit] != null ? { strict: 0, balanced: 1, loose: 2 }[s.groupingLimit] : 1;
+    const prefer = s.mixIntensity === 'low' ? 'remaining' : 'same';
+    const remaining = quotas.slice(), result = new Array(n).fill(-1), assigned = new Array(n).fill(-1);
+    const order = shuffle([...Array(n).keys()], rand); // random sweep spreads colours evenly
+    let unsatisfied = 0;
+    for (let oi = 0; oi < n; oi++) {
+      const i = order[oi];
+      const same = new Array(m).fill(0);
+      const nbrs = neighbors[i];
+      for (let a = 0; a < nbrs.length; a++) { const cj = assigned[nbrs[a]]; if (cj >= 0) same[cj]++; }
+      let best = -1, bestSame = Infinity, bestRem = -1, relaxBest = -1, relaxSame = Infinity;
+      for (let c = 0; c < m; c++) {
+        if (remaining[c] <= 0) continue;
+        const sn = same[c];
+        if (sn < relaxSame) { relaxSame = sn; relaxBest = c; }
+        if (sn <= cap) {
+          const better = prefer === 'same'
+            ? (sn < bestSame || (sn === bestSame && remaining[c] > bestRem))
+            : (remaining[c] > bestRem || (remaining[c] === bestRem && sn < bestSame));
+          if (better) { bestSame = sn; bestRem = remaining[c]; best = c; }
+        }
+      }
+      let pick = best;
+      if (pick < 0) { pick = relaxBest; if (pick >= 0) unsatisfied++; } // rule could not be met here
+      if (pick < 0) { for (let c = 0; c < m; c++) if (remaining[c] > 0) { pick = c; break; } }
+      result[i] = pick; assigned[i] = pick; remaining[pick]--;
+    }
+    return { colorIndex: result, satisfied: unsatisfied === 0, unsatisfied };
+  }
+
+  function pickSeeds(positions, K, rand) {
+    const n = positions.length, seeds = [positions[Math.floor(rand() * n)]];
+    const d2 = new Array(n).fill(Infinity);
+    while (seeds.length < K) {
+      const last = seeds[seeds.length - 1];
+      let farIdx = 0, farD = -1;
+      for (let i = 0; i < n; i++) {
+        const dx = positions[i][0] - last[0], dy = positions[i][1] - last[1], d = dx * dx + dy * dy;
+        if (d < d2[i]) d2[i] = d;
+        if (d2[i] > farD) { farD = d2[i]; farIdx = i; }
+      }
+      seeds.push(positions[farIdx]);
+    }
+    return seeds;
+  }
+
+  function assignClustered(positions, quotas, s, rand) {
+    const n = positions.length, m = quotas.length, bb = bboxOf(positions);
+    const perColor = { small: 4, medium: 2, large: 1 }[s.clusterSize] != null ? { small: 4, medium: 2, large: 1 }[s.clusterSize] : 2;
+    const K = Math.max(m, m * perColor);
+    const seeds = pickSeeds(positions, K, rand);
+    const total = quotas.reduce((a, b) => a + b, 0) || 1;
+    const seedColor = [];
+    for (let c = 0; c < m; c++) { const cnt = Math.max(1, Math.round(quotas[c] / total * K)); for (let k = 0; k < cnt; k++) seedColor.push(c); }
+    while (seedColor.length < K) seedColor.push(0);
+    seedColor.length = K;
+    const noise = Math.hypot(bb.w, bb.h) * 0.05; // irregular (non-striped) cluster borders
+    const result = new Array(n).fill(-1), remaining = quotas.slice();
+    for (let i = 0; i < n; i++) {
+      const x = positions[i][0], y = positions[i][1];
+      let best = -1, bestD = Infinity;
+      for (let k = 0; k < K; k++) {
+        const ci = seedColor[k]; if (remaining[ci] <= 0) continue;
+        const dx = x - seeds[k][0], dy = y - seeds[k][1];
+        const d = dx * dx + dy * dy + (hash2(i, k) - 0.5) * noise;
+        if (d < bestD) { bestD = d; best = ci; }
+      }
+      if (best < 0) { for (let c = 0; c < m; c++) if (remaining[c] > 0) { best = c; break; } }
+      result[i] = best; remaining[best]--;
+    }
+    return { colorIndex: result, satisfied: true, unsatisfied: 0 };
+  }
+
+  function axisSorted(positions, s) {
+    const bb = bboxOf(positions), axis = axisFn(s.patternDirection), n = positions.length;
+    const t = new Array(n), idx = [...Array(n).keys()];
+    for (let i = 0; i < n; i++) t[i] = axis(positions[i][0], positions[i][1], bb);
+    idx.sort((a, b) => t[a] - t[b]);
+    return { idx, t };
+  }
+
+  function assignGradient(positions, quotas, s, rand) {
+    const n = positions.length, m = quotas.length, { idx, t } = axisSorted(positions, s);
+    const result = new Array(n).fill(0), remaining = quotas.slice();
+    for (let oi = 0; oi < n; oi++) {
+      const i = idx[oi], ideal = t[i] * (m - 1);
+      let best = -1, bestScore = Infinity;
+      for (let c = 0; c < m; c++) { if (remaining[c] <= 0) continue; const sc = Math.abs(c - ideal) + rand() * 0.7; if (sc < bestScore) { bestScore = sc; best = c; } }
+      if (best < 0) { for (let c = 0; c < m; c++) if (remaining[c] > 0) { best = c; break; } }
+      result[i] = best; remaining[best]--;
+    }
+    return { colorIndex: result, satisfied: true, unsatisfied: 0 };
+  }
+
+  function assignStripes(positions, quotas, s, rand) {
+    const n = positions.length, m = quotas.length, { idx } = axisSorted(positions, s);
+    const result = new Array(n).fill(0), remaining = quotas.slice();
+    const numBands = Math.max(m, Math.round(Math.sqrt(n) / 5)), bandLen = Math.max(1, Math.round(n / numBands));
+    let band = 0, count = 0;
+    for (let oi = 0; oi < n; oi++) {
+      const i = idx[oi];
+      let ci = band % m;
+      if (remaining[ci] <= 0) { for (let k = 0; k < m; k++) { const c = (band + k) % m; if (remaining[c] > 0) { ci = c; break; } } }
+      result[i] = ci; remaining[ci]--;
+      if (++count >= bandLen) { count = 0; band++; }
+    }
+    return { colorIndex: result, satisfied: true, unsatisfied: 0 };
+  }
+
+  function assignColors(settings, positions) {
+    const s = normalize(settings), n = positions.length, m = s.colors.length;
+    if (n === 0 || m === 0) return { colorIndex: [], satisfied: true, unsatisfied: 0 };
+    if (m === 1) return { colorIndex: new Array(n).fill(0), satisfied: true, unsatisfied: 0 };
+    const quotas = counts(s, n).map(c => c.count); // exact proportions
+    const rand = mulberry32(((s.seed >>> 0) ^ hashStr(s.pattern)) >>> 0);
+    switch (s.pattern) {
+      case 'nongrouping': return assignNonGrouping(positions, quotas, s, rand);
+      case 'clustered': return assignClustered(positions, quotas, s, rand);
+      case 'gradient': return assignGradient(positions, quotas, s, rand);
+      case 'stripes': return assignStripes(positions, quotas, s, rand);
+      default: return assignRandom(quotas, rand); // 'random'
+    }
+  }
+
+  return { normalize, positions, counts, assignColors, innerArea, borderBands, borderPositions, greeneryBorderPositions, borderEffectivePalette, borderColorIndices, borderSpacingFactor, findBorderLayer, orderOptions, greeneryPositions, greeneryEstimate, greeneryActiveItems, greeneryOmitted, footprintFit, shadeHex, cleanHex, clamp, FLOWER_TYPES, SPECIES_PACK, PATTERNS, MIX_INTENSITIES, GROUPING_LIMITS, CLUSTER_SIZES, PATTERN_DIRS, BORDER_COMPONENTS: LEGACY_BORDER_COMPONENTS, BORDER_LAYER_TYPES, BORDER_MAX_LAYERS, BORDER_ARRANGEMENTS, BORDER_COLOR_MODES, DESIGN_MODES, COMPOSITIONS, GREENERY_MODES, GREENERY_TYPES, GREENERY_CATEGORIES, GREENERY_LAYERS, GREENERY_DIRECTIONS, GREENERY_META, GREENERY_MAX_ITEMS, GREENERY_LOAD_K };
+})();
+
+// ---- js/flowers/core.js ----
+/* Flower Panel Studio — shared flower geometry core.
+   Pure helpers for building procedural petals, domes and instanced rings.
+   Depends on the imported THREE (three r160).
+   Exposes: FlowerCore (ESM) */
+const FlowerCore = (function () {
+  'use strict';
+  const T = THREE;
+
+  // ---- deterministic RNG (mulberry32) -------------------------------------
+  function mulberry32(seed) {
+    let a = (seed >>> 0) || 1;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Width profiles: u in [0,1] base->tip, returns 0..1 width multiplier.
+  const PROFILE = {
+    round:   u => 0.5 + 0.5 * Math.sin(Math.PI * Math.min(1, 0.12 + 0.86 * u)),
+    cupped:  u => 0.42 + 0.58 * Math.sin(Math.PI * Math.min(1, 0.10 + 0.80 * u)),
+    narrow:  u => 0.60 + 0.40 * Math.sin(Math.PI * Math.min(1, 0.16 + 0.70 * u)),
+    taper:   u => Math.pow(1 - u, 0.7) * Math.min(1, u * 6),
+    ray:     u => Math.min(1, u * 5) * (0.72 + 0.28 * Math.sin(Math.PI * Math.min(1, 0.18 + 0.66 * u))),
+    // Rounded spoon: narrow base, broad soft body, gently rounded tip (rose petal).
+    spoon:   u => { const t = Math.min(1, Math.max(0, u));
+                    const rise = Math.sin(Math.PI * Math.pow(t, 0.72));
+                    const tip  = 1 - 0.4 * Math.pow(t, 5);
+                    return Math.min(1, (0.42 + 0.58 * rise) * tip); }
+  };
+  const profileFn = name => (typeof name === 'function' ? name : (PROFILE[name] || PROFILE.round));
+
+  // Per-vertex white colour so `vertexColors:true` materials multiply by white (not the
+  // WebGL generic default of black). With instanceColor present the shader computes
+  // vColor = white * instanceColor = instanceColor, so petals take their palette colour.
+  // MeshStandardMaterial has no defaultAttributeValues, so a missing colour attribute
+  // would otherwise render black. Required for every geometry used with vertexColors.
+  function withWhiteColor(g) {
+    const n = g.attributes.position.count;
+    g.setAttribute('color', new T.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    return g;
+  }
+
+  // ---- parametric petal ---------------------------------------------------
+  // Length grows along +X (0..base -> length..tip), width across +Y, cup/curl along +Z.
+  // Petals are thin curved double-sided shells (surface curvature instead of thick volume).
+  function makePetalGeometry(opts) {
+    opts = opts || {};
+    const length = opts.length != null ? opts.length : 0.3;
+    const width  = opts.width  != null ? opts.width  : 0.12;   // max half-width
+    const ls     = opts.lengthSegs || 6;
+    const ws     = opts.widthSegs  || 4;
+    const halfW  = profileFn(opts.profile);
+    const cup     = opts.cup     != null ? opts.cup     : 0.02;  // centre lift at base
+    const cupFade = opts.cupFade != null ? opts.cupFade : 0.65;  // cup loss toward tip
+    const curl    = opts.curl    != null ? opts.curl    : 0.04;  // tip folds back (-Z)
+    const curlPow = opts.curlPow || 1.7;
+    const edgeCurl = opts.edgeCurl || 0;                          // edges lift near mid
+    const edgePow = opts.edgePow != null ? opts.edgePow : 1;      // how sharply edge curl concentrates at the rim
+    const ridge   = opts.ridge   || 0;                            // raised central spine along length
+    const ridgePow = opts.ridgePow != null ? opts.ridgePow : 1;   // <1 = fuller/rounder central ridge
+    const ridgeFade = opts.ridgeFade != null ? opts.ridgeFade : 1.4;
+    const edgeWave = opts.edgeWave || 0;                          // subtle outline irregularity
+    const edgeWaveFreq = opts.edgeWaveFreq || 4;
+    const tipRound = opts.tipRound || 0;                          // pull tip corners back -> rounded top edge
+    const tipStart = opts.tipStart != null ? opts.tipStart : 0.55;
+    const ruffle   = opts.ruffle   || 0;                          // wavy edges (marigold)
+    const ruffleFreq = opts.ruffleFreq || 5;
+    const tipPinch = opts.tipPinch || 0;                          // pull tip to a point
+
+    const pos = new Array((ls + 1) * (ws + 1) * 3);
+    let p = 0;
+    for (let i = 0; i <= ls; i++) {
+      const u = i / ls;
+      let hw = halfW(u) * width;
+      if (edgeWave) hw *= 1 + edgeWave * Math.sin(u * edgeWaveFreq * Math.PI);
+      if (tipPinch) hw *= Math.max(0, 1 - tipPinch * Math.pow(u, 2.2));
+      const bendZ = -curl * Math.pow(u, curlPow);
+      const cupMid = cup * (1 - cupFade * u);
+      const ridgeAmt = ridge * (1 - Math.pow(u, ridgeFade));
+      const edgeAmt = edgeCurl * Math.sin(Math.PI * u);
+      // Rounded top edge: near the tip, pull the corner vertices back along X so the
+      // outline arcs (centre reaches further than the corners) instead of a flat polygonal cut.
+      const tipPull = (tipRound && u > tipStart) ? tipRound * Math.pow((u - tipStart) / (1 - tipStart), 1.5) : 0;
+      for (let j = 0; j <= ws; j++) {
+        const v = (j / ws) * 2 - 1;
+        const vv = v * v;
+        let z = bendZ + cupMid * (1 - vv);
+        if (ridgeAmt) z += ridgeAmt * Math.pow(1 - vv, ridgePow);  // rounded central spine
+        if (edgeAmt) z += edgeAmt * Math.pow(vv, edgePow);        // thin rolled rim
+        if (ruffle) z += ruffle * Math.sin(u * ruffleFreq * Math.PI) * (1 - Math.abs(v))
+                       + ruffle * 0.6 * Math.sin(v * 4 + u * 7) * Math.abs(v);
+        const x = u * length - (tipPull ? tipPull * length * vv : 0);
+        pos[p++] = x;
+        pos[p++] = v * hw;
+        pos[p++] = z;
+      }
+    }
+    const idx = [];
+    const row = ws + 1;
+    for (let i = 0; i < ls; i++) for (let j = 0; j < ws; j++) {
+      const a = i * row + j, b = (i + 1) * row + j;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    withWhiteColor(g);
+    g.userData.triangles = idx.length / 3;
+    return g;
+  }
+
+  // Flattened dome (squashed sphere cap) for receptacles / discs / centres.
+  // Rotated so the pole faces +Z (toward the viewer), then squashed along Z.
+  function makeDomeGeometry(radius, squash, widthSegs, heightSegs, thetaLength) {
+    const g = new T.SphereGeometry(radius, widthSegs || 10, heightSegs || 6, 0, Math.PI * 2, 0, thetaLength || Math.PI * 0.62);
+    g.rotateX(Math.PI / 2); // +Y pole -> +Z so the dome faces the viewer
+    g.scale(1, 1, squash != null ? squash : 0.4);
+    g.computeVertexNormals();
+    withWhiteColor(g);
+    g.userData.triangles = (g.index ? g.index.count : g.attributes.position.count) / 3;
+    return g;
+  }
+
+  // Reused scratch objects (avoid per-petal allocation in hot loops).
+  const _qz = new T.Quaternion(), _qy = new T.Quaternion(), _qr = new T.Quaternion(), _q = new T.Quaternion();
+  const _axZ = new T.Vector3(0, 0, 1), _axY = new T.Vector3(0, 1, 0), _axX = new T.Vector3(1, 0, 0);
+  const _pos = new T.Vector3(), _scl = new T.Vector3();
+  const _WHITE = new T.Color(0xffffff);
+  const _scratch = new T.Color();
+
+  // Place one petal: base sits at `radius` along the ring at `angle`, tilted up by `tilt`.
+  // quaternion = Rz(angle) * Ry(-tilt) [* Rx(roll)] so the petal points outward, leans toward
+  // +Z, and can roll about its own length axis for natural edge orientation variation.
+  function petalMatrix(out, cx, cy, cz, angle, tilt, radius, scale, roll) {
+    _qz.setFromAxisAngle(_axZ, angle);
+    _qy.setFromAxisAngle(_axY, -tilt);
+    _q.copy(_qz).multiply(_qy);
+    if (roll) { _qr.setFromAxisAngle(_axX, roll); _q.multiply(_qr); }
+    _pos.set(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius, cz);
+    _scl.set(scale, scale, scale);
+    out.compose(_pos, _q, _scl);
+  }
+
+  // Shade a palette colour within its own family (darker via multiply, lighter via lerp to white).
+  function shadedColor(base, layer) {
+    const c = base.clone();
+    const lift = layer.lift || 0;
+    const shade = layer.shade != null ? layer.shade : 1;
+    if (lift > 0) c.lerp(_WHITE, Math.min(0.9, lift));
+    else if (shade !== 1) c.multiplyScalar(shade);
+    return c;
+  }
+
+  // Build the instanced meshes for a species' petal rings across every flower.
+  // ctx: { flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S, petalMaterial, layers }
+  function buildRings(ctx) {
+    const { flowers, colors, S, petalMaterial, layers } = ctx;
+    const meshes = [];
+    let triangles = 0;
+    const matrix = new T.Matrix4();
+    for (let li = 0; li < layers.length; li++) {
+      const layer = layers[li];
+      const geo = layer._geometry;
+      const per = layer.count;
+      const total = flowers.length * per;
+      if (total <= 0) continue;
+      const im = new T.InstancedMesh(geo, petalMaterial, total);
+      im.instanceMatrix.setUsage(T.StaticDrawUsage);
+      im.frustumCulled = false;
+      const layerColors = colors.map(c => shadedColor(c, layer));
+      const radius = (layer.radius || 0) * S;
+      const z = (layer.z || 0) * S;
+      const baseTilt = layer.tilt || 0;
+      const angleOff = layer.angleOffset || 0;
+      const jitter = layer.jitter || 0, tiltJitter = layer.tiltJitter || 0, sizeVar = layer.sizeVar || 0;
+      const zJitter = layer.zJitter || 0, rollJitter = layer.rollJitter || 0;
+      let n = 0;
+      for (let fi = 0; fi < flowers.length; fi++) {
+        const f = flowers[fi];
+        const col = layerColors[f.colorIndex] || layerColors[0];
+        const rnd = mulberry32((f.seed * 2654435761 + li * 40503) >>> 0);
+        const spin = f.spin || 0; // whole-flower Z spin (adds to every petal azimuth)
+        for (let k = 0; k < per; k++) {
+          const jr = jitter ? (rnd() - 0.5) * 2 * jitter : 0;
+          const angle = k * Math.PI * 2 / per + angleOff + jr + spin;
+          const tilt = baseTilt + (tiltJitter ? (rnd() - 0.5) * 2 * tiltJitter : 0);
+          const scale = S * (1 + (sizeVar ? (rnd() - 0.5) * 2 * sizeVar : 0));
+          const zp = z + (zJitter ? (rnd() - 0.5) * 2 * zJitter * S : 0);
+          const roll = rollJitter ? (rnd() - 0.5) * 2 * rollJitter : 0;
+          petalMatrix(matrix, f.x, f.y, zp, angle, tilt, radius, scale, roll);
+          im.setMatrixAt(n, matrix);
+          // Subtle per-petal lightness variation so each bloom reads as 3D (not flat plastic).
+          // Kept small: geometry and lighting should carry most of the depth, not colour patchiness.
+          _scratch.copy(col).offsetHSL(0, 0, (rnd() - 0.5) * 0.04);
+          im.setColorAt(n, _scratch);
+          n++;
+        }
+      }
+      im.count = n;
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      meshes.push(im);
+      triangles += (geo.userData.triangles || 0) * total;
+    }
+    return { meshes, triangles };
+  }
+
+  // Build the optional centre (receptacle / disc / bud). Uses instanceColor when followPalette.
+  function buildCenter(ctx) {
+    const { flowers, colors, S, center } = ctx;
+    if (!center || !center._geometry) return { meshes: [], triangles: 0 };
+    const geo = center._geometry;
+    const mat = new T.MeshStandardMaterial({
+      color: center.followPalette ? 0xffffff : (center.color != null ? center.color : 0xd8b35d),
+      roughness: center.roughness != null ? center.roughness : 0.8,
+      metalness: 0,
+      side: T.DoubleSide,
+      vertexColors: true // instanceColor tints diffuse only under USE_COLOR
+    });
+    const im = new T.InstancedMesh(geo, mat, flowers.length);
+    im.instanceMatrix.setUsage(T.StaticDrawUsage);
+    im.frustumCulled = false;
+    const matrix = new T.Matrix4();
+    const idQ = new T.Quaternion();
+    const z = (center.z || 0) * S;
+    const scale = S * (center.scale != null ? center.scale : 1);
+    let palette = null;
+    if (center.followPalette) {
+      palette = colors.map(c => shadedColor(c, { shade: center.shade != null ? center.shade : 0.82 }));
+    }
+    for (let fi = 0; fi < flowers.length; fi++) {
+      const f = flowers[fi];
+      _pos.set(f.x, f.y, z);
+      _scl.set(scale, scale, scale * (center.squash != null ? center.squash : 1));
+      matrix.compose(_pos, idQ, _scl);
+      im.setMatrixAt(fi, matrix);
+      if (palette) im.setColorAt(fi, palette[f.colorIndex] || palette[0]);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    return { meshes: [im], triangles: (geo.userData.triangles || 0) * flowers.length, material: mat };
+  }
+
+  // Pre-build a species' geometries (petal rings + centre) once; reused across rebuilds.
+  function buildGeometries(species) {
+    const layers = (species.layers || []).map(l => {
+      const layer = Object.assign({}, l);
+      layer._geometry = makePetalGeometry(l.petal || {});
+      return layer;
+    });
+    let center = null;
+    if (species.center) {
+      center = Object.assign({}, species.center);
+      if (species.center.kind === 'dome') {
+        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.4, 12, 7);
+      } else if (species.center.kind === 'cone') {
+        center._geometry = new T.ConeGeometry(species.center.radius || 0.04, species.center.height || 0.12, 12, 1);
+        center._geometry.rotateX(Math.PI / 2); // point along +Z (toward viewer)
+        center._geometry.computeVertexNormals();
+        withWhiteColor(center._geometry);
+        center._geometry.userData.triangles = (center._geometry.index ? center._geometry.index.count : center._geometry.attributes.position.count) / 3;
+      } else {
+        center._geometry = makeDomeGeometry(species.center.radius || 0.08, species.center.squashZ || 0.35, 12, 7);
+      }
+    }
+    return { layers, center };
+  }
+
+  function disposeGeometries(built) {
+    if (!built) return;
+    built.layers.forEach(l => l._geometry && l._geometry.dispose());
+    if (built.center && built.center._geometry) built.center._geometry.dispose();
+  }
+
+  function trianglesOf(built) {
+    if (!built) return 0;
+    let t = 0;
+    built.layers.forEach(l => { t += (l._geometry.userData.triangles || 0) * l.count; });
+    if (built.center && built.center._geometry) t += (built.center._geometry.userData.triangles || 0);
+    return t;
+  }
+
+  function petalsPerFlower(species) {
+    let n = 0;
+    (species.layers || []).forEach(l => { n += l.count; });
+    return n;
+  }
+
+  // ---- species registry ---------------------------------------------------
+  const _registry = [];
+  const _byType = Object.create(null);
+  function register(species) {
+    if (!species || !species.type) return;
+    if (_byType[species.type]) { // replace on re-register (e.g. hot reload)
+      const i = _registry.indexOf(_byType[species.type]);
+      if (i >= 0) _registry.splice(i, 1);
+    }
+    _byType[species.type] = species;
+    _registry.push(species);
+  }
+  const get = type => _byType[type] || null;
+  const list = () => _registry.map(s => ({ type: s.type, label: s.label }));
+
+  return {
+    makePetalGeometry, makeDomeGeometry, petalMatrix, shadedColor,
+    buildRings, buildCenter, buildGeometries, disposeGeometries,
+    trianglesOf, petalsPerFlower, mulberry32, PROFILE,
+    register, get, list
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/rose.js ----
+/* Rose — a naturally layered bloom. Outer petals open broadly and lie almost
+   horizontal; each whorl inward is smaller, more upright and sits further forward,
+   ending in a tight overlapping spiral bud. Rounded tips (tipPull), a full central
+   ridge (ridgePow<1) and a thin rolled rim (edgePow>1) keep petals reading as curved
+   shells rather than flat plates. */
+(function () {
+  'use strict';
+  const C = FlowerCore;
+  C.register({
+    type: 'rose',
+    label: 'Rose',
+    pack: 1.0,
+    layers: [
+      // 1) Outermost whorl: broad, gently opening, nearly horizontal spoon petals.
+      { count: 8, radius: 0.135, tilt: 0.12, z: 0.006, angleOffset: 0,
+        jitter: 0.05, tiltJitter: 0.06, sizeVar: 0.07, zJitter: 0.010, rollJitter: 0.12, shade: 0.90,
+        petal: { length: 0.36, width: 0.20, profile: 'spoon',
+                 ridge: 0.028, ridgePow: 0.6, ridgeFade: 1.3,
+                 edgeCurl: 0.05, edgePow: 1.7, curl: 0.10, curlPow: 1.9,
+                 tipRound: 0.30, tipStart: 0.50, edgeWave: 0.03, edgeWaveFreq: 3,
+                 lengthSegs: 8, widthSegs: 10 } },
+      // 2) Second whorl: broad and softly rolled, still opening outward.
+      { count: 8, radius: 0.11, tilt: 0.28, z: 0.022, angleOffset: Math.PI / 8,
+        jitter: 0.05, tiltJitter: 0.07, sizeVar: 0.08, zJitter: 0.012, rollJitter: 0.14, shade: 0.94,
+        petal: { length: 0.32, width: 0.185, profile: 'spoon',
+                 ridge: 0.026, ridgePow: 0.6, ridgeFade: 1.3,
+                 edgeCurl: 0.045, edgePow: 1.6, curl: 0.07, curlPow: 1.8,
+                 tipRound: 0.28, tipStart: 0.50, edgeWave: 0.025, edgeWaveFreq: 3,
+                 lengthSegs: 8, widthSegs: 10 } },
+      // 3) Mid-outer: broader and beginning to cup around the centre.
+      { count: 8, radius: 0.085, tilt: 0.50, z: 0.042, angleOffset: 0.35,
+        jitter: 0.05, tiltJitter: 0.08, sizeVar: 0.09, zJitter: 0.012, rollJitter: 0.14, shade: 0.98,
+        petal: { length: 0.27, width: 0.165, profile: 'cupped', cup: 0.05,
+                 ridge: 0.024, ridgePow: 0.6, ridgeFade: 1.3,
+                 edgeCurl: 0.04, edgePow: 1.5, curl: 0.05,
+                 tipRound: 0.26, tipStart: 0.50,
+                 lengthSegs: 7, widthSegs: 9 } },
+      // 4) Mid: cupping upward around the bud.
+      { count: 8, radius: 0.062, tilt: 0.72, z: 0.062, angleOffset: 0.6,
+        jitter: 0.06, tiltJitter: 0.09, sizeVar: 0.10, zJitter: 0.012, rollJitter: 0.16, shade: 1.0,
+        petal: { length: 0.23, width: 0.145, profile: 'cupped', cup: 0.055,
+                 ridge: 0.020, ridgePow: 0.6, ridgeFade: 1.3,
+                 edgeCurl: 0.032, edgePow: 1.5, curl: 0.04,
+                 tipRound: 0.24, tipStart: 0.50,
+                 lengthSegs: 7, widthSegs: 9 } },
+      // 5) Inner whorl: short, cupped, near-upright, slightly lighter.
+      { count: 6, radius: 0.042, tilt: 0.98, z: 0.085, angleOffset: 0.85,
+        jitter: 0.07, tiltJitter: 0.11, sizeVar: 0.11, zJitter: 0.014, rollJitter: 0.18, lift: 0.08,
+        petal: { length: 0.185, width: 0.12, profile: 'cupped', cup: 0.06,
+                 ridge: 0.016, ridgePow: 0.55, edgeCurl: 0.026, curl: 0.03,
+                 tipRound: 0.22, tipStart: 0.48,
+                 lengthSegs: 6, widthSegs: 8 } },
+      // 6) Spiral bud: small, overlapping, wrapping inward.
+      { count: 5, radius: 0.024, tilt: 1.24, z: 0.108, angleOffset: 1.15,
+        jitter: 0.08, tiltJitter: 0.13, sizeVar: 0.12, zJitter: 0.014, rollJitter: 0.20, lift: 0.10,
+        petal: { length: 0.14, width: 0.095, profile: 'cupped', cup: 0.06,
+                 ridge: 0.013, ridgePow: 0.55, edgeCurl: 0.02, curl: 0.025,
+                 tipRound: 0.20, tipStart: 0.45,
+                 lengthSegs: 5, widthSegs: 7 } },
+      // 7) Core bud: tightest, near-vertical, forms the spiral tip.
+      { count: 4, radius: 0.009, tilt: 1.50, z: 0.128, angleOffset: 1.5,
+        jitter: 0.09, tiltJitter: 0.14, sizeVar: 0.13, zJitter: 0.012, rollJitter: 0.22, lift: 0.12,
+        petal: { length: 0.105, width: 0.07, profile: 'narrow', cup: 0.05,
+                 ridge: 0.010, ridgePow: 0.5, curl: 0.02,
+                 tipRound: 0.16, tipStart: 0.45,
+                 lengthSegs: 5, widthSegs: 7 } }
+    ],
+    // Small green receptacle tucked behind the bloom (never dominating the profile).
+    center: { kind: 'dome', radius: 0.09, squashZ: 0.45, z: -0.02, scale: 1.0, color: 0x6f8a5a, roughness: 0.85 }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/marigold.js ----
+/* Marigold — dense African marigold: dome of many narrow, ruffled petals. */
+(function () {
+  'use strict';
+  const C = FlowerCore;
+  C.register({
+    type: 'marigold',
+    label: 'Marigold',
+    pack: 0.9,
+    layers: [
+      { count: 26, radius: 0.15, tilt: 0.12, z: 0.0, jitter: 0.05, tiltJitter: 0.05, sizeVar: 0.05, shade: 0.86,
+        petal: { length: 0.30, width: 0.062, profile: 'narrow', cup: 0.014, curl: 0.03, ruffle: 0.013, ruffleFreq: 6, lengthSegs: 6, widthSegs: 4 } },
+      { count: 22, radius: 0.12, tilt: 0.33, z: 0.01, jitter: 0.05, tiltJitter: 0.06, sizeVar: 0.05, shade: 0.92,
+        petal: { length: 0.27, width: 0.058, profile: 'narrow', cup: 0.016, curl: 0.028, ruffle: 0.012, ruffleFreq: 6, lengthSegs: 6, widthSegs: 4 } },
+      { count: 18, radius: 0.09, tilt: 0.6, z: 0.018, jitter: 0.06, tiltJitter: 0.07, sizeVar: 0.06, shade: 0.98, lift: 0.03,
+        petal: { length: 0.23, width: 0.052, profile: 'narrow', cup: 0.018, curl: 0.025, ruffle: 0.011, ruffleFreq: 6, lengthSegs: 6, widthSegs: 4 } },
+      { count: 13, radius: 0.06, tilt: 0.92, z: 0.026, jitter: 0.07, tiltJitter: 0.08, sizeVar: 0.07, lift: 0.08,
+        petal: { length: 0.17, width: 0.046, profile: 'narrow', cup: 0.02, curl: 0.02, ruffle: 0.01, ruffleFreq: 5, lengthSegs: 5, widthSegs: 4 } },
+      { count: 10, radius: 0.032, tilt: 1.25, z: 0.034, jitter: 0.08, tiltJitter: 0.1, sizeVar: 0.08, lift: 0.13,
+        petal: { length: 0.12, width: 0.04, profile: 'narrow', cup: 0.02, curl: 0.015, ruffle: 0.008, ruffleFreq: 5, lengthSegs: 5, widthSegs: 4 } }
+    ],
+    // Compact textured centre in the same colour family.
+    center: { kind: 'dome', radius: 0.05, squashZ: 0.55, z: 0.04, scale: 0.9, followPalette: true, shade: 0.78, roughness: 0.85 }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/chrysanthemum.js ----
+/* Chrysanthemum — decorative mum: many slender, tapering fountain petals. */
+(function () {
+  'use strict';
+  const C = FlowerCore;
+  C.register({
+    type: 'chrysanthemum',
+    label: 'Chrysanthemum',
+    pack: 0.94,
+    layers: [
+      { count: 22, radius: 0.12, tilt: 0.14, z: 0.0, jitter: 0.04, tiltJitter: 0.05, sizeVar: 0.05, shade: 0.9,
+        petal: { length: 0.37, width: 0.05, profile: 'narrow', cup: 0.012, curl: 0.09, curlPow: 1.5, tipPinch: 0.3, lengthSegs: 7, widthSegs: 4 } },
+      { count: 18, radius: 0.095, tilt: 0.4, z: 0.012, jitter: 0.05, tiltJitter: 0.06, sizeVar: 0.05, shade: 0.96,
+        petal: { length: 0.32, width: 0.046, profile: 'narrow', cup: 0.014, curl: 0.075, curlPow: 1.5, tipPinch: 0.3, lengthSegs: 7, widthSegs: 4 } },
+      { count: 14, radius: 0.065, tilt: 0.72, z: 0.022, jitter: 0.06, tiltJitter: 0.07, sizeVar: 0.06, lift: 0.05,
+        petal: { length: 0.26, width: 0.042, profile: 'narrow', cup: 0.016, curl: 0.06, curlPow: 1.5, tipPinch: 0.25, lengthSegs: 6, widthSegs: 4 } },
+      { count: 10, radius: 0.04, tilt: 1.05, z: 0.03, jitter: 0.07, tiltJitter: 0.09, sizeVar: 0.07, lift: 0.11,
+        petal: { length: 0.18, width: 0.037, profile: 'narrow', cup: 0.018, curl: 0.045, curlPow: 1.4, tipPinch: 0.2, lengthSegs: 5, widthSegs: 4 } },
+      { count: 7, radius: 0.02, tilt: 1.4, z: 0.036, jitter: 0.08, tiltJitter: 0.1, sizeVar: 0.08, lift: 0.15,
+        petal: { length: 0.11, width: 0.032, profile: 'narrow', cup: 0.02, curl: 0.03, lengthSegs: 5, widthSegs: 4 } }
+    ],
+    center: { kind: 'dome', radius: 0.04, squashZ: 0.55, z: 0.04, scale: 0.8, followPalette: true, shade: 0.8, roughness: 0.85 }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/dahlia.js ----
+/* Dahlia — decorative dahlia: structured concentric layers of pointed petals. */
+(function () {
+  'use strict';
+  const C = FlowerCore;
+  C.register({
+    type: 'dahlia',
+    label: 'Dahlia',
+    pack: 0.88,
+    layers: [
+      { count: 20, radius: 0.135, tilt: 0.18, z: 0.0, jitter: 0.02, tiltJitter: 0.02, sizeVar: 0.03, shade: 0.9,
+        petal: { length: 0.33, width: 0.125, profile: 'taper', cup: 0.03, curl: 0.02, lengthSegs: 6, widthSegs: 5 } },
+      { count: 13, radius: 0.105, tilt: 0.44, z: 0.014, angleOffset: Math.PI / 13, jitter: 0.02, tiltJitter: 0.03, sizeVar: 0.03, shade: 0.96,
+        petal: { length: 0.28, width: 0.115, profile: 'taper', cup: 0.035, curl: 0.02, lengthSegs: 6, widthSegs: 5 } },
+      { count: 8, radius: 0.075, tilt: 0.74, z: 0.026, jitter: 0.02, tiltJitter: 0.03, sizeVar: 0.04, lift: 0.05,
+        petal: { length: 0.22, width: 0.1, profile: 'taper', cup: 0.04, curl: 0.015, lengthSegs: 6, widthSegs: 5 } },
+      { count: 5, radius: 0.045, tilt: 1.05, z: 0.036, jitter: 0.03, tiltJitter: 0.04, sizeVar: 0.05, lift: 0.1,
+        petal: { length: 0.15, width: 0.082, profile: 'taper', cup: 0.045, lengthSegs: 5, widthSegs: 5 } }
+    ],
+    center: { kind: 'dome', radius: 0.03, squashZ: 0.55, z: 0.042, scale: 0.7, followPalette: true, shade: 0.8, roughness: 0.85 }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/gerbera.js ----
+/* Gerbera daisy — large gerbera: one dominant ring of long ray petals around a clear disc. */
+(function () {
+  'use strict';
+  const C = FlowerCore;
+  C.register({
+    type: 'gerbera',
+    label: 'Gerbera daisy',
+    pack: 1.04,
+    layers: [
+      // Dominant single ring of long, narrow ray petals (low tilt = flat head).
+      { count: 24, radius: 0.14, tilt: 0.06, z: 0.0, jitter: 0.02, tiltJitter: 0.03, sizeVar: 0.04, shade: 0.96,
+        petal: { length: 0.36, width: 0.06, profile: 'ray', cup: 0.012, cupFade: 0.4, curl: 0.03, tipPinch: 0.2, lengthSegs: 7, widthSegs: 4 } },
+      // Short petaloid transition ring just inside the rays.
+      { count: 18, radius: 0.075, tilt: 0.16, z: 0.008, jitter: 0.03, tiltJitter: 0.03, sizeVar: 0.05, shade: 0.82,
+        petal: { length: 0.16, width: 0.045, profile: 'ray', cup: 0.01, curl: 0.02, lengthSegs: 5, widthSegs: 4 } }
+    ],
+    // Clear pollen disc (natural golden-brown eye, independent of petal colour).
+    center: { kind: 'dome', radius: 0.075, squashZ: 0.34, z: 0.012, scale: 1.0, color: 0x9c7a2a, roughness: 0.9 }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/flower-factory.js ----
+// Species self-register into FlowerCore at module-evaluation time. The bundle
+// concatenates them via ORDER (these imports are stripped); the native-ESM dev
+// path needs them so `build()` can find a registered species.
+
+/* Flower Panel Studio — flower factory (public API).
+   Loads after core + species files. Builds cached, instanced flower meshes.
+   Exposes: FlowerEngine (ESM) */
+const FlowerEngine = (function () {
+  'use strict';
+  const C = FlowerCore;
+  const T = THREE;
+
+  let petalMaterial = null;   // one shared material for all petals (colours via instanceColor)
+  let geoCache = new Map();   // type -> built geometries (multiple species can coexist)
+
+  function getPetalMaterial() {
+    if (!petalMaterial) {
+      petalMaterial = new T.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.72, metalness: 0, side: T.DoubleSide,
+        vertexColors: true // required for InstancedMesh.instanceColor to tint diffuse
+      });
+    }
+    return petalMaterial;
+  }
+
+  function list() { return C.list(); }
+  function has(type) { return !!C.get(type); }
+  function get(type) { return C.get(type); }
+  function petalsPerFlower(type) { const s = C.get(type); return s ? C.petalsPerFlower(s) : 0; }
+
+  // Build (or reuse) the species' geometries. Cached per species so several species
+  // (main panel + flower borders) can be built at once without thrashing.
+  function ensureGeometry(type) {
+    const s = C.get(type);
+    if (!s) throw new Error('Unknown flower type: "' + type + '"');
+    let built = geoCache.get(type);
+    if (built) return built;
+    built = C.buildGeometries(s);
+    geoCache.set(type, built);
+    return built;
+  }
+
+  // Estimated triangles to render `flowerCount` flowers of `type`.
+  function estimateTriangles(type, flowerCount) {
+    const built = ensureGeometry(type);
+    return C.trianglesOf(built) * Math.max(0, flowerCount | 0);
+  }
+
+  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S }
+  // Throws for an unknown species — never silently falls back.
+  function build(opts) {
+    const type = opts && opts.type;
+    const s = C.get(type);
+    if (!s) throw new Error('Unknown flower type: "' + type + '"');
+    const flowers = (opts && opts.flowers) || [];
+    const colors = (opts && opts.colors) || [];
+    const S = (opts && opts.S) || 1;
+    const built = ensureGeometry(type);
+    const pm = getPetalMaterial();
+    const rings = C.buildRings({ flowers, colors, S, petalMaterial: pm, layers: built.layers });
+    const centre = built.center
+      ? C.buildCenter({ flowers, colors, S, center: built.center })
+      : { meshes: [], triangles: 0 };
+    return {
+      meshes: rings.meshes.concat(centre.meshes),
+      triangles: rings.triangles + centre.triangles,
+      petalsPerFlower: C.petalsPerFlower(s),
+      perFlowerTriangles: C.trianglesOf(built)
+    };
+  }
+
+  // Release per-build meshes: frees instance GPU buffers and per-build (centre) materials,
+  // but keeps the shared petal material and cached geometry.
+  function release(meshes) {
+    if (!meshes) return;
+    for (let i = 0; i < meshes.length; i++) {
+      const m = meshes[i];
+      if (!m) continue;
+      if (m.parent) m.parent.remove(m);
+      if (m.material && m.material !== petalMaterial) {
+        if (Array.isArray(m.material)) m.material.forEach(mm => mm && mm.dispose && mm.dispose());
+        else if (m.material.dispose) m.material.dispose();
+      }
+      if (m.dispose) m.dispose();
+    }
+  }
+
+  // Full teardown (frees all cached geometry + shared material). Not needed for normal rebuilds.
+  function dispose() {
+    if (geoCache) { geoCache.forEach(built => C.disposeGeometries(built)); geoCache.clear(); }
+    if (petalMaterial) { petalMaterial.dispose(); petalMaterial = null; }
+  }
+
+  return {
+    list, has, get, petalsPerFlower, estimateTriangles,
+    build, release, dispose, ensureGeometry
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/greenery-core.js ----
+/* Flower Panel Studio — greenery geometry core.
+   Procedural builders for leaves, tubes and merged multi-part models. Depends on the
+   imported THREE (three r160). Exposes: GreeneryCore (ESM).
+   Each model compiles to ONE merged BufferGeometry so the factory can draw it with a
+   single InstancedMesh (many placed copies, one draw call). */
+const GreeneryCore = (function () {
+  'use strict';
+  const T = THREE;
+
+  function mulberry32(seed) {
+    let a = (seed >>> 0) || 1;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // White per-vertex colour so a vertexColors material renders white * instanceColor =
+  // instanceColor. MeshStandardMaterial has no defaultAttributeValues, so a missing colour
+  // attribute would render black. Required for every geometry used with vertexColors.
+  function withWhiteColor(g) {
+    const n = g.attributes.position.count;
+    g.setAttribute('color', new T.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    return g;
+  }
+
+  // ---- leaf blade ------------------------------------------------------------
+  // A flat, slightly cupped blade in the XY plane: base at (0,0,0), tip at (0,length,0),
+  // width across X, cup/lift in Z. `profile(u)` shapes the half-width along the length.
+  // `lobes` cut split-like notches (monstera); `holes` punch elliptical fenestrations.
+  function makeBlade(opts) {
+    opts = opts || {};
+    const L = opts.lengthSegs || 10, W = opts.widthSegs || 10;
+    const length = opts.length != null ? opts.length : 1;
+    const halfW = opts.halfWidth != null ? opts.halfWidth : 0.3;
+    const profile = typeof opts.profile === 'function'
+      ? opts.profile
+      : (u => Math.sin(Math.PI * Math.min(1, 0.10 + 0.85 * u)));
+    const lobes = opts.lobes || null;               // { count, depth }
+    const holes = opts.holes || [];                 // [{u, v, ru, rv}]
+    const cup = opts.cup != null ? opts.cup : 0.05; // edges lift in Z
+    const bend = opts.bend != null ? opts.bend : 0.05; // tip lifts in Z
+    const pos = [], uv = [], idx = [];
+    const gi = (i, j) => i * (W + 1) + j;
+    for (let i = 0; i <= L; i++) {
+      const u = i / L, y = u * length;
+      let w = halfW * profile(u);
+      if (lobes) {
+        const t = 0.5 - 0.5 * Math.cos(lobes.count * 2 * Math.PI * u);
+        w *= (1 - (lobes.depth != null ? lobes.depth : 0.5) * t);
+      }
+      for (let j = 0; j <= W; j++) {
+        const v = -1 + 2 * j / W;
+        const x = v * w;
+        const z = cup * (v * v) * w + bend * (u * u) * length;
+        pos.push(x, y, z); uv.push((v + 1) / 2, u);
+      }
+    }
+    for (let i = 0; i < L; i++) {
+      for (let j = 0; j < W; j++) {
+        const uc = (i + 0.5) / L, vc = -1 + 2 * (j + 0.5) / W;
+        let inHole = false;
+        for (let h = 0; h < holes.length; h++) {
+          const ho = holes[h];
+          const du = (uc - ho.u) / ho.ru, dv = (vc - ho.v) / ho.rv;
+          if (du * du + dv * dv <= 1) { inHole = true; break; }
+        }
+        if (inHole) continue;
+        const a = gi(i, j), b = gi(i + 1, j), c = gi(i + 1, j + 1), d = gi(i, j + 1);
+        // CCW winding (a→c→b, a→d→c) so computeVertexNormals yields +Z normals; the old
+        // a,b,c / a,c,d order was CW, giving every blade a −Z normal (dark under the app's
+        // top-left light; only visible because the material is DoubleSide).
+        idx.push(a, c, b, a, d, c);
+      }
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  // ---- tapered tube ----------------------------------------------------------
+  // Sweeps a circle of varying radius along a polyline (stems, branches, rachises).
+  // pts: [{x,y,z}]; radius: number or fn(t) with t in [0,1].
+  function makeTube(pts, radius, radialSegs) {
+    const R = radialSegs || 6, n = pts.length;
+    if (n < 2) return makeBlade({ length: 0.001 });
+    const pos = [], uv = [], idx = [];
+    const rad = typeof radius === 'function' ? radius : (t => radius);
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
+      const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(n - 1, i + 1)];
+      let tx = next.x - prev.x, ty = next.y - prev.y, tz = next.z - prev.z;
+      const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+      // frame: n1 = tangent x up, n2 = tangent x n1
+      let n1x = ty * 0 - tz * 1, n1y = tz * 0 - tx * 0, n1z = tx * 1 - ty * 0; // tangent x (0,0,1)
+      let l1 = Math.hypot(n1x, n1y, n1z);
+      if (l1 < 1e-6) { n1x = 1; n1y = 0; n1z = 0; l1 = 1; }         // tangent parallel to Z
+      n1x /= l1; n1y /= l1; n1z /= l1;
+      let n2x = ty * n1z - tz * n1y, n2y = tz * n1x - tx * n1z, n2z = tx * n1y - ty * n1x;
+      const l2 = Math.hypot(n2x, n2y, n2z) || 1; n2x /= l2; n2y /= l2; n2z /= l2;
+      const r = rad(i / (n - 1));
+      for (let k = 0; k < R; k++) {
+        const a = k / R * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+        pos.push(p.x + (n1x * ca + n2x * sa) * r, p.y + (n1y * ca + n2y * sa) * r, p.z + (n1z * ca + n2z * sa) * r);
+        uv.push(k / R, i / (n - 1));
+      }
+    }
+    for (let i = 0; i < n - 1; i++) {
+      for (let k = 0; k < R; k++) {
+        const k2 = (k + 1) % R;
+        const a = i * R + k, b = i * R + k2, c = (i + 1) * R + k, d = (i + 1) * R + k2;
+        idx.push(a, c, d, a, d, b);
+      }
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  // ---- geometry helpers used by model builders ------------------------------
+  function mergeGeometries(list) {
+    const parts = (list || []).filter(Boolean);
+    if (!parts.length) return makeBlade({ length: 0.001 });
+    if (parts.length === 1) return parts[0];
+    const pos = [], norm = [], uv = [], idx = [];
+    let offset = 0;
+    for (const g of parts) {
+      const p = g.attributes.position, nn = g.attributes.normal, u = g.attributes.uv;
+      for (let i = 0; i < p.count; i++) pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      if (nn) for (let i = 0; i < p.count; i++) norm.push(nn.getX(i), nn.getY(i), nn.getZ(i));
+      else for (let i = 0; i < p.count; i++) norm.push(0, 0, 1);
+      if (u) for (let i = 0; i < p.count; i++) uv.push(u.getX(i), u.getY(i));
+      else for (let i = 0; i < p.count; i++) uv.push(0, 0);
+      const ix = g.index;
+      if (ix) for (let i = 0; i < ix.count; i++) idx.push(ix.getX(i) + offset);
+      else for (let i = 0; i < p.count; i++) idx.push(i + offset);
+      offset += p.count;
+    }
+    const out = new T.BufferGeometry();
+    out.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    out.setAttribute('normal', new T.Float32BufferAttribute(norm, 3));
+    out.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    out.setIndex(idx);
+    return out;
+  }
+  function applyMatrix(g, m4) {
+    const p = g.attributes.position, v = new T.Vector3();
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m4); p.setXYZ(i, v.x, v.y, v.z); }
+    p.needsUpdate = true;
+    const nn = g.attributes.normal;
+    if (nn) {
+      const nm = new T.Matrix3().getNormalMatrix(m4);
+      for (let i = 0; i < nn.count; i++) { v.fromBufferAttribute(nn, i).applyMatrix3(nm).normalize(); nn.setXYZ(i, v.x, v.y, v.z); }
+      nn.needsUpdate = true;
+    }
+    return g;
+  }
+  const cloneGeom = g => g.clone();
+  // Convenience transform builders for model code.
+  function trs(x, y, z, rz, s) {
+    const m = new T.Matrix4();
+    const q = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), rz || 0);
+    m.compose(new T.Vector3(x, y, z), q, new T.Vector3(s || 1, s || 1, s || 1));
+    return m;
+  }
+
+  // Helpers passed to each model's build().
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32 };
+
+  // ---- registry --------------------------------------------------------------
+  const _registry = [];
+  const _byType = Object.create(null);
+  function register(model) {
+    if (!model || !model.type) throw new Error('Greenery model requires a type');
+    if (typeof model.build !== 'function') throw new Error('Greenery model "' + model.type + '" requires build()');
+    if (_byType[model.type]) throw new Error('Duplicate greenery type: "' + model.type + '"');
+    _registry.push(model); _byType[model.type] = model;
+  }
+  const get = type => _byType[type] || null;
+  const list = () => _registry.map(m => ({ type: m.type, label: m.label || m.type }));
+
+  // Scale the model so its longest in-plane axis (max of bbox width/height) is exactly 1.
+  // This keeps meta.lengthIn honest: placement uses scaleW = lengthIn/12*worldScale, so the
+  // geometry's long axis must be 1 for lengthIn to equal the real-world long-axis inches.
+  // Scaling is about the origin, so the stem-base attachment point stays fixed.
+  function normalizeLongAxis(g) {
+    g.computeBoundingBox();
+    const bb = g.boundingBox;
+    const dx = bb.max.x - bb.min.x, dy = bb.max.y - bb.min.y;
+    const m = Math.max(dx, dy);
+    if (m > 1e-6 && Math.abs(m - 1) > 1e-3) {
+      const s = 1 / m, p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * s, p.getY(i) * s, p.getZ(i) * s);
+      p.needsUpdate = true;
+      g.computeBoundingBox(); g.computeBoundingSphere();
+    }
+    return g;
+  }
+
+  // Build (once) the model's single merged geometry. Cached by the factory.
+  function buildGeometries(model) {
+    const geometry = normalizeLongAxis(model.build(HELPERS));
+    withWhiteColor(geometry);
+    geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
+    return { geometry };
+  }
+  function disposeGeometries(built) { if (built && built.geometry) built.geometry.dispose(); }
+  function trianglesOf(built) { return built && built.geometry ? (built.geometry.userData.triangles || 0) : 0; }
+
+  return {
+    register, get, list, buildGeometries, disposeGeometries, trianglesOf,
+    makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, withWhiteColor
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/monstera.js ----
+/* Monstera leaf — a broad cordate/ovate blade with deep characteristic edge splits
+   (sinuses) and smooth oval fenestrations, on a short petiole. Structural-layer
+   statement foliage. Geometry is normalised so the longest axis = 1 (see greenery-core).
+
+   The blade is built from a THREE.Shape (outer outline + hole paths) so that:
+     - the silhouette is smooth and recognisably monstera (not a jagged grid blob),
+     - fenestrations are true, smooth openings (not blocky per-quad cutouts),
+     - the outline is wound CCW so face normals point +Z (front faces the camera),
+       which removes the inverted-winding / back-face darkening seen previously.
+   A gentle cup + tip lift is applied by displacing Z after triangulation. */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  const T = THREE;
+
+  // Smooth ovate envelope: 0 at base and tip, broad plateau across the middle. The high
+  // exponent keeps the upper half broad so it reads as a leaf plate, not a fir-tree cone.
+  const env = u => Math.sin(Math.PI * Math.pow(Math.max(0, Math.min(1, u)), 0.85));
+  // Split (sinus) pulse: 1 at a split centre, smoothly 0 one half-spacing away.
+  function makePulse(centers, half) {
+    return function (u) {
+      let p = 0;
+      for (let i = 0; i < centers.length; i++) {
+        const d = Math.abs(u - centers[i]);
+        if (d < half) p = Math.max(p, 0.5 + 0.5 * Math.cos(Math.PI * d / half));
+      }
+      return p;
+    };
+  }
+
+  G.register({
+    type: 'monstera',
+    label: 'Monstera leaf',
+    build(G) {
+      const L = 1;                       // length; normalizeLongAxis keeps it at 1
+      const halfW = 0.42;                // broad blade (near-square silhouette like monstera)
+      // Fewer, broader lobes: 5 sinuses per side, cut ~52% in so a wide central webbing
+      // keeps every lobe attached. Narrow sinuses -> broad rounded fingers, not barbs.
+      const splits = [0.16, 0.30, 0.44, 0.58, 0.72];
+      const splitDepth = 0.52;
+      const splitHalf = 0.05;
+      const pulse = makePulse(splits, splitHalf);
+      const hw = u => halfW * env(u) * (1 - splitDepth * pulse(u));
+
+      // Outer outline, wound CCW (up the right edge, then down the left) so the
+      // triangulated front face points +Z (toward the camera).
+      const N = 220;
+      const pts = [];
+      for (let i = 0; i <= N; i++) { const u = i / N; pts.push(new T.Vector2(hw(u), u * L)); }
+      for (let i = N - 1; i >= 1; i--) { const u = i / N; pts.push(new T.Vector2(-hw(u), u * L)); }
+      const shape = new T.Shape(pts);
+
+      // Smooth oval fenestrations along the midrib, placed between the splits so they
+      // stay inside the solid central webbing (never crossing an edge sinus). Real openings.
+      const holes = [
+        { x: 0.060, y: 0.23, rx: 0.032, ry: 0.056 },
+        { x: -0.062, y: 0.37, rx: 0.034, ry: 0.060 },
+        { x: 0.058, y: 0.51, rx: 0.032, ry: 0.054 },
+        { x: -0.054, y: 0.65, rx: 0.028, ry: 0.046 }
+      ];
+      for (let i = 0; i < holes.length; i++) {
+        const h = holes[i], path = new T.Path();
+        path.absellipse(h.x, h.y, h.rx, h.ry, 0, Math.PI * 2, false, 0);
+        shape.holes.push(path);
+      }
+
+      // Triangulate outline + holes, then give the blade a gentle cup (edges lift)
+      // and a tip lift so it reads as a leaf rather than a flat cutout.
+      const geo = new T.ShapeGeometry(shape, 26);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i);
+        pos.setZ(i, 0.055 * (x / halfW) * (x / halfW) + 0.075 * (y / L) * (y / L));
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+
+      // Short petiole below the blade (attachment at the stem base / origin).
+      const stem = G.makeTube(
+        [{ x: 0, y: -0.15, z: -0.03 }, { x: 0, y: -0.05, z: -0.012 }, { x: 0, y: 0, z: 0 }],
+        0.018, 7);
+      return G.mergeGeometries([stem, geo]);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/eucalyptus.js ----
+/* Eucalyptus spray — a visible central stem carrying pairs of rounded oval leaves.
+   Volume-layer soft filler foliage; attachment at the base of the stem.
+   Geometry is normalised so the longest axis = 1 (see greenery-core). */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  G.register({
+    type: 'eucalyptus',
+    label: 'Eucalyptus spray',
+    build(G) {
+      // Main stem: gentle sine drift, tapering radius, base at origin to tip near +Y.
+      const pts = [];
+      const N = 12;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        pts.push({ x: Math.sin(t * 1.7) * 0.05, y: t * 0.94, z: Math.sin(t * 1.2) * 0.03 });
+      }
+      const stem = G.makeTube(pts, t => 0.015 * (1 - t * 0.5) + 0.005, 6);
+      // Distinct oval leaflet. Kept narrow (not the old fat pow(sin,0.5) blob) with a smooth
+      // elliptic profile so opposite pairs stay separate instead of merging into one mass.
+      const leaf = G.makeBlade({
+        length: 0.20, halfWidth: 0.072,
+        profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
+        cup: 0.015, bend: 0.025, lengthSegs: 6, widthSegs: 7
+      });
+      const parts = [stem];
+      const nodes = 7;
+      for (let i = 1; i <= nodes; i++) {
+        const t = i / (nodes + 1);
+        const y = pts[Math.round(t * N)].y, x = pts[Math.round(t * N)].x, z = pts[Math.round(t * N)].z;
+        const sc = 1 - t * 0.4;                    // leaves shrink gently toward the tip
+        for (const side of [1, -1]) {
+          const c = G.cloneGeom(leaf);
+          // Fan each leaf outward (~68°) and slightly forward so the pair spreads sideways
+          // along the stem rather than stacking into a blob.
+          G.applyMatrix(c, G.trs(x + side * 0.02, y, z, -side * (1.18 - t * 0.2), sc));
+          parts.push(c);
+        }
+      }
+      // Terminal leaf closes the tip of the spray.
+      const tip = G.cloneGeom(leaf);
+      G.applyMatrix(tip, G.trs(pts[N].x, pts[N].y, pts[N].z, 0.15, 0.55));
+      parts.push(tip);
+      return G.mergeGeometries(parts);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/boston-fern.js ----
+/* Boston fern bush — a full clump of arching, feathery fronds radiating from a compact
+   base. Filler/volume layer. Geometry is normalised so the longest axis = 1 (see
+   greenery-core); attachment is the base of the clump (origin). */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  // One canonical frond pointing +Y: a slim arching rachis carrying many overlapping,
+  // forward-angled leaflets so it reads as feathery foliage rather than a spiky ray.
+  function makeFrond(G) {
+    const pts = [];
+    const N = 10;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      // Arch the rachis laterally (panel plane) and lift slightly in Z for depth.
+      pts.push({ x: 0.11 * Math.sin(t * 1.9), y: t, z: Math.sin(t * 1.6) * 0.05 });
+    }
+    const rachis = G.makeTube(pts, t => 0.015 * (1 - t * 0.65) + 0.005, 5);
+    // Leaflets are visible blades, not hairs: broad enough and angled forward so
+    // neighbouring pairs overlap and fill out the frond.
+    const leaflet = G.makeBlade({
+      length: 0.19, halfWidth: 0.052,
+      profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.16 + 0.72 * u)), 0.5),
+      cup: 0.006, bend: 0.02, lengthSegs: 4, widthSegs: 5
+    });
+    const parts = [rachis];
+    const pairs = 13;
+    for (let i = 1; i <= pairs; i++) {
+      const t = i / (pairs + 0.5);
+      const p = pts[Math.min(N, Math.round(t * N))];
+      const sc = 1 - t * 0.45;                      // leaflets shorten toward the tip
+      for (const side of [1, -1]) {
+        const c = G.cloneGeom(leaflet);
+        // -side puts +X on the right; ~0.95 rad leans leaflets forward (outward + up),
+        // which overlaps them into a soft feather instead of a spiky starburst.
+        G.applyMatrix(c, G.trs(p.x, p.y, p.z, -side * 0.95, sc));
+        parts.push(c);
+      }
+    }
+    return G.mergeGeometries(parts);
+  }
+  G.register({
+    type: 'boston-fern',
+    label: 'Boston fern bush',
+    build(G) {
+      const frond = makeFrond(G);
+      const parts = [];
+      // Outer ring: long arching fronds forming the rounded silhouette.
+      const outer = 13;
+      for (let k = 0; k < outer; k++) {
+        const theta = k / outer * Math.PI * 2 + 0.2;
+        const sc = 0.5 * (0.86 + 0.32 * ((k * 37) % 7) / 7);
+        parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0, theta, sc)));
+      }
+      // Middle ring fills the body of the clump.
+      const mid = 7;
+      for (let k = 0; k < mid; k++) {
+        const theta = k / mid * Math.PI * 2 + 0.65;
+        parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.008, theta, 0.36)));
+      }
+      // Short inner fronds close the centre so no hollow starburst core shows.
+      const inner = 4;
+      for (let k = 0; k < inner; k++) {
+        const theta = k / inner * Math.PI * 2 + 1.1;
+        parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.014, theta, 0.2)));
+      }
+      return G.mergeGeometries(parts);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/greenery-factory.js ----
+// Species self-register into GreeneryCore at module-evaluation time. The bundle
+// concatenates them via ORDER (these imports are stripped); the native-ESM dev
+// path needs them so `build()` can find a registered species.
+
+/* Flower Panel Studio — greenery factory (public API).
+   Loads after greenery-core + model files. Builds cached, instanced greenery meshes.
+   One InstancedMesh per model (single merged geometry) keeps draw calls minimal.
+   Exposes: GreeneryEngine (ESM) */
+const GreeneryEngine = (function () {
+  'use strict';
+  const G = GreeneryCore;
+  const T = THREE;
+
+  let material = null;    // one shared material for all greenery (colour via instanceColor)
+  let geoCache = new Map(); // type -> built geometry (several types can coexist)
+
+  function getMaterial() {
+    if (!material) {
+      material = new T.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.66, metalness: 0, side: T.DoubleSide,
+        vertexColors: true // required for InstancedMesh.instanceColor to tint diffuse
+      });
+    }
+    return material;
+  }
+
+  function list() { return G.list(); }
+  function has(type) { return !!G.get(type); }
+  function get(type) { return G.get(type); }
+
+  function ensureGeometry(type) {
+    const s = G.get(type);
+    if (!s) throw new Error('Unknown greenery type: "' + type + '"');
+    let built = geoCache.get(type);
+    if (built) return built;
+    built = G.buildGeometries(s);
+    geoCache.set(type, built);
+    return built;
+  }
+
+  function estimateTriangles(type, count) {
+    return G.trianglesOf(ensureGeometry(type)) * Math.max(0, count | 0);
+  }
+
+  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation }.
+  // Throws for an unknown type — never silently falls back.
+  function build(opts) {
+    const type = opts && opts.type;
+    const s = G.get(type);
+    if (!s) throw new Error('Unknown greenery type: "' + type + '"');
+    const items = (opts && opts.items) || [];
+    if (!items.length) return { meshes: [], triangles: 0, instances: 0 };
+    const baseHex = (opts && opts.color) || '#4a7c3f';
+    const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
+    const built = ensureGeometry(type);
+    const geo = built.geometry;
+    const mat = getMaterial();
+    const im = new T.InstancedMesh(geo, mat, items.length);
+    im.instanceMatrix.setUsage(T.StaticDrawUsage);
+    im.frustumCulled = false;
+    const base = new T.Color(baseHex);
+    const m = new T.Matrix4(), q = new T.Quaternion();
+    const ax = new T.Vector3(0, 0, 1), pos = new T.Vector3(), scl = new T.Vector3(), c = new T.Color();
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      pos.set(it.x || 0, it.y || 0, it.z || 0);
+      q.setFromAxisAngle(ax, it.rot || 0);
+      const sc = it.scale || 1; scl.set(sc, sc, sc);
+      m.compose(pos, q, scl);
+      im.setMatrixAt(i, m);
+      const variant = it.variant != null ? it.variant : 0.5;
+      c.copy(base).offsetHSL(0, 0, (variant - 0.5) * colorVariation * 0.6);
+      im.setColorAt(i, c);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    return { meshes: [im], triangles: (geo.userData.triangles || 0) * items.length, instances: items.length };
+  }
+
+  // Release per-build meshes: frees instance GPU buffers, keeps shared material + cached geometry.
+  function release(meshes) {
+    if (!meshes) return;
+    for (let i = 0; i < meshes.length; i++) {
+      const m = meshes[i];
+      if (!m) continue;
+      if (m.parent) m.parent.remove(m);
+      if (m.dispose) m.dispose();
+    }
+  }
+
+  function dispose() {
+    if (geoCache) { geoCache.forEach(built => G.disposeGeometries(built)); geoCache.clear(); }
+    if (material) { material.dispose(); material = null; }
+  }
+
+  return {
+    list, has, get, estimateTriangles, build, release, dispose, ensureGeometry
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/flowers/scene.js ----
+/* Flower Panel Studio — shared arrangement renderer.
+   Builds a flower panel (foam backing slab + flower field + border layers + greenery)
+   into a THREE.Group, in a PANEL-LOCAL frame: X = width, Y = height, Z = depth, with
+   flower heads pointing +Z and the foam slab top face at z = 0.
+   `scale` is world units per foot (the studio used 0.72; TILT uses 1.0); it threads
+   through every model placement call and every piece of geometry so one code path
+   serves any world scale.
+   three r160 note: ColorManagement converts sRGB hex to the linear working space
+   automatically, so the old r128 `.convertSRGBToLinear()` calls are dropped.
+   Consumed by the TILT `flowerpanel` object (js/objects/flowerpanel.js). The studio's
+   app.js can adopt this module later so both share a single assembly. */
+const FlowerScene = (function () {
+  'use strict';
+  const T = THREE;
+  const model = FlowerModel;
+  const engine = FlowerEngine;
+  const greenEngine = GreeneryEngine;
+
+  function hashSeed(str) {
+    let h = 0; str = String(str);
+    for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) >>> 0; }
+    return h || 1;
+  }
+  function seededRand(seed) {
+    let a = (seed >>> 0) || 1;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // options: { scale = world units per foot (default 1), log(msg,data), warn(msg) }
+  function create(options) {
+    const opts = options || {};
+    const scale = opts.scale != null ? opts.scale : 1;
+    const log = opts.log || function () {};
+    const warn = opts.warn || function () {};
+
+    const group = new T.Group();
+    let activeFlowerMeshes = [];
+    let backingMesh = null;
+    let borderFrameMeshes = {};
+    let borderFlowerMeshes = {};
+    let borderGreeneryMeshes = {};
+    let greeneryMeshes = [];
+    let greeneryGroup = null;
+
+    function disposeMesh(m) {
+      if (m.geometry) m.geometry.dispose();
+      if (m.material) {
+        if (Array.isArray(m.material)) m.material.forEach(mm => mm && mm.dispose && mm.dispose());
+        else if (m.material.dispose) m.material.dispose();
+      }
+    }
+    function releaseFlowerMeshes() {
+      if (activeFlowerMeshes.length) { try { engine.release(activeFlowerMeshes); } catch (e) { log('flower release failed', e); } activeFlowerMeshes = []; }
+    }
+    function releaseBacking() {
+      if (backingMesh) { group.remove(backingMesh); disposeMesh(backingMesh); backingMesh = null; }
+    }
+    function releaseBorderFrames() {
+      for (const id of Object.keys(borderFrameMeshes)) { const m = borderFrameMeshes[id]; if (m) { group.remove(m); disposeMesh(m); } }
+      borderFrameMeshes = {};
+    }
+    function releaseFlowerBorder(id) {
+      const arr = borderFlowerMeshes[id];
+      if (arr && arr.length) { try { engine.release(arr); } catch (e) { log('flower border release failed', e); } delete borderFlowerMeshes[id]; }
+    }
+    function releaseAllFlowerBorders() { for (const id of Object.keys(borderFlowerMeshes)) releaseFlowerBorder(id); }
+    function releaseGreeneryBorder(id) {
+      const arr = borderGreeneryMeshes[id];
+      if (arr && arr.length) { try { greenEngine.release(arr); } catch (e) { log('greenery border release failed', e); } delete borderGreeneryMeshes[id]; }
+    }
+    function releaseAllGreeneryBorders() { for (const id of Object.keys(borderGreeneryMeshes)) releaseGreeneryBorder(id); }
+    function releaseGreenery() {
+      if (greeneryMeshes.length) { try { greenEngine.release(greeneryMeshes); } catch (e) { log('greenery release failed', e); } greeneryMeshes = []; }
+    }
+
+    // Interior greenery, grouped per type so each model draws as one InstancedMesh.
+    // The group stays at z=0; depth comes from each item's z (interleaves with flowers).
+    function buildGreenery(s) {
+      releaseGreenery();
+      if (s.designMode === 'flowers') return { count: 0, triangles: 0, types: [] };
+      if (!greeneryGroup) { greeneryGroup = new T.Group(); group.add(greeneryGroup); }
+      greeneryGroup.position.z = 0;
+      const inst = model.greeneryPositions(s, scale);
+      if (!inst.length) return { count: 0, triangles: 0, types: [] };
+      const byType = {};
+      for (const p of inst) { (byType[p.type] = byType[p.type] || []).push(p); }
+      const active = model.greeneryActiveItems(s.greenery);
+      let count = 0, tri = 0; const types = [];
+      for (const type of Object.keys(byType)) {
+        const meta = model.GREENERY_META[type];
+        const item = active.find(a => a.type === type) || { colorVariation: 0.3 };
+        const res = greenEngine.build({
+          type, items: byType[type],
+          color: meta ? meta.color : '#4a7c3f',
+          colorVariation: item.colorVariation != null ? item.colorVariation : 0.3
+        });
+        for (let i = 0; i < res.meshes.length; i++) greeneryGroup.add(res.meshes[i]);
+        greeneryMeshes = greeneryMeshes.concat(res.meshes);
+        count += res.instances; tri += res.triangles; types.push(type);
+      }
+      return { count, triangles: tri, types };
+    }
+
+    // Frame border layer: an extruded ring between its outerInset and innerInset bands.
+    function buildFrame(s, layer, band) {
+      if (!layer || !layer.enabled || !band) return;
+      const W = s.width * scale, H = s.height * scale;
+      const outerHW = W / 2 - band.outerInsetFt * scale, outerHH = H / 2 - band.outerInsetFt * scale;
+      const innerHW = W / 2 - band.innerInsetFt * scale, innerHH = H / 2 - band.innerInsetFt * scale;
+      if (innerHW <= 0.01 || innerHH <= 0.01) return;
+      const depth = (layer.depth / 12) * scale;
+      const outer = new T.Shape();
+      outer.moveTo(-outerHW, -outerHH); outer.lineTo(outerHW, -outerHH); outer.lineTo(outerHW, outerHH); outer.lineTo(-outerHW, outerHH); outer.closePath();
+      const hole = new T.Path();
+      hole.moveTo(-innerHW, -innerHH); hole.lineTo(innerHW, -innerHH); hole.lineTo(innerHW, innerHH); hole.lineTo(-innerHW, innerHH); hole.closePath();
+      outer.holes.push(hole);
+      const geo = new T.ExtrudeGeometry(outer, { depth, bevelEnabled: false });
+      const mat = new T.MeshStandardMaterial({ color: new T.Color(layer.color), roughness: 0.55, metalness: 0.08 });
+      const mesh = new T.Mesh(geo, mat);
+      mesh.position.z = 0.006 * scale; // just above foam top (z=0) to avoid z-fighting
+      mesh.userData.layerId = layer.id;
+      group.add(mesh);
+      borderFrameMeshes[layer.id] = mesh;
+    }
+
+    // One flower border layer: hex grid clipped to its band, per-flower rotation + colours.
+    function buildOneFlowerBorder(s, layer, mainHexes) {
+      if (!layer || !layer.enabled || layer.type !== 'flower') return { count: 0, triangles: 0 };
+      const pos = model.borderPositions(s, layer.id, scale);
+      if (!pos.length) return { count: 0, triangles: 0 };
+      const palHex = model.borderEffectivePalette(s, layer.id, mainHexes);
+      const palette = palHex.map(h => new T.Color(h));
+      const cIdx = model.borderColorIndices(pos.length, palHex.length, layer.arrangement, s.seed);
+      const rotMax = (layer.rotation || 0) * Math.PI / 180;
+      const lh = hashSeed(layer.id);
+      const flowers = pos.map((xy, j) => {
+        const r = seededRand((s.seed + 10007 * lh + j * 2654435761) >>> 0);
+        return { x: xy[0], y: xy[1], seed: 100000 + j + lh * 977, colorIndex: cIdx[j] || 0, spin: rotMax ? (r() * 2 - 1) * rotMax : 0 };
+      });
+      const S = (layer.flowerSize / 12) * scale;
+      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S });
+      borderFlowerMeshes[layer.id] = result.meshes;
+      for (let i = 0; i < result.meshes.length; i++) group.add(result.meshes[i]);
+      return { count: flowers.length, triangles: result.triangles };
+    }
+
+    // One greenery border layer: a band of leaves clipped to its ring (fans outward).
+    function buildGreeneryBorder(s, layer) {
+      if (!layer || !layer.enabled || layer.type !== 'greenery') return { count: 0, triangles: 0 };
+      const inst = model.greeneryBorderPositions(s, layer.id, scale);
+      if (!inst.length) return { count: 0, triangles: 0 };
+      const meta = model.GREENERY_META[layer.species];
+      const res = greenEngine.build({
+        type: layer.species, items: inst,
+        color: meta ? meta.color : '#4a7c3f',
+        colorVariation: layer.colorVariation != null ? layer.colorVariation : 0.3
+      });
+      borderGreeneryMeshes[layer.id] = res.meshes;
+      for (let i = 0; i < res.meshes.length; i++) group.add(res.meshes[i]);
+      return { count: res.instances, triangles: res.triangles };
+    }
+
+    // Rebuild the whole arrangement into `group`. Returns build stats (no camera fit,
+    // status text or diagnostics side effects — those stay in the host app/object).
+    function build(settings) {
+      releaseFlowerMeshes(); releaseBacking(); releaseBorderFrames();
+      releaseAllFlowerBorders(); releaseAllGreeneryBorders(); releaseGreenery();
+
+      const s = settings;
+      const W = s.width * scale, H = s.height * scale;
+      const foamDepth = (2 / 12) * scale;
+      const showFlowers = s.designMode !== 'greenery';
+
+      // Foam slab: a real shallow box whose top face sits at z=0, under the flower heads.
+      backingMesh = new T.Mesh(
+        new T.BoxGeometry(W, H, foamDepth),
+        new T.MeshStandardMaterial({ color: new T.Color(0x84977b), roughness: 1 })
+      );
+      backingMesh.position.z = -foamDepth / 2;
+      group.add(backingMesh);
+
+      const allPositions = model.positions(s, scale);
+      const counts = model.counts(s, allPositions.length);
+      const assign = model.assignColors(s, allPositions);
+      const colorIndex = assign.colorIndex;
+      const flowers = allPositions.map((xy, i) => ({ x: xy[0], y: xy[1], seed: i, colorIndex: colorIndex[i] || 0 }));
+      const palette = counts.map(c => new T.Color(c.hex));
+      const S = (s.flowerSize / 12) * scale; // nominal head diameter, world units
+
+      let result = { meshes: [], triangles: 0, petalsPerFlower: 0 };
+      if (showFlowers) {
+        result = engine.build({ type: s.flowerType, flowers, colors: palette, S });
+        activeFlowerMeshes = result.meshes;
+        for (let i = 0; i < activeFlowerMeshes.length; i++) group.add(activeFlowerMeshes[i]);
+      }
+
+      // Border layers (outside -> inside). Independent of Flowers/Greenery toggles:
+      // each layer renders on its own `enabled` flag.
+      const mainHexes = counts.map(c => c.hex);
+      const bandsById = {};
+      for (const bd of model.borderBands(s).bands) bandsById[bd.id] = bd;
+      let borderFlowerTotal = 0, borderGreeneryTotal = 0, fbTriangles = 0, gbTriangles = 0, frameCount = 0;
+      for (const layer of s.border.layers) {
+        if (!layer.enabled) continue;
+        if (layer.type === 'frame') { buildFrame(s, layer, bandsById[layer.id]); frameCount++; }
+        else if (layer.type === 'greenery') { const res = buildGreeneryBorder(s, layer); borderGreeneryTotal += res.count; gbTriangles += res.triangles; }
+        else if (layer.type === 'flower') { const res = buildOneFlowerBorder(s, layer, mainHexes); borderFlowerTotal += res.count; fbTriangles += res.triangles; }
+      }
+
+      const gre = buildGreenery(s);
+      const totalFlowers = allPositions.length + borderFlowerTotal;
+      const greeneryShown = gre.count + borderGreeneryTotal;
+      const triangles = result.triangles + fbTriangles + gbTriangles + gre.triangles;
+
+      return {
+        designMode: s.designMode,
+        widthFt: s.width, heightFt: s.height,
+        flowers: showFlowers ? totalFlowers : 0,
+        borderFlowers: borderFlowerTotal,
+        borderGreenery: borderGreeneryTotal,
+        greenery: gre.count,
+        greeneryTypes: gre.types,
+        petalsPerFlower: result.petalsPerFlower,
+        triangles, frames: frameCount
+      };
+    }
+
+    function dispose() {
+      releaseFlowerMeshes(); releaseBacking(); releaseBorderFrames();
+      releaseAllFlowerBorders(); releaseAllGreeneryBorders(); releaseGreenery();
+      if (greeneryGroup) { group.remove(greeneryGroup); greeneryGroup = null; }
+      while (group.children.length) group.remove(group.children[0]);
+    }
+
+    return { group, build, dispose };
+  }
+
+  return { create };
+})();
+
+// ---- js/objects/flowerpanel.js ----
+// A flower panel authored in the Studio and dropped into the scene as a
+// floor-standing object. The arrangement itself is deep nested settings (colours,
+// border layers, greenery) authored in the Studio, so it is NOT stored in `params`
+// (which validateDef keeps to range/toggle knobs). It is injected via
+// setParams({ settings }) / setSettings() and, at rest, lives in a dedicated
+// top-level field of the project doc (see Phase 5).
+const FLOWERPANEL_ID = 'flowerpanel';
+const FLOWERPANEL_NAME = 'Flower Panel';
+const FLOWERPANEL_SUBTITLE = 'Arrangement';
+
+// No auto-renderable knobs: the TILT panel only places and shows the panel; the
+// arrangement is edited in the Studio. Empty schema keeps the persisted params
+// object clean.
+const FLOWERPANEL_PARAMS = {};
+
+// World units per foot. The panel is authored in feet and built 1:1 (the studio
+// used a 0.72 world scale; TILT uses full scale).
+const FT = 1;
+
+function createFlowerPanelModel(initial = {}) {
+    const root = new THREE.Group();
+    root.name = FLOWERPANEL_ID;
+
+    // Inner group carries the panel's own orientation and lift; the framework owns
+    // root's placement transform (position + rotation.y from the scene placement).
+    const panel = new THREE.Group();
+    // Flowers are built pointing +Z; turn the whole panel so they face -Z, toward
+    // the camera at (0, 8, -25). Users spin it further via the placement's ry.
+    panel.rotation.y = Math.PI;
+    root.add(panel);
+
+    const scene = FlowerScene.create({ scale: FT });
+    panel.add(scene.group);
+
+    const state = {
+        settings: FlowerModel.normalize(initial.settings || {}),
+        arrangementId: initial.arrangementId || null
+    };
+
+    function build() {
+        const s = state.settings;
+        scene.build(s);
+        // Stand the panel on the floor. Its vertical centre sits at y = 0 in the
+        // panel-local frame, so lift by half the height (feet == world units, FT=1).
+        panel.position.y = (s.height * FT) / 2;
+        model.dirty = false;
+    }
+
+    // Flowers keep their authored colours; the light/dark theme does not recolour
+    // the arrangement (unlike the stone/fabric of the pillar and S-curve).
+    function setTheme() {}
+
+    function dispose() {
+        scene.dispose();
+        root.clear();
+    }
+
+    const model = {
+        id: FLOWERPANEL_ID,
+        name: FLOWERPANEL_NAME,
+        subtitle: FLOWERPANEL_SUBTITLE,
+        object3D: root,
+        params: FLOWERPANEL_PARAMS,
+        state,
+        dirty: true,
+        build,
+        setTheme,
+        setParams(partial) {
+            if (partial && partial.settings) {
+                state.settings = FlowerModel.normalize(partial.settings);
+            }
+            if (partial && 'arrangementId' in partial) {
+                state.arrangementId = partial.arrangementId;
+            }
+            model.dirty = true;
+        },
+        getSettings() { return state.settings; },
+        setSettings(settings) {
+            state.settings = FlowerModel.normalize(settings);
+            model.dirty = true;
+        },
+        dispose
+    };
+
+    build();
+    return model;
+}
+
+// ---- js/objects/flowerchip.js ----
+// The Flowers shelf chip - a self-contained tool chip plus its shelf block,
+// kept beside the flower engine rather than inline in panel.js. panel.js wires
+// it into the toolbar right after Lights; everything flower-shelf-specific
+// lives here.
+//
+// createFlowerChip(ctx) returns { chip, block }:
+//   chip  - a TOOLS entry ({ id, label, icon, show }) spliced into the toolbar
+//   block - a () => HTMLElement that renders the arrangement cards
+//
+// ctx: {
+//   icon(paths)       - build the chip's SVG (the panel.js closure helper)
+//   getFlowerList()   - the current Studio arrangement list
+//   onMount(arr)      - mount one arrangement into the scene
+//   onOpenStudio()    - open the Flower Studio
+//   live              - the panel's live registry (its buttons get pushed here)
+//   emptyNote(text)   - the panel's empty-state helper
+// }
+
+const FLOWER_CHIP_ID = 'flowers';
+
+const FLOWER_PATH = 'M12 21c-4-3-7-6-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 4-3 7-7 10z';
+
+function createFlowerChip(ctx) {
+    const list = () => ctx.getFlowerList() || [];
+
+    const chip = {
+        id: FLOWER_CHIP_ID,
+        label: 'Flowers',
+        icon: ctx.icon(FLOWER_PATH),
+        // Always shown so the shelf is reachable even before anything is
+        // saved - the block itself explains what to do when empty.
+        show: () => true
+    };
+
+    function block() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-2';
+        const title = document.createElement('div');
+        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400 mb-1.5';
+        title.textContent = 'Arrangements';
+        wrap.appendChild(title);
+
+        // The one door into the Studio from the scene: a full-width primary
+        // button when the library is empty (nothing else to click), a quiet
+        // link once arrangement cards are showing.
+        function studioButton(primary) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = primary
+                ? 'mt-1 w-full h-8 rounded-md text-xs font-semibold text-white '
+                    + 'bg-sky-600 hover:bg-sky-700 transition-colors'
+                : 'mt-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline';
+            b.textContent = primary ? 'Open the Flower Studio' : 'Open the Flower Studio →';
+            b.title = 'Create or edit arrangements';
+            b.addEventListener('click', () => { if (ctx.onOpenStudio) ctx.onOpenStudio(); });
+            ctx.live.buttons.push(b);
+            return b;
+        }
+
+        const flowerList = list();
+        if (!flowerList.length) {
+            wrap.appendChild(ctx.emptyNote(
+                'Design and save an arrangement in the Flower Studio, then Mount it here.'));
+            if (ctx.onOpenStudio) wrap.appendChild(studioButton(true));
+            return wrap;
+        }
+
+        for (const arr of flowerList) {
+            const card = document.createElement('div');
+            card.className = 'mb-1.5 rounded-lg border border-gray-200 '
+                + 'dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/60 p-2';
+            const s = (arr && arr.settings) || {};
+
+            const head = document.createElement('div');
+            head.className = 'flex items-center justify-between gap-2';
+            const info = document.createElement('div');
+            info.className = 'min-w-0';
+            const name = document.createElement('strong');
+            name.className = 'block text-xs font-semibold text-gray-700 '
+                + 'dark:text-zinc-200 truncate';
+            name.textContent = s.name || (arr && arr.id) || 'Arrangement';
+            const meta = document.createElement('small');
+            meta.className = 'block text-[11px] text-gray-500 dark:text-zinc-400';
+            const nColors = (s.colors && s.colors.length) || 0;
+            meta.textContent = `${s.width || 0} × ${s.height || 0} ft · `
+                + `${nColors} colour${nColors === 1 ? '' : 's'}`;
+            info.append(name, meta);
+            head.appendChild(info);
+            card.appendChild(head);
+
+            const row = document.createElement('div');
+            row.className = 'mt-1.5 flex items-center gap-1.5';
+            const mount = document.createElement('button');
+            mount.type = 'button';
+            mount.className = 'px-2.5 h-7 rounded-md text-[11px] font-semibold '
+                + 'border border-sky-500 text-sky-600 dark:text-sky-400 '
+                + 'dark:border-sky-700 hover:bg-sky-50 dark:hover:bg-sky-900/40 '
+                + 'transition-colors';
+            mount.textContent = 'Mount';
+            mount.title = 'Place this arrangement in the scene';
+            mount.addEventListener('click', () => { if (ctx.onMount) ctx.onMount(arr); });
+            ctx.live.buttons.push(mount);
+            row.appendChild(mount);
+            card.appendChild(row);
+            wrap.appendChild(card);
+        }
+
+        if (ctx.onOpenStudio) wrap.appendChild(studioButton(false));
+        return wrap;
+    }
+
+    return { chip, block };
+}
 
 // ---- js/registry.js ----
 const MANIFEST_FILE = 'manifest.json';
@@ -3484,6 +6294,14 @@ function createLightModel(type = 'light-par', initial = {}) {
 
     let spot = null;
     let beam = null;
+    // A real neon strip throws light onto whatever it grazes - the fabric
+    // behind it, the stage under it. A few short-range points strung along
+    // the tube fakes that throw without a wall of lights: three on a rail
+    // strip, two on a straight one, all gated by the same power slider and
+    // tinted by the same colour as the flex.
+    let wash = [];
+    const WASH_DIST = 9;
+    const WASH_LUX = 9;   // per point, at full power
     let themeNow = 'light';
     // A strip on a stripline anchor rides its frame's own curve - the rail
     // serpentine or the hem - handed over in the fixture's local space by
@@ -3512,6 +6330,10 @@ function createLightModel(type = 'light-par', initial = {}) {
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
         matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
+        for (const l of wash) {
+            l.color.copy(tint);
+            l.intensity = power01() * WASH_LUX;
+        }
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
@@ -3563,6 +6385,19 @@ function createLightModel(type = 'light-par', initial = {}) {
         }
         spot = null;
         beam = null;
+        wash = [];
+    }
+
+    // String the wash points along the tube: local positions in, point
+    // lights out - dim and short-throw, so neighbours only ever catch a
+    // grazing spill like real flex does.
+    function buildWash(points) {
+        for (const p of points) {
+            const l = new THREE.PointLight(0xffffff, 0, WASH_DIST, 2);
+            l.position.set(p.x, p.y, p.z);
+            root.add(l);
+            wash.push(l);
+        }
     }
 
     function build() {
@@ -3597,6 +6432,11 @@ function createLightModel(type = 'light-par', initial = {}) {
                 const glow = new THREE.Mesh(asm.glow, matGlow);
                 glow.renderOrder = 1;
                 root.add(channel, neon, glow);
+                // The throw: points at the third, middle and two-thirds
+                // marks of the route, riding the same frames as the flex.
+                const last = asm.frames.length - 1;
+                buildWash([0.18, 0.5, 0.82]
+                    .map(t => asm.frames[Math.round(last * t)].p));
             } else {
                 // Linear tube hanging below the mount; emissive face on the
                 // underside. No pan/tilt - its orientation comes from the rail.
@@ -3608,6 +6448,8 @@ function createLightModel(type = 'light-par', initial = {}) {
                 const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
                 face.position.y = -0.262;
                 root.add(stem, tube, face);
+                buildWash([{ x: -len * 0.28, y: -0.25, z: 0 },
+                    { x: len * 0.28, y: -0.25, z: 0 }]);
             }
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
@@ -3854,10 +6696,16 @@ class Viewer {
         this.mainLight.castShadow = true;
         this.mainLight.shadow.mapSize.width = 2048;
         this.mainLight.shadow.mapSize.height = 2048;
-        this.mainLight.shadow.camera.left = -20;
-        this.mainLight.shadow.camera.right = 20;
-        this.mainLight.shadow.camera.top = 20;
-        this.mainLight.shadow.camera.bottom = -20;
+        // Wide enough to cover a whole ballroom (walls at ±78 ft), tight
+        // near/far for depth precision, bias so big flat walls don't acne.
+        this.mainLight.shadow.camera.left = -56;
+        this.mainLight.shadow.camera.right = 56;
+        this.mainLight.shadow.camera.top = 56;
+        this.mainLight.shadow.camera.bottom = -56;
+        this.mainLight.shadow.camera.near = 2;
+        this.mainLight.shadow.camera.far = 160;
+        this.mainLight.shadow.normalBias = 0.06;
+        this.mainLight.shadow.bias = -0.0004;
         this.scene.add(this.mainLight);
 
         this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -4022,6 +6870,8 @@ class Viewer {
 
         if (studio) {
             const t = this.isDark ? THEME.dark : THEME.light;
+            // Studio keeps the exact response it always had.
+            this.renderer.toneMapping = THREE.NoToneMapping;
             this.scene.background = this._bgColor.setHex(t.bg);
             this.scene.fog = null;
             this.matFloor.map = this.floorTex[this.isDark ? 'dark' : 'light'];
@@ -4038,6 +6888,11 @@ class Viewer {
         }
 
         const s = this.rig.settings;
+        // Rooms clip without help: white walls plus a stack of lamps
+        // flatten to paper. Filmic curve keeps the highlights honest -
+        // sconces and downlights glow instead of blowing out.
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.12;
         this.scene.background = s.background;
         this.scene.fog = s.fog ? new THREE.Fog(s.fog.color, s.fog.near, s.fog.far) : null;
         this.ambientLight.color.setHex(s.ambient.color);
@@ -4310,9 +7165,15 @@ function createPanel(opts) {
         onFrameSpacing,
         onPlaceChange,
         onFoldChange,
+        onFlowerMount, onFlowerOpenStudio,
         onShelfChange, themeIsDark = false,
         folds = []
     } = opts;
+
+    // Flower arrangements are authored in the Studio's own library; the panel
+    // lists them so a tap mounts one into the scene. Kept mutable so the list
+    // can be refreshed (Studio save / BroadcastChannel) without a full rebuild.
+    let flowerList = Array.isArray(opts.flowerArrangements) ? opts.flowerArrangements : [];
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
@@ -4490,6 +7351,19 @@ function createPanel(opts) {
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
+
+    // The Flowers chip ships in its own module (objects/flowerchip.js) - wire
+    // it into the toolbar right after Lights and hand it what it needs.
+    const flowerChip = createFlowerChip({
+        icon,
+        getFlowerList: () => flowerList,
+        onMount: arr => { if (opts.onFlowerMount) opts.onFlowerMount(arr); },
+        onOpenStudio: () => { if (opts.onFlowerOpenStudio) opts.onFlowerOpenStudio(); },
+        live,
+        emptyNote
+    });
+    TOOLS.splice(TOOLS.findIndex(t => t.id === 'lights') + 1, 0, flowerChip.chip);
+
     let liveTheme = themeIsDark;
     let lastSignature = null;
 
@@ -6145,9 +9019,11 @@ function createPanel(opts) {
             activeId_ || '',
             JSON.stringify(pillarShape),
             JSON.stringify(elemShape),
-            (current && current.name) || ''
+            (current && current.name) || '',
+            flowerList.map(a => (a && a.id) || '').join(',')
         ].join('|');
     }
+
 
     function render() {
         setSelectRef = null;
@@ -6193,6 +9069,9 @@ function createPanel(opts) {
                 host.appendChild(lookBlock());
                 anything = true;
             }
+        } else if (activeTool === FLOWER_CHIP_ID) {
+            host.appendChild(flowerChip.block());
+            anything = true;
         } else {
             // Frame groups get sections; pillars ride inside their frame's
             // Pillars group, so they never get a section of their own.
@@ -6436,6 +9315,13 @@ function createPanel(opts) {
         },
 
         setBusy(value) { busy = !!value; applyBusy(); },
+        // Swap in a fresh arrangement list (Studio save / BroadcastChannel) and
+        // repaint just the shelf if the Flowers tool is showing.
+        setFlowerArrangements(list) {
+            flowerList = Array.isArray(list) ? list : [];
+            renderIfChanged(true);
+            return this;
+        },
         setError(text) {
             msg.textContent = text || '';
             msg.classList.toggle('hidden', !text);
@@ -6752,6 +9638,10 @@ try {
 const registry = new Registry('./models');
 registry.register('o2tilt-frame', createO2TiltModel, PARAMS);
 registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
+// A flower panel is a floor-standing arrangement authored in the Studio. It is
+// not a shelf preset - the Flowers tool mounts it into the scene (see Phase 6) -
+// but the type must be registered so project docs validate and instantiate.
+registry.register(FLOWERPANEL_ID, createFlowerPanelModel, FLOWERPANEL_PARAMS);
 // One lighting module, three registered type adaptors - each with its own
 // params schema, so the panel renders PAR/LED/strip from the same code.
 for (const t of LIGHT_TYPES) {
@@ -6803,6 +9693,10 @@ const framePillars = new Map();
 // travel with it, and each keeps its own numbers.
 const frameElements = new Map();
 const mounted = new Map();
+// Free-standing flower panels: arrangements authored in the Studio and placed
+// around the stage. Unlike frames/pillars/lights they belong to no preset, so
+// they live in their own list (each with a placement) rather than in `mounted`.
+let flowerPanels = [];
 let lastPrimary = null;
 let panel = null;
 let rebuildQueued = false;
@@ -6856,6 +9750,7 @@ function buildDoc() {
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
+        flowerPanels: flowerPanelsPlain(),
         view,
         mounted: orderIds(),
         overlayIds: overlayIds.slice(),
@@ -6963,11 +9858,13 @@ function scheduleRebuild() {
     requestAnimationFrame(() => {
         rebuildQueued = false;
         for (const g of groups()) for (const m of g.models) if (m.dirty && m.build) m.build();
+        for (const fp of flowerPanels) if (fp.model && fp.model.dirty && fp.model.build) fp.model.build();
         // Re-place only. A pillar follows its frame's end through the
         // swing, and a light rides the same anchor it clamped to; the camera
         // is left alone so dragging a slider never yanks the view around.
         refreshPillarPlaces();
         refreshElementPlaces();
+        refreshFlowerPanelPlaces();
         applyPlaces();
     });
 }
@@ -7615,6 +10512,104 @@ function applyPlaces() {
         });
     }
     fitStageSoon();
+}
+
+// ---- flower panels -------------------------------------------------------
+// Each is its own model with its own placement, hydrated from the document's
+// top-level `flowerPanels` field (see project.js) and written back on save.
+function nextFlowerPanelId() {
+    const ids = new Set(flowerPanels.map(f => f.id));
+    let n = flowerPanels.length + 1;
+    while (ids.has('panel-' + n)) n++;
+    return 'panel-' + n;
+}
+
+function placeFlowerPanel(fp) {
+    if (!fp.model || !fp.model.object3D) return;
+    fp.model.object3D.position.x = fp.x;
+    fp.model.object3D.position.z = fp.z;
+    fp.model.object3D.rotation.y = (fp.ry || 0) * Math.PI / 180;
+}
+
+function refreshFlowerPanelPlaces() {
+    for (const fp of flowerPanels) placeFlowerPanel(fp);
+}
+
+// entry: { id?, name?, arrangementId?, settings, x?, z?, ry? } -> the live panel.
+function mountFlowerPanel(entry) {
+    const model = createFlowerPanelModel({
+        settings: entry && entry.settings,
+        arrangementId: entry && entry.arrangementId
+    });
+    model.build();
+    viewer.addModel(model);
+    const fp = {
+        id: (entry && entry.id) || nextFlowerPanelId(),
+        model,
+        name: (entry && entry.name) || '',
+        arrangementId: (entry && entry.arrangementId) || null,
+        x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
+        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
+    };
+    flowerPanels.push(fp);
+    placeFlowerPanel(fp);
+    return fp;
+}
+
+function unmountFlowerPanel(id) {
+    const i = flowerPanels.findIndex(f => f.id === id);
+    if (i < 0) return false;
+    viewer.removeModel(flowerPanels[i].model);
+    flowerPanels.splice(i, 1);
+    return true;
+}
+
+function flowerPanelsPlain() {
+    return flowerPanels.map(fp => ({
+        id: fp.id,
+        name: fp.name,
+        arrangementId: fp.arrangementId,
+        settings: fp.model && fp.model.getSettings ? fp.model.getSettings() : undefined,
+        x: fp.x, z: fp.z, ry: fp.ry
+    }));
+}
+
+// The arrangement library lives in the Flower Studio's own localStorage (same
+// origin). TILT only lists and mounts them - it never stores the library itself,
+// so edits made in the Studio keep persisting there and flow through by id.
+const STUDIO_STORE = 'flower-panel-studio-v2';
+function studioArrangements() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(STUDIO_STORE) || '[]');
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter(x => x && x.id && x.settings && typeof x.settings === 'object')
+            .map(x => ({ id: String(x.id), settings: x.settings, updatedAt: x.updatedAt || '' }));
+    } catch { return []; }
+}
+
+// Mount one Studio arrangement into the scene, near the origin and nudged
+// apart so several stack visibly. Persists as a flowerPanels[] snapshot.
+function mountArrangement(arr) {
+    if (!arr || !arr.settings) return null;
+    const n = flowerPanels.length;
+    const fp = mountFlowerPanel({
+        arrangementId: arr.id,
+        name: (arr.settings && arr.settings.name) || '',
+        settings: arr.settings,
+        x: (n % 5) * 6 - 12,
+        z: 10,
+        ry: 0
+    });
+    scheduleSave();
+    return fp;
+}
+
+function openStudio() {
+    const id = projectId();
+    const url = './studio/' + (id ? `?p=${encodeURIComponent(id)}` : '');
+    window.open(url, '_blank');
 }
 
 function num(v, fallback) {
@@ -8506,6 +11501,26 @@ try {
 }
 stage('scene');
 
+// Mount any flower panels the document carried, now the stage exists. Each is
+// independent of the preset boards, so it just joins the scene at its place.
+// Prefer the live Studio arrangement (matched by id) so edits there keep
+// persisting here; fall back to the snapshot the document carries.
+if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
+    const lib = studioArrangements();
+    for (const entry of savedDoc.flowerPanels) {
+        try {
+            const live = entry.arrangementId && lib.find(a => a.id === entry.arrangementId);
+            mountFlowerPanel({
+                id: entry.id,
+                name: (live && live.settings && live.settings.name) || entry.name,
+                arrangementId: entry.arrangementId,
+                settings: (live && live.settings) || entry.settings,
+                x: entry.x, z: entry.z, ry: entry.ry
+            });
+        } catch (err) { console.error('[flowerpanel]', err); }
+    }
+}
+
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
@@ -8554,6 +11569,9 @@ panel = createPanel({
     onElementCount: guard((id, n) => onElementCount(id, n)),
     onFrameSpacing: guard((id, ft) => setFrameSpacing(id, ft)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
+    flowerArrangements: studioArrangements(),
+    onFlowerMount: guard(arr => mountArrangement(arr)),
+    onFlowerOpenStudio: () => openStudio(),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])
@@ -8623,6 +11641,22 @@ panel = createPanel({
     onShelfChange: () => syncDock()
 });
 stage('panel');
+
+// The Studio posts here whenever it saves, updates or deletes an arrangement,
+// so the shelf list and any mounted panel that references it by id stay in
+// step without a reload.
+if (typeof BroadcastChannel !== 'undefined') {
+    const flowers = new BroadcastChannel('flowerpanel-changed');
+    flowers.onmessage = () => {
+        const lib = studioArrangements();
+        if (panel && panel.setFlowerArrangements) panel.setFlowerArrangements(lib);
+        for (const fp of flowerPanels) {
+            const live = fp.arrangementId && lib.find(a => a.id === fp.arrangementId);
+            if (live && live.settings) fp.model.setSettings(live.settings);
+        }
+        scheduleRebuild();
+    };
+}
 
 // The canvas lives above the dock, not under it: whenever the shelf opens,
 // closes, or reflows, the container shrinks or grows by the dock's height
