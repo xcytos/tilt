@@ -45,7 +45,8 @@ Grounded in real ballroom vocabulary (researched: coffered ceilings, crystal cha
 - **R13 — Sunset Terrace**: full-width railing/glass balustrade, pergola beam row with hanging warm bulbs, planters, skyline silhouette band on the horizon, lounge-furniture silhouettes.
 - Optional later (ask user): banquet tables + chairs in ballroom (realism vs clutter/perf).
 
-## 3. Execution order
-1. **Commit A (now)**: existing uncommitted Round-8 neon-strip work (user approved commit).
-2. Round 9 stage auto-size → verify → **Commit B**.
-3. R10–13 one room at a time, user inspects between (hard-reload) → **Commit per room**.
+## 3. Execution order — DONE (all committed)
+1. **Commit A `0890af7`**: Round-8 neon-strip work.
+2. **Commit B `9b40ce2`**: stage auto-size (R9).
+3. **R10 `31292c3`** ballroom, **R11 `ca188e7`** white room, **R12 `1b00c22`** garden, **R13 `0bdc50b`** terrace — each verified (stage-size harness now builds all four rooms under a canvas stub; test8 contracts per room), full suite 10/10 green throughout.
+4. Open for later: banquet tables + chairs in the ballroom (user's call).
