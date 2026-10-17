@@ -314,31 +314,6 @@ function sceneChairArmy(group, size, sites) {
     group.add(seats, backs, legs);
 }
 
-// Stacked banquet chairs along the side walls - the setup-day look every
-// stage room really has. Five chairs nested per stack, backs to the wall.
-function sceneChairStacks(group, size) {
-    const sites = [];
-    const perSide = size.wallZ >= 20 ? 3 : 2;
-    const per = 5;              // chairs nested in one stack
-    const rise = 0.52;          // seat lift per nested chair
-    for (const sx of [-1, 1]) {
-        for (let i = 0; i < perSide; i++) {
-            const z = -size.d / 2 - 4
-                + i * ((size.wallZ + size.d) / (perSide + 0.6));
-            // Backs to the wall: left stacks face +x, right face -x.
-            const ry = sx > 0 ? -Math.PI / 2 : Math.PI / 2;
-            for (let k = 0; k < per; k++) {
-                sites.push({
-                    x: sx * (size.wallX - 2.4),
-                    z, ry,
-                    lift: k * rise
-                });
-            }
-        }
-    }
-    sceneChairArmy(group, size, sites);
-}
-
 // Round banquet tables set for service in front of the stage - the gala
 // layout: dance floor nearest the stage, guest tables beyond it, every
 // chair turned so the seated guest faces the program. Floor-length
@@ -431,7 +406,7 @@ function buildWhiteStage(group, size) {
     }
     sceneSconce(group, size, -13 * wx, 9);
     sceneSconce(group, size, 13 * wx, 9);
-    sceneChairStacks(group, size);
+    sceneDiningTables(group, size);
     sceneUplights(group, size);
     return {
         background: new THREE.Color(0xe9e4db),
@@ -644,7 +619,6 @@ function buildBallroom(group, size) {
         sceneChandelier(group, size, -size.w * 0.28, 4, s * 0.62, false);
         sceneChandelier(group, size, size.w * 0.28, 4, s * 0.62, false);
     }
-    sceneChairStacks(group, size);
     sceneDiningTables(group, size);
     sceneUplights(group, size);
 
