@@ -774,6 +774,10 @@ check('the strip is one neon-flex assembly, not a black tube', (() => {
     && /const onRail = kind === 'strip'/.test(light)
     && /matHousing, matYoke, matLens, matBeam, matGlow/.test(light)
     && /THREE\.ShapeUtils\.triangulateShape/.test(light)
+    && /function buildWash\(points\)/.test(light)
+    && /new THREE\.PointLight\(0xffffff, 0, WASH_DIST, 2\)/.test(light)
+    && /buildWash\(\[0\.18, 0\.5, 0\.82\]/.test(light)
+    && /for \(const l of wash\)/.test(light)
     && !/TubeGeometry\(curve, 48, 0\.07/.test(light)
     && !/TubeGeometry\(lensCurve, 48, 0\.045/.test(light);
 })());

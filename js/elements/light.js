@@ -310,6 +310,14 @@ export function createLightModel(type = 'light-par', initial = {}) {
 
     let spot = null;
     let beam = null;
+    // A real neon strip throws light onto whatever it grazes - the fabric
+    // behind it, the stage under it. A few short-range points strung along
+    // the tube fakes that throw without a wall of lights: three on a rail
+    // strip, two on a straight one, all gated by the same power slider and
+    // tinted by the same colour as the flex.
+    let wash = [];
+    const WASH_DIST = 9;
+    const WASH_LUX = 9;   // per point, at full power
     let themeNow = 'light';
     // A strip on a stripline anchor rides its frame's own curve - the rail
     // serpentine or the hem - handed over in the fixture's local space by
@@ -338,6 +346,10 @@ export function createLightModel(type = 'light-par', initial = {}) {
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
         matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
+        for (const l of wash) {
+            l.color.copy(tint);
+            l.intensity = power01() * WASH_LUX;
+        }
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
@@ -389,6 +401,19 @@ export function createLightModel(type = 'light-par', initial = {}) {
         }
         spot = null;
         beam = null;
+        wash = [];
+    }
+
+    // String the wash points along the tube: local positions in, point
+    // lights out - dim and short-throw, so neighbours only ever catch a
+    // grazing spill like real flex does.
+    function buildWash(points) {
+        for (const p of points) {
+            const l = new THREE.PointLight(0xffffff, 0, WASH_DIST, 2);
+            l.position.set(p.x, p.y, p.z);
+            root.add(l);
+            wash.push(l);
+        }
     }
 
     function build() {
@@ -423,6 +448,11 @@ export function createLightModel(type = 'light-par', initial = {}) {
                 const glow = new THREE.Mesh(asm.glow, matGlow);
                 glow.renderOrder = 1;
                 root.add(channel, neon, glow);
+                // The throw: points at the third, middle and two-thirds
+                // marks of the route, riding the same frames as the flex.
+                const last = asm.frames.length - 1;
+                buildWash([0.18, 0.5, 0.82]
+                    .map(t => asm.frames[Math.round(last * t)].p));
             } else {
                 // Linear tube hanging below the mount; emissive face on the
                 // underside. No pan/tilt - its orientation comes from the rail.
@@ -434,6 +464,8 @@ export function createLightModel(type = 'light-par', initial = {}) {
                 const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
                 face.position.y = -0.262;
                 root.add(stem, tube, face);
+                buildWash([{ x: -len * 0.28, y: -0.25, z: 0 },
+                    { x: len * 0.28, y: -0.25, z: 0 }]);
             }
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
