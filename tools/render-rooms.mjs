@@ -91,8 +91,10 @@ function gatherLights(scene) {
             amb.b += o.color.b * o.intensity;
         } else if (o.isDirectionalLight) {
             if (o.castShadow && !shadowCaster) shadowCaster = o;
+            // direction toward the light (surface -> light), which is
+            // what lambert wants - not the ray travel direction
             const dir = new THREE.Vector3()
-                .subVectors(o.target.position, o.position).normalize();
+                .subVectors(o.position, o.target.position).normalize();
             dirs.push({
                 dir,
                 r: o.color.r * o.intensity,
@@ -111,14 +113,40 @@ function gatherLights(scene) {
         }
     });
     if (shadowCaster) {
+        const castDir = new THREE.Vector3()
+            .subVectors(shadowCaster.position, shadowCaster.target.position)
+            .normalize();
         for (const d of dirs) {
             // same direction = the caster
-            if (d.dir.dot(new THREE.Vector3()
-                .subVectors(shadowCaster.target.position, shadowCaster.position)
-                .normalize()) > 0.999) d.casts = true;
+            if (d.dir.dot(castDir) > 0.999) d.casts = true;
         }
     }
     return { amb, dirs, points, shadowCaster };
+}
+
+// Sutherland-Hodgman clip of one triangle against the near plane
+// (zc >= 0 in the projected 0..1 depth space). A wall or floor that
+// runs past the light's eye plane would otherwise smear negative
+// depths across the map and shadow-kill whole regions. Returns up to
+// two triangles as flat [ax,ay,az,bx,by,bz,cx,cy,cz] arrays.
+function clipNear(a, b, c) {
+    const poly = [a, b, c];
+    const clipped = [];
+    for (let i = 0; i < 3; i++) {
+        const p = poly[i], q = poly[(i + 1) % 3];
+        const pin = p[2] >= 0, qin = q[2] >= 0;
+        if (pin) clipped.push(p);
+        if (pin !== qin) {
+            const t = p[2] / (p[2] - q[2]);
+            clipped.push([p[0] + (q[0] - p[0]) * t,
+                p[1] + (q[1] - p[1]) * t, 0]);
+        }
+    }
+    const out = [];
+    for (let i = 1; i + 1 < clipped.length; i++) {
+        out.push([...clipped[0], ...clipped[i], ...clipped[i + 1]]);
+    }
+    return out;
 }
 
 // Depth-only pass from the key light: an orthographic map the size of
@@ -140,6 +168,28 @@ function rasterDepth(scene, light, S) {
     const v4 = new THREE.Vector4();
     const meshes = [];
     scene.traverse((o) => { if (o.isMesh || o.isInstancedMesh) meshes.push(o); });
+
+    const fill = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+        const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        if (area === 0) return;
+        const invArea = 1 / area;
+        const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+        const maxX = Math.min(S - 1, Math.ceil(Math.max(ax, bx, cx)));
+        const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
+        const maxY = Math.min(S - 1, Math.ceil(Math.max(ay, by, cy)));
+        for (let py = minY; py <= maxY; py++) {
+            for (let px = minX; px <= maxX; px++) {
+                const X = px + 0.5, Y = py + 0.5;
+                const ea = ((cx - bx) * (Y - by) - (cy - by) * (X - bx)) * invArea;
+                const eb = ((ax - cx) * (Y - cy) - (ay - cy) * (X - cx)) * invArea;
+                const ec = 1 - ea - eb;
+                if (ea < 0 || eb < 0 || ec < 0) continue;
+                const z = ea * az + eb * bz + ec * cz;
+                const pi = py * S + px;
+                if (z < depth[pi]) depth[pi] = z;
+            }
+        }
+    };
 
     for (const mesh of meshes) {
         if (mesh.userData && mesh.userData.noShadow) continue;
@@ -179,27 +229,12 @@ function rasterDepth(scene, light, S) {
                 const b = idx ? idx[t * 3 + 1] : t * 3 + 1;
                 const c = idx ? idx[t * 3 + 2] : t * 3 + 2;
                 if (!ok[a] || !ok[b] || !ok[c]) continue;
-                const ax = sx[a], ay = sy[a], az = sz[a];
-                const bx = sx[b], by = sy[b], bz = sz[b];
-                const cx = sx[c], cy = sy[c], cz = sz[c];
-                const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-                if (area === 0) continue;
-                const invArea = 1 / area;
-                const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-                const maxX = Math.min(S - 1, Math.ceil(Math.max(ax, bx, cx)));
-                const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-                const maxY = Math.min(S - 1, Math.ceil(Math.max(ay, by, cy)));
-                for (let py = minY; py <= maxY; py++) {
-                    for (let px = minX; px <= maxX; px++) {
-                        const X = px + 0.5, Y = py + 0.5;
-                        const ea = ((cx - bx) * (Y - by) - (cy - by) * (X - bx)) * invArea;
-                        const eb = ((ax - cx) * (Y - cy) - (ay - cy) * (X - cx)) * invArea;
-                        const ec = 1 - ea - eb;
-                        if (ea < 0 || eb < 0 || ec < 0) continue;
-                        const z = ea * az + eb * bz + ec * cz;
-                        const pi = py * S + px;
-                        if (z < depth[pi]) depth[pi] = z;
-                    }
+                for (const q of clipNear(
+                    [sx[a], sy[a], sz[a]],
+                    [sx[b], sy[b], sz[b]],
+                    [sx[c], sy[c], sz[c]])) {
+                    fill(q[0], q[1], q[2], q[3], q[4], q[5],
+                        q[6], q[7], q[8]);
                 }
             }
         }
@@ -248,7 +283,10 @@ function renderView(scene, camera, w, h, shadow) {
         const z = (v4.z / v4.w) * 0.5 + 0.5;
         if (u < 0 || u > 1 || v < 0 || v > 1) return 1;
         const px = Math.min(shadow.S - 1, Math.max(0, Math.floor(u * shadow.S)));
-        const py = Math.min(shadow.S - 1, Math.max(0, Math.floor(v * shadow.S)));
+        // depth pass rasterizes with screen-style y-down; the lookup
+        // comes out of clip space y-up - flip it back
+        const py = Math.min(shadow.S - 1,
+            Math.max(0, Math.floor((1 - v) * shadow.S)));
         const d = shadow.tex[py * shadow.S + px];
         return (z - 0.0025) > d ? 0 : 1;
     };
