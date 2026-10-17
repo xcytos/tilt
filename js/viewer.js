@@ -312,6 +312,8 @@ export class Viewer {
 
         if (studio) {
             const t = this.isDark ? THEME.dark : THEME.light;
+            // Studio keeps the exact response it always had.
+            this.renderer.toneMapping = THREE.NoToneMapping;
             this.scene.background = this._bgColor.setHex(t.bg);
             this.scene.fog = null;
             this.matFloor.map = this.floorTex[this.isDark ? 'dark' : 'light'];
@@ -328,6 +330,11 @@ export class Viewer {
         }
 
         const s = this.rig.settings;
+        // Rooms clip without help: white walls plus a stack of lamps
+        // flatten to paper. Filmic curve keeps the highlights honest -
+        // sconces and downlights glow instead of blowing out.
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.12;
         this.scene.background = s.background;
         this.scene.fog = s.fog ? new THREE.Fog(s.fog.color, s.fog.near, s.fog.far) : null;
         this.ambientLight.color.setHex(s.ambient.color);

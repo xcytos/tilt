@@ -837,7 +837,10 @@ check('the white room is a modern banquet hall', (() => {
     && /new THREE\.InstancedMesh\(canGeo/.test(scenes)
     && /sceneModernCeiling\(group, size\)/.test(scenes)
     && /sceneDrapery\(group, size\)/.test(scenes)
-    && /sceneStageSteps\(group, size\)/.test(scenes);
+    && /sceneStageSteps\(group, size\)/.test(scenes)
+    && /ambient: \{ color: 0xf2ede2, intensity: 0\.42 \}/.test(scenes)
+    && /ACESFilmicToneMapping/.test(read('js/viewer.js'))
+    && /toneMapping = THREE\.NoToneMapping/.test(read('js/viewer.js'));
 })());
 check('the garden is a real place at night', (() => {
   // Manicured approach: stone slabs between hedge rows with flower beds

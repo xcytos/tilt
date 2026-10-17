@@ -181,15 +181,15 @@ function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) 
 
 function sceneUplights(group, size) {
     const x = size.w * 0.117;   // ~7 ft on the default 60 ft stage
-    sceneLamp(group, -x, 0.5, 2.5, 70, 34, 0xffd7a8);
-    sceneLamp(group, x, 0.5, 2.5, 70, 34, 0xffd7a8);
+    sceneLamp(group, -x, 0.5, 2.5, 40, 30, 0xffd7a8);
+    sceneLamp(group, x, 0.5, 2.5, 40, 30, 0xffd7a8);
 }
 
 function sceneSconce(group, size, x, y) {
     sceneBox(group, 0.9, 1.8, 0.2,
-        sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 2, roughness: 0.5 }),
+        sceneMat(0xfff6e2, { emissive: 0xffe7bd, emissiveIntensity: 1.2, roughness: 0.5 }),
         x, y, size.wallZ - 0.5);
-    sceneLamp(group, x, y, size.wallZ - 1.4, 55, 26, 0xffdcae);
+    sceneLamp(group, x, y, size.wallZ - 1.4, 30, 22, 0xffdcae);
 }
 
 // ---- modern banquet hall (the white room) -----------------------------
@@ -204,13 +204,14 @@ function sceneModernCeiling(group, size) {
     const depth = back - front;
     const cz = (back + front) / 2;
     sceneBox(group, w + 4, 0.25, depth + 2,
-        sceneMat(0xf6f5f2, { roughness: 0.95 }), 0, ceilY + 0.85, cz);
-    // Downlight grid: one instanced recessed can per cell.
+        sceneMat(0xeae5dc, { roughness: 0.95 }), 0, ceilY + 0.85, cz);
+    // Downlight grid: one instanced recessed can per cell - a warm pin,
+    // not a bare bulb; the tone-mapped room keeps it from strobing.
     const cols = Math.max(4, Math.round(w / 10));
     const rows = Math.max(3, Math.round(depth / 12));
     const canGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.08, 12);
-    const canMat = sceneMat(0xffffff,
-        { emissive: 0xfff8ec, emissiveIntensity: 3, roughness: 0.4 });
+    const canMat = sceneMat(0xfff6e6,
+        { emissive: 0xffe8c4, emissiveIntensity: 1.5, roughness: 0.4 });
     const cans = new THREE.InstancedMesh(canGeo, canMat, (cols + 1) * (rows + 1));
     const m = new THREE.Matrix4();
     let k = 0;
@@ -222,9 +223,9 @@ function sceneModernCeiling(group, size) {
         }
     }
     group.add(cans);
-    // Cool cove line around the ceiling edge.
-    const cove = sceneMat(0xf3f6ff,
-        { emissive: 0xdfe8ff, emissiveIntensity: 1.5, roughness: 0.6 });
+    // Warm cove line around the ceiling edge.
+    const cove = sceneMat(0xf5efe2,
+        { emissive: 0xffdfae, emissiveIntensity: 0.9, roughness: 0.6 });
     sceneBox(group, w, 0.12, 0.12, cove, 0, ceilY - 0.45, back - 0.35);
     for (const sx of [-1, 1]) {
         sceneBox(group, 0.12, 0.12, depth, cove,
@@ -268,12 +269,15 @@ function sceneStageSteps(group, size) {
 }
 
 function buildWhiteStage(group, size) {
-    sceneRoom(group, size, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
+    // A banquet hall, not a lightbox: warm greige shell so the white
+    // trims and the ivory drapery actually read, layered lamps instead
+    // of one white blast, and the tone-mapped viewer holds the tops.
+    sceneRoom(group, size, 0xdcd8d0, 0xe6e1d8, 0xeae5dc, 0xb01818);
     sceneModernCeiling(group, size);
     sceneDrapery(group, size);
     sceneStageSteps(group, size);
-    const trim = sceneMat(0xffffff, { roughness: 0.6 });
-    const panelIn = sceneMat(0xeceae4, { roughness: 0.85 });
+    const trim = sceneMat(0xf4f0e8, { roughness: 0.6 });
+    const panelIn = sceneMat(0xdcd6cb, { roughness: 0.85 });
     const wx = size.wallX / 30;  // fittings track the wall they hang on
     for (const x of [-18, -6, 6, 18]) {
         sceneBox(group, 8, 11, 0.1, trim, x * wx, 7.5, size.wallZ - 0.2);
@@ -292,11 +296,11 @@ function buildWhiteStage(group, size) {
     sceneSconce(group, size, 13 * wx, 9);
     sceneUplights(group, size);
     return {
-        background: new THREE.Color(0xf4f2ee),
+        background: new THREE.Color(0xe9e4db),
         fog: null,
-        ambient: { color: 0xffffff, intensity: 0.7 },
-        key: { color: 0xffffff, intensity: 1.3 },
-        fill: { color: 0xfff1de, intensity: 0.45 }
+        ambient: { color: 0xf2ede2, intensity: 0.42 },
+        key: { color: 0xfff4e2, intensity: 1.0 },
+        fill: { color: 0xffe9d2, intensity: 0.32 }
     };
 }
 
