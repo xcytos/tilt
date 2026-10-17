@@ -1701,7 +1701,11 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // lights into the scene. The registered list itself is mirrored here (this
 // module imports nothing); app.js re-checks against the live registry.
 const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
-const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
+// Mount-point ids: kind-Side-index (`rail-L-3`, `pole-R-1`) or the strip
+// lines (`stripline-L-T`, `stripline-R-B`). The old digit-only tail wiped
+// every stripline anchor on load, which dropped rail strips back onto a
+// pole as straight tubes.
+const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-(?:\d+|T|B)$/;
 const ELEM_PER_FRAME = 20;
 const ELEM_TOTAL = 40;
 const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
@@ -1747,6 +1751,20 @@ function cleanFrameElements(raw) {
 
 // One frame's floor-PAR spacing in feet: absent or zero keeps the wall's
 // full-width even bays; a positive number is a centred line of lights the
+// Which collapsible sections and fixture cards were folded away: section
+// names (`PAR`) and per-card keys (`strip:0`). Plain strings, short and
+// tightly pattern-checked - a fold is a UI preference, never structure.
+function cleanFolds(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const k of raw) {
+        if (out.length >= 120) break;
+        if (typeof k !== 'string' || !/^[A-Za-z0-9:_-]{1,40}$/.test(k)) continue;
+        out.push(k);
+    }
+    return out;
+}
+
 // frame re-seats on its own hooks. Keys follow the place-id rules.
 function cleanFrameSpacing(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -1836,6 +1854,8 @@ function parseProject(raw) {
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
         elements: cleanFrameElements(data.elements),
+        // Which panel sections and fixture cards the user folded away.
+        folds: cleanFolds(data.folds),
         spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)
@@ -4289,7 +4309,9 @@ function createPanel(opts) {
         onElementAdd, onElementRemove, onElementPatch, onElementCount,
         onFrameSpacing,
         onPlaceChange,
-        onShelfChange, themeIsDark = false
+        onFoldChange,
+        onShelfChange, themeIsDark = false,
+        folds = []
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -4447,8 +4469,11 @@ function createPanel(opts) {
     let stripSide = 'both';
     // Which sections and fixture cards the user folded away. Survives the
     // re-render an Add or retarget triggers - a fold is a preference, not
-    // a accident of one paint.
-    const folded = new Set();
+    // a accident of one paint - and the project file remembers it between
+    // sessions through onFoldChange.
+    const folded = new Set(folds);
+    const foldSink = typeof onFoldChange === 'function' ? onFoldChange : null;
+    const noteFold = () => { if (foldSink) foldSink([...folded]); };
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -5218,6 +5243,7 @@ function createPanel(opts) {
                 + 'border-gray-300 dark:border-zinc-600';
             sec.addEventListener('toggle', () => {
                 if (sec.open) folded.delete(name); else folded.add(name);
+                noteFold();
             });
             const sum = document.createElement('summary');
             sum.className = 'cursor-pointer select-none pt-2 text-[11px] '
@@ -5357,6 +5383,7 @@ function createPanel(opts) {
                 + 'border-gray-300 dark:border-zinc-600';
             card.addEventListener('toggle', () => {
                 if (card.open) folded.delete(foldKey); else folded.add(foldKey);
+                noteFold();
             });
 
             const ch = document.createElement('summary');
@@ -6242,6 +6269,10 @@ function createPanel(opts) {
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
             if (next.colorways !== undefined) currentColorways = next.colorways;
+            if (Array.isArray(next.folds)) {
+                folded.clear();
+                for (const k of next.folds) folded.add(k);
+            }
             renderIfChanged(force);
             return this;
         },
@@ -6761,6 +6792,9 @@ function fabricHex() {
 // - and the pillars always stand on that frame's anchors, travelling with
 // it wherever it goes.
 let layoutId = null;
+// Which panel sections/cards the user folded away - saved with the project
+// so the shelf opens the way it was left.
+let panelFolds = [];
 const savedPlaces = new Map();
 const framePillars = new Map();
 // Lighting elements belong to their frame: `frameElements` holds each
@@ -6816,6 +6850,7 @@ function buildDoc() {
         layout: layoutId,
         pillars: framePillarsPlain(),
         elements: frameElementsPlain(),
+        folds: panelFolds.slice(),
         spacing: frameSpacingPlain(),
         places: Object.fromEntries([...savedPlaces]
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
@@ -7827,6 +7862,7 @@ async function syncScene(forcePanel = false) {
                 frameAnchors: frameAnchorsPlain(),
                 frameSpacing: frameSpacingPlain(),
                 places: placesFor(),
+                folds: panelFolds.slice(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             if (shaped) {
@@ -8402,6 +8438,8 @@ if (savedDoc) {
             if (list.length) frameElements.set(target, list);
         }
     }
+    // Folded sections and cards reopen the way they were left.
+    if (Array.isArray(savedDoc.folds)) panelFolds = savedDoc.folds.slice();
     // Floor-PAR spacing travels the same way: frames this project knows.
     if (savedDoc.spacing && typeof savedDoc.spacing === 'object'
         && !Array.isArray(savedDoc.spacing)) {
@@ -8495,7 +8533,12 @@ panel = createPanel({
     frameAnchors: frameAnchorsPlain(),
     frameSpacing: frameSpacingPlain(),
     places: placesFor(),
+    folds: panelFolds.slice(),
     themeIsDark: viewer.isDark,
+    onFoldChange: guard(folds => {
+        panelFolds = folds.slice();
+        scheduleSave();
+    }),
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),

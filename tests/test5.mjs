@@ -252,5 +252,39 @@ console.log('\n7b. the S Curve def seeds the recommended entrance rig');
         validateDef(def, types).length === 0);
 }
 
+// The document itself: strip anchors and panel folds must survive the
+// parser - an anchor wiped on load drops rail strips onto a pole as
+// straight tubes, which is exactly the reload bug.
+{
+  const { parseProject } =
+    await import(pathToFileURL(path.join(DECOR, 'js/project.js')).href);
+  const doc = parseProject({
+    version: 2, name: 'round-trip',
+    elements: { o2tilt: [
+      { type: 'light-strip', anchor: 'stripline-L-T', params: { power: 55, hue: 40 } },
+      { type: 'light-strip', anchor: 'stripline-R-B', params: { power: 40 } },
+      { type: 'light-par', anchor: 'rail-L-3', params: { tilt: -60 } },
+      { type: 'light-led', anchor: 'nope', params: {} }
+    ] },
+    folds: ['PAR', 'strip:0', 'Strip', '../evil', 123, 'LED']
+  });
+  const list = doc && doc.elements && doc.elements.o2tilt;
+  check('stripline anchors survive the parser (reload keeps rail strips)',
+    Array.isArray(list) && list.length === 4
+    && list[0].anchor === 'stripline-L-T'
+    && list[1].anchor === 'stripline-R-B'
+    && list[2].anchor === 'rail-L-3',
+    JSON.stringify(list && list.map(e => e.anchor)));
+  check('a malformed anchor still washes out to empty',
+    list && list[3].anchor === '',
+    JSON.stringify(list && list[3] && list[3].anchor));
+  check('fold state round-trips, junk filtered',
+    Array.isArray(doc.folds) && doc.folds.length === 4
+    && doc.folds.includes('PAR') && doc.folds.includes('strip:0')
+    && doc.folds.includes('Strip') && doc.folds.includes('LED')
+    && !doc.folds.includes('../evil'),
+    JSON.stringify(doc.folds));
+}
+
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
 process.exit(fails ? 1 : 0);

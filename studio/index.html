@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Flower Panel Studio — MVP</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="diagnostics.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script defer src="js/flowers/core.js"></script>
+  <script defer src="js/flowers/rose.js"></script>
+  <script defer src="js/flowers/marigold.js"></script>
+  <script defer src="js/flowers/chrysanthemum.js"></script>
+  <script defer src="js/flowers/dahlia.js"></script>
+  <script defer src="js/flowers/gerbera.js"></script>
+  <script defer src="js/flowers/flower-factory.js"></script>
+  <script defer src="js/greenery/greenery-core.js"></script>
+  <script defer src="js/greenery/monstera.js"></script>
+  <script defer src="js/greenery/eucalyptus.js"></script>
+  <script defer src="js/greenery/boston-fern.js"></script>
+  <script defer src="js/greenery/greenery-factory.js"></script>
+  <script defer src="model.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+<main class="app">
+  <section class="workspace">
+    <div id="canvas" aria-label="Interactive 3D flower panel preview"></div>
+    <header class="ws-header">
+      <div class="ws-id">
+        <div class="eyebrow">Flower Panel Studio · MVP</div>
+        <h1 id="previewName">Untitled arrangement</h1>
+      </div>
+      <div class="ws-right">
+        <div class="ws-count" id="headerCount">—</div>
+        <div class="menu-wrap">
+          <button class="icon-btn menu-btn" id="menuToggle" type="button" aria-expanded="false" aria-controls="overflowMenu" aria-label="More actions">⋮</button>
+          <div class="menu" id="overflowMenu" hidden>
+            <button class="menu-item" id="export" type="button">Export JSON</button>
+            <button class="menu-item" id="importButton" type="button">Import JSON</button>
+            <button class="menu-item" id="diagnosticsToggle" type="button" aria-expanded="false" aria-controls="diagnosticsPanel">Show diagnostics</button>
+            <button class="menu-item theme-toggle" id="themeToggle" type="button" aria-pressed="false">🌙 Dark</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="preview-tools">
+      <button class="icon-btn" id="fitView" type="button" title="Fit panel in view">Fit view</button>
+      <span>Drag to orbit · Scroll/pinch to zoom</span>
+    </div>
+    <div id="previewStatus" class="preview-status" role="status">Preparing preview…</div>
+  </section>
+
+  <aside class="sidebar" id="builder">
+    <div id="builderBody" class="builder-body">
+    <nav class="chip-bar" role="tablist" aria-label="Builder sections">
+      <button class="chip active" type="button" role="tab" aria-selected="true" data-section="dimensions">Dimensions</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="flowers">Flowers</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="greenery">Greenery</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="border">Border</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="colors">Colors</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="appearance">Appearance</button>
+      <button class="chip" type="button" role="tab" aria-selected="false" data-section="save">Save</button>
+    </nav>
+    <section class="section" data-section="dimensions">
+      <div class="row">
+        <div class="field"><label for="width">Width (ft)</label><input id="width" type="number" min="1" max="30" step=".5" value="8"></div>
+        <div class="field"><label for="height">Height (ft)</label><input id="height" type="number" min="1" max="30" step=".5" value="8"></div>
+      </div>
+      <div class="foam-card"><div class="foam-swatch"></div><div><strong>2-inch floral foam base</strong><span>Fixed depth · stems attach into foam</span></div></div>
+    </section>
+
+    <section class="section" data-section="flowers" hidden>
+      <!-- Master toggle: off = no flowers in the scene (greenery/borders unaffected). -->
+      <label class="check-label master-toggle"><input id="flowersOn" type="checkbox" checked> <strong>Show flowers</strong></label>
+
+      <h3 class="gr-step">Flower</h3>
+      <div class="field">
+        <label for="flowerPickerBtn">Flower type</label>
+        <input id="flowerType" type="hidden" value="rose">
+        <div class="picker-row">
+          <div class="picker" id="flowerPicker">
+            <button class="picker-btn" id="flowerPickerBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="flowerPickerLabel">Rose</span><span class="picker-caret" aria-hidden="true">▾</span>
+            </button>
+            <ul class="picker-list" id="flowerPickerList" role="listbox" hidden></ul>
+          </div>
+          <button class="btn view-btn" id="viewFlower" type="button">View</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="flowerSize">Flower-head diameter</label>
+        <select id="flowerSize">
+          <option value="4">Small · 4 in</option><option value="5" selected>Medium · 5 in</option><option value="6">Large · 6 in</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="coverage">Coverage target <strong id="densityValue">100%</strong></label>
+        <input id="coverage" type="range" min="70" max="100" value="100">
+      </div>
+
+      <h3 class="gr-step">Colour pattern</h3>
+      <div class="field">
+        <label for="pattern">Pattern</label>
+        <select id="pattern">
+          <option value="random">Random mix</option>
+          <option value="nongrouping" selected>Non-grouping mix</option>
+          <option value="clustered">Clustered groups</option>
+          <option value="gradient">Gradient</option>
+          <option value="stripes">Stripes / bands</option>
+        </select>
+      </div>
+      <div class="field" data-pattern="nongrouping">
+        <label for="mixIntensity">Mix intensity</label>
+        <select id="mixIntensity"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option></select>
+      </div>
+      <div class="field" data-pattern="nongrouping">
+        <label for="groupingLimit">Same-colour grouping limit</label>
+        <select id="groupingLimit"><option value="strict">Strict</option><option value="balanced" selected>Balanced</option><option value="loose">Loose</option></select>
+      </div>
+      <div class="field" data-pattern="clustered" hidden>
+        <label for="clusterSize">Cluster size</label>
+        <select id="clusterSize"><option value="small" selected>Small</option><option value="medium">Medium</option><option value="large">Large</option></select>
+      </div>
+      <div class="field" data-pattern="gradient,stripes" hidden>
+        <label for="patternDirection">Pattern direction</label>
+        <select id="patternDirection"><option value="ltr" selected>Left → right</option><option value="rtl">Right → left</option><option value="ttb">Top → bottom</option><option value="btt">Bottom → top</option><option value="diag">Diagonal</option></select>
+      </div>
+      <input id="seed" type="hidden" value="1">
+      <div class="color-actions"><button class="btn" id="generateNewPattern" type="button">Generate new pattern</button></div>
+      <p class="sub" id="patternNote" hidden></p>
+    </section>
+
+    <section class="section" data-section="greenery" hidden>
+      <!-- Master toggle: off = no greenery base in the scene (flowers/borders unaffected). -->
+      <label class="check-label master-toggle"><input id="greeneryOn" type="checkbox"> <strong>Show greenery</strong></label>
+      <input id="designMode" type="hidden" value="flowers">
+
+      <!-- Composition style: only meaningful when Flowers AND Greenery are both on. -->
+      <div id="compositionWrap" hidden>
+        <h3 class="gr-step">Composition style</h3>
+        <div class="seg comp-seg" role="radiogroup" aria-label="Composition style">
+          <input type="radio" id="cp-greenery-base" name="compositionSeg" value="greenery-base" checked><label for="cp-greenery-base">Greenery base</label>
+          <input type="radio" id="cp-foliage-clusters" name="compositionSeg" value="foliage-clusters"><label for="cp-foliage-clusters">Foliage clusters + flowers</label>
+          <input type="radio" id="cp-flower-dominant" name="compositionSeg" value="flower-dominant"><label for="cp-flower-dominant">Flower-dominant</label>
+        </div>
+        <input id="composition" type="hidden" value="greenery-base">
+      </div>
+
+      <div id="greeneryBody">
+        <!-- B · Greenery composition -->
+        <h3 class="gr-step">Greenery composition</h3>
+        <div class="seg" role="radiogroup" aria-label="Greenery composition">
+          <input type="radio" id="gm-single" name="greeneryModeSeg" value="single"><label for="gm-single">Single type</label>
+          <input type="radio" id="gm-mixed" name="greeneryModeSeg" value="mixed" checked><label for="gm-mixed">Mixed greenery</label>
+        </div>
+        <input id="greeneryMode" type="hidden" value="mixed">
+
+        <!-- C · Species selection -->
+        <h3 class="gr-step">Species &amp; size</h3>
+        <div id="greenerySingle" class="gr-group" hidden>
+          <div class="field">
+            <label for="greeneryType">Species</label>
+            <div class="picker-row">
+              <select id="greeneryType"></select>
+              <button class="btn view-btn" id="viewGreenery" type="button">View</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="greenerySize">Leaf size <strong id="greenerySizeValue">1.0×</strong></label>
+            <input id="greenerySize" type="range" min="0.4" max="2.5" step="0.1" value="1">
+          </div>
+        </div>
+        <div id="greeneryMixed" class="gr-group">
+          <div id="greeneryItems" class="greenery-items"></div>
+          <div class="color-actions"><button class="btn" id="greeneryAdd" type="button">＋ Add species</button></div>
+          <div class="warning" id="greeneryMaxWarning" hidden>Maximum 6 species per arrangement.</div>
+        </div>
+
+        <!-- D · Fullness -->
+        <h3 class="gr-step">Fullness</h3>
+        <div class="fullness">
+          <div class="fullness-head">
+            <label for="greeneryFullness">Overall density <strong id="greeneryFullnessValue">70%</strong></label>
+          </div>
+          <input id="greeneryFullness" type="range" min="10" max="100" step="5" value="70">
+          <div class="fullness-presets" role="group" aria-label="Fullness preset">
+            <button class="btn btn-sm" type="button" data-fullness-preset="30">Light</button>
+            <button class="btn btn-sm" type="button" data-fullness-preset="60">Medium</button>
+            <button class="btn btn-sm" type="button" data-fullness-preset="85">Dense</button>
+            <button class="btn btn-sm" type="button" data-fullness-preset="100">Full</button>
+          </div>
+        </div>
+
+        <!-- E · Arrangement -->
+        <h3 class="gr-step">Arrangement</h3>
+        <div class="field">
+          <label>Direction</label>
+          <div class="seg seg-wrap" role="radiogroup" aria-label="Direction">
+            <input type="radio" id="gd-upright" name="greeneryDirectionSeg" value="upright"><label for="gd-upright">Upright</label>
+            <input type="radio" id="gd-diag" name="greeneryDirectionSeg" value="diag"><label for="gd-diag">Diagonal</label>
+            <input type="radio" id="gd-outward" name="greeneryDirectionSeg" value="outward"><label for="gd-outward">Outward</label>
+            <input type="radio" id="gd-mixed" name="greeneryDirectionSeg" value="mixed" checked><label for="gd-mixed">Mixed</label>
+          </div>
+          <input id="greeneryDirection" type="hidden" value="mixed">
+        </div>
+        <details class="adv">
+          <summary>Advanced arrangement settings</summary>
+          <div class="field">
+            <label for="greeneryOverlap">Overlap <strong id="greeneryOverlapValue">0.50</strong></label>
+            <input id="greeneryOverlap" type="range" min="0" max="1" step="0.05" value="0.5">
+          </div>
+          <div class="field">
+            <label for="greeneryRotation">Rotation variation <strong id="greeneryRotationValue">60°</strong></label>
+            <input id="greeneryRotation" type="range" min="0" max="180" step="5" value="60">
+          </div>
+        </details>
+
+        <!-- G · Generate (kept near the bottom so it reads as the final action) -->
+        <div class="color-actions gr-generate">
+          <button class="btn primary" id="greeneryGenerate" type="button">↻ Generate new arrangement</button>
+        </div>
+        <input id="greenerySeed" type="hidden" value="1">
+      </div>
+
+      <!-- F · Arrangement summary -->
+      <h3 class="saved-heading" id="greeneryInventoryHeading">Arrangement summary</h3>
+      <div id="greeneryInventory" class="greenery-inventory summary-card" aria-labelledby="greeneryInventoryHeading"></div>
+    </section>
+
+    <section class="section" data-section="border" hidden>
+      <div id="borderSummary" class="sub" hidden></div>
+      <div id="borderLayers" class="border-layers"></div>
+      <div class="color-actions border-add">
+        <select id="borderAddType" aria-label="Border layer type">
+          <option value="flower">Flower border</option>
+          <option value="frame">Frame</option>
+          <option value="greenery">Greenery border</option>
+        </select>
+        <button class="btn" id="borderAdd" type="button">＋ Add border layer</button>
+      </div>
+      <div class="warning" id="borderMaxWarning" hidden>Maximum 6 border layers per arrangement.</div>
+    </section>
+
+    <section class="section" data-section="colors" hidden>
+      <div id="colors" class="color-list"></div>
+      <div class="color-actions"><button class="btn" id="addColor" type="button">＋ Add color</button><button class="btn" id="whiteReset" type="button">Reset to white</button></div>
+      <div class="warning" id="colorWarning" hidden>Maximum five colors per arrangement.</div>
+      <h3 class="saved-heading" id="paletteHeading">Saved palettes</h3>
+      <div id="paletteList" class="saved-list" aria-labelledby="paletteHeading"></div>
+      <div class="color-actions"><button class="btn" id="savePalette" type="button">Save palette</button></div>
+    </section>
+
+    <section class="section" data-section="appearance" hidden>
+      <div class="field">
+        <label>Theme</label>
+      </div>
+    </section>
+
+    <section class="section" data-section="save" hidden>
+      <div class="field"><label for="arrangementName">Arrangement name</label><input id="arrangementName" type="text" maxlength="60" placeholder="e.g. White + blush panel"></div>
+      <div class="color-actions"><button class="btn primary" id="saveArrangement" type="button">Save current</button><button class="btn" id="newArrangement" type="button">New arrangement</button></div>
+      <div id="status" class="status" role="status"></div>
+      <h3 class="saved-heading">Saved arrangements</h3>
+      <div id="savedList" class="saved-list"></div>
+    </section>
+    <div class="footer-actions">
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+      <section id="diagnosticsPanel" class="diagnostics-panel" hidden aria-label="Debug diagnostics">
+        <div class="diagnostics-head"><div><strong>Debug diagnostics</strong><p id="diagnosticsSummary">Waiting for app startup…</p></div><span id="diagnosticsBadge" class="diagnostics-badge">0 logs</span></div>
+        <div class="diagnostics-actions">
+          <button class="btn" id="copyDiagnostics" type="button">Copy logs</button>
+          <button class="btn" id="downloadDiagnostics" type="button">Download log</button>
+          <button class="btn" id="clearDiagnostics" type="button">Clear</button>
+        </div>
+        <pre id="diagnosticsOutput" class="diagnostics-output">No logs yet.</pre>
+      </section>
+    </div>
+    </div>
+  </aside>
+</main>
+
+<div class="modal" id="viewModal" hidden>
+  <div class="modal-backdrop" id="viewBackdrop"></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="viewTitle">
+    <div class="modal-head"><strong id="viewTitle">Rose</strong><button class="icon-btn" id="viewClose" type="button" aria-label="Close preview">×</button></div>
+    <div class="modal-canvas" id="viewCanvas"></div>
+    <p class="sub modal-hint">Drag to rotate · Scroll/pinch to zoom</p>
+  </div>
+</div>
+</body>
+</html>

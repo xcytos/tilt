@@ -129,7 +129,9 @@ export function createPanel(opts) {
         onElementAdd, onElementRemove, onElementPatch, onElementCount,
         onFrameSpacing,
         onPlaceChange,
-        onShelfChange, themeIsDark = false
+        onFoldChange,
+        onShelfChange, themeIsDark = false,
+        folds = []
     } = opts;
 
     const titleEl = document.getElementById('model-name');
@@ -287,8 +289,11 @@ export function createPanel(opts) {
     let stripSide = 'both';
     // Which sections and fixture cards the user folded away. Survives the
     // re-render an Add or retarget triggers - a fold is a preference, not
-    // a accident of one paint.
-    const folded = new Set();
+    // a accident of one paint - and the project file remembers it between
+    // sessions through onFoldChange.
+    const folded = new Set(folds);
+    const foldSink = typeof onFoldChange === 'function' ? onFoldChange : null;
+    const noteFold = () => { if (foldSink) foldSink([...folded]); };
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -1058,6 +1063,7 @@ export function createPanel(opts) {
                 + 'border-gray-300 dark:border-zinc-600';
             sec.addEventListener('toggle', () => {
                 if (sec.open) folded.delete(name); else folded.add(name);
+                noteFold();
             });
             const sum = document.createElement('summary');
             sum.className = 'cursor-pointer select-none pt-2 text-[11px] '
@@ -1197,6 +1203,7 @@ export function createPanel(opts) {
                 + 'border-gray-300 dark:border-zinc-600';
             card.addEventListener('toggle', () => {
                 if (card.open) folded.delete(foldKey); else folded.add(foldKey);
+                noteFold();
             });
 
             const ch = document.createElement('summary');
@@ -2082,6 +2089,10 @@ export function createPanel(opts) {
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
             if (next.colorways !== undefined) currentColorways = next.colorways;
+            if (Array.isArray(next.folds)) {
+                folded.clear();
+                for (const k of next.folds) folded.add(k);
+            }
             renderIfChanged(force);
             return this;
         },

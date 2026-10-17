@@ -739,7 +739,7 @@ check('folds remember, and strips share one block', (() => {
   // Add triggers. On a curtained frame the strip group is ONE settings
   // block per side filter - mount chips and a small remove, never a card
   // per tube; straight strips keep their cards for their mounts.
-  return /const folded = new Set\(\)/.test(panel)
+  return /const folded = new Set\(folds\)/.test(panel)
     && /sec\.addEventListener\('toggle'/.test(panel)
     && /card\.addEventListener\('toggle'/.test(panel)
     && /const foldKey = `\$\{typeFilter\}:\$\{i\}`/.test(panel)
@@ -864,6 +864,23 @@ check('the terrace is a rooftop above a city', (() => {
     && /sceneBalustrade\(group\)/.test(scenes)
     && /sceneSkyline\(group\)/.test(scenes)
     && /transparent: true, opacity: 0\.22/.test(scenes);
+})());
+check('strips and folds survive the reload', (() => {
+  // The parser's anchor pattern once ended in digits only, so every load
+  // wiped stripline-L-T back to '' - the strip fell back to a pole and
+  // drew its straight branch. Folds are now document state too.
+  const project = read('js/project.js');
+  const app = read('js/app.js');
+  const panel = read('js/panel.js');
+  return /\(\?:\\d\+\|T\|B\)/.test(project)
+    && /function cleanFolds\(raw\)/.test(project)
+    && /folds: cleanFolds\(data\.folds\)/.test(project)
+    && /folds: panelFolds\.slice\(\)/.test(app)
+    && /Array\.isArray\(savedDoc\.folds\)/.test(app)
+    && /onFoldChange: guard\(/.test(app)
+    && /new Set\(folds\)/.test(panel)
+    && /noteFold\(\)/.test(panel)
+    && /Array\.isArray\(next\.folds\)/.test(panel);
 })());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)

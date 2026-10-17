@@ -143,7 +143,11 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // lights into the scene. The registered list itself is mirrored here (this
 // module imports nothing); app.js re-checks against the live registry.
 const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
-const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-\d+$/;
+// Mount-point ids: kind-Side-index (`rail-L-3`, `pole-R-1`) or the strip
+// lines (`stripline-L-T`, `stripline-R-B`). The old digit-only tail wiped
+// every stripline anchor on load, which dropped rail strips back onto a
+// pole as straight tubes.
+const ELEM_ANCHOR_RE = /^[a-z]+-[A-Za-z]+-(?:\d+|T|B)$/;
 const ELEM_PER_FRAME = 20;
 const ELEM_TOTAL = 40;
 const ELEM_PARAM_RE = /^[a-z][A-Za-z0-9]{0,15}$/;
@@ -189,6 +193,20 @@ function cleanFrameElements(raw) {
 
 // One frame's floor-PAR spacing in feet: absent or zero keeps the wall's
 // full-width even bays; a positive number is a centred line of lights the
+// Which collapsible sections and fixture cards were folded away: section
+// names (`PAR`) and per-card keys (`strip:0`). Plain strings, short and
+// tightly pattern-checked - a fold is a UI preference, never structure.
+function cleanFolds(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const k of raw) {
+        if (out.length >= 120) break;
+        if (typeof k !== 'string' || !/^[A-Za-z0-9:_-]{1,40}$/.test(k)) continue;
+        out.push(k);
+    }
+    return out;
+}
+
 // frame re-seats on its own hooks. Keys follow the place-id rules.
 function cleanFrameSpacing(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -278,6 +296,8 @@ export function parseProject(raw) {
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
         elements: cleanFrameElements(data.elements),
+        // Which panel sections and fixture cards the user folded away.
+        folds: cleanFolds(data.folds),
         spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)

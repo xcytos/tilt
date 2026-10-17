@@ -76,6 +76,9 @@ function fabricHex() {
 // - and the pillars always stand on that frame's anchors, travelling with
 // it wherever it goes.
 let layoutId = null;
+// Which panel sections/cards the user folded away - saved with the project
+// so the shelf opens the way it was left.
+let panelFolds = [];
 const savedPlaces = new Map();
 const framePillars = new Map();
 // Lighting elements belong to their frame: `frameElements` holds each
@@ -131,6 +134,7 @@ function buildDoc() {
         layout: layoutId,
         pillars: framePillarsPlain(),
         elements: frameElementsPlain(),
+        folds: panelFolds.slice(),
         spacing: frameSpacingPlain(),
         places: Object.fromEntries([...savedPlaces]
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
@@ -1142,6 +1146,7 @@ async function syncScene(forcePanel = false) {
                 frameAnchors: frameAnchorsPlain(),
                 frameSpacing: frameSpacingPlain(),
                 places: placesFor(),
+                folds: panelFolds.slice(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
             if (shaped) {
@@ -1717,6 +1722,8 @@ if (savedDoc) {
             if (list.length) frameElements.set(target, list);
         }
     }
+    // Folded sections and cards reopen the way they were left.
+    if (Array.isArray(savedDoc.folds)) panelFolds = savedDoc.folds.slice();
     // Floor-PAR spacing travels the same way: frames this project knows.
     if (savedDoc.spacing && typeof savedDoc.spacing === 'object'
         && !Array.isArray(savedDoc.spacing)) {
@@ -1810,7 +1817,12 @@ panel = createPanel({
     frameAnchors: frameAnchorsPlain(),
     frameSpacing: frameSpacingPlain(),
     places: placesFor(),
+    folds: panelFolds.slice(),
     themeIsDark: viewer.isDark,
+    onFoldChange: guard(folds => {
+        panelFolds = folds.slice();
+        scheduleSave();
+    }),
     onSelect: guard(id => activate(id)),
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
