@@ -974,6 +974,35 @@ function flowerPanelsPlain() {
     }));
 }
 
+// The mounted list the Flowers shelf shows: identity + placement only.
+function mountedFlowersPlain() {
+    return flowerPanels.map(fp => ({
+        id: fp.id,
+        name: fp.name || 'Panel',
+        x: fp.x, z: fp.z, ry: fp.ry
+    }));
+}
+
+// Live placement from the shelf sliders - move the panel and persist, without
+// a shelf rebuild (the slider keeps the finger's own value while it drags).
+function setFlowerPlace(id, patch) {
+    const fp = flowerPanels.find(f => f.id === id);
+    if (!fp) return;
+    if (Number.isFinite(Number(patch.x))) fp.x = Number(patch.x);
+    if (Number.isFinite(Number(patch.z))) fp.z = Number(patch.z);
+    if (Number.isFinite(Number(patch.ry))) fp.ry = Number(patch.ry);
+    placeFlowerPanel(fp);
+    scheduleSave();
+}
+
+// Take a mounted panel out of the scene and the document, then repaint the
+// shelf's mounted list (a structural change).
+function removeFlowerPanel(id) {
+    if (!unmountFlowerPanel(id)) return;
+    scheduleSave();
+    if (panel && panel.setMountedFlowers) panel.setMountedFlowers(mountedFlowersPlain());
+}
+
 // The arrangement library lives in the Flower Studio's own localStorage (same
 // origin). TILT only lists and mounts them - it never stores the library itself,
 // so edits made in the Studio keep persisting there and flow through by id.
@@ -1002,6 +1031,8 @@ function mountArrangement(arr) {
         ry: 0
     });
     scheduleSave();
+    // Show the new panel in the shelf's "In this scene" list right away.
+    if (panel && panel.setMountedFlowers) panel.setMountedFlowers(mountedFlowersPlain());
     return fp;
 }
 
@@ -1960,6 +1991,9 @@ panel = createPanel({
     onColorwayChange: guard(id => setColorway(id)),
     onRgbChange: hex => setFabricColor(hex),
     onRecipeChange: guard(id => setRecipe(id)),
+    shadowInfo: () => viewer.shadowInfo(),
+    onShadowToggle: on => viewer.setShadowsEnabled(on),
+    onShadowBoxToggle: on => viewer.setShadowBoxVisible(on),
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onElementAdd: guard((id, type) => onElementAdd(id, type)),
@@ -1969,7 +2003,10 @@ panel = createPanel({
     onFrameSpacing: guard((id, ft) => setFrameSpacing(id, ft)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     flowerArrangements: studioArrangements(),
+    flowerMounted: mountedFlowersPlain(),
     onFlowerMount: guard(arr => mountArrangement(arr)),
+    onFlowerMove: (id, patch) => setFlowerPlace(id, patch),
+    onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;

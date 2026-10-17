@@ -320,6 +320,7 @@ export class Viewer {
             const t = this.isDark ? THEME.dark : THEME.light;
             // Studio keeps the exact response it always had.
             this.renderer.toneMapping = THREE.NoToneMapping;
+            if (this._shadowBox) this._shadowBox.visible = false;
             this.scene.background = this._bgColor.setHex(t.bg);
             this.scene.fog = null;
             this.matFloor.map = this.floorTex[this.isDark ? 'dark' : 'light'];
@@ -349,6 +350,79 @@ export class Viewer {
         this.mainLight.intensity = s.key.intensity;
         this.fillLight.color.setHex(s.fill.color);
         this.fillLight.intensity = s.fill.intensity;
+    }
+
+    // Shadow debugging for the Look shelf. "Shadows sometimes vanish" is
+    // almost never the renderer - it is furniture stepped outside the key
+    // light's ortho box, so the counts below separate the two cases.
+    shadowInfo() {
+        const L = this.mainLight;
+        const cam = L.shadow.camera;
+        const dir = new THREE.Vector3()
+            .subVectors(L.target.position, L.position).normalize();
+        const seed = Math.abs(dir.y) > 0.99
+            ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(seed, dir).normalize();
+        const up = new THREE.Vector3().crossVectors(dir, right).normalize();
+        let meshes = 0, casters = 0, receivers = 0, outside = 0;
+        const p = new THREE.Vector3();
+        this.scene.traverse((o) => {
+            if (!(o.isMesh || o.isInstancedMesh) || !o.visible) return;
+            meshes++;
+            if (o.castShadow) casters++;
+            if (o.receiveShadow) receivers++;
+            o.getWorldPosition(p).sub(L.position);
+            const x = p.dot(right), y = p.dot(up), z = p.dot(dir);
+            if (Math.abs(x) > cam.right + 1 || Math.abs(y) > cam.top + 1
+                || z < cam.near || z > cam.far) outside++;
+        });
+        return {
+            enabled: this.renderer.shadowMap.enabled,
+            boxVisible: !!(this._shadowBox && this._shadowBox.visible),
+            meshes, casters, receivers, outside,
+            box: `${Math.round(cam.right - cam.left)}x`
+                + `${Math.round(cam.top - cam.bottom)}x`
+                + `${Math.round(cam.far - cam.near)}`
+        };
+    }
+
+    // Toggling shadowMap.enabled needs every material recompiled, or the
+    // old lighting programs keep running with stale defines.
+    setShadowsEnabled(on) {
+        this.renderer.shadowMap.enabled = !!on;
+        this.scene.traverse((o) => {
+            if (!(o.isMesh || o.isInstancedMesh)) return;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) if (m) m.needsUpdate = true;
+        });
+    }
+
+    // Wireframe of the key light's shadow frustum, so a camera orbit
+    // shows exactly which tables sit inside the box and which do not.
+    setShadowBoxVisible(on) {
+        if (on && !this._shadowBox) {
+            const L = this.mainLight;
+            const cam = L.shadow.camera;
+            const dir = new THREE.Vector3()
+                .subVectors(L.target.position, L.position).normalize();
+            const seed = Math.abs(dir.y) > 0.99
+                ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(seed, dir).normalize();
+            const up = new THREE.Vector3().crossVectors(dir, right).normalize();
+            const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(
+                cam.right - cam.left, cam.top - cam.bottom, cam.far - cam.near));
+            const box = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+                color: 0x38bdf8, transparent: true, opacity: 0.85, depthTest: false
+            }));
+            box.renderOrder = 999;
+            box.quaternion.setFromRotationMatrix(
+                new THREE.Matrix4().makeBasis(right, up, dir));
+            box.position.copy(L.position)
+                .addScaledVector(dir, cam.near + (cam.far - cam.near) / 2);
+            this._shadowBox = box;
+            this.scene.add(box);
+        }
+        if (this._shadowBox) this._shadowBox.visible = !!on;
     }
 
     // Match the camera and the drawing buffer to whatever box the canvas

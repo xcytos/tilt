@@ -77,7 +77,7 @@ function placeRangeBlock(key, label, prop, value, min, max, step, unit) {
     input.value = String(Math.round(value * 100) / 100);
     input.className = 'w-full h-5 accent-sky-500 cursor-pointer';
     wrap.append(head, input);
-    return { wrap, input, value: val };
+    return { wrap, input, value: val, head, label: labelEl };
 }
 
 function toggleBlock(key, p, current) {
@@ -132,6 +132,7 @@ export function createPanel(opts) {
         onPlaceChange,
         onFoldChange,
         onFlowerMount, onFlowerOpenStudio,
+        shadowInfo, onShadowToggle, onShadowBoxToggle,
         onShelfChange, themeIsDark = false,
         folds = []
     } = opts;
@@ -140,6 +141,10 @@ export function createPanel(opts) {
     // lists them so a tap mounts one into the scene. Kept mutable so the list
     // can be refreshed (Studio save / BroadcastChannel) without a full rebuild.
     let flowerList = Array.isArray(opts.flowerArrangements) ? opts.flowerArrangements : [];
+    // Panels already mounted in the scene, with their placement - the shelf
+    // shows these so a finger can move, turn or remove each one. Refreshed
+    // structurally (mount / remove) via setMountedFlowers.
+    let mountedFlowers = Array.isArray(opts.flowerMounted) ? opts.flowerMounted : [];
 
     const titleEl = document.getElementById('model-name');
     const subEl = document.getElementById('model-sub');
@@ -310,6 +315,9 @@ export function createPanel(opts) {
     let rgbDialRef = null;
     const recipeBtns = new Map();
     const sceneChips = new Map();
+    // The Look shelf's shadow debug row - refs so applyLive can repaint
+    // the counts when the room changes without rebuilding the shelf.
+    const shadowRefs = { on: null, box: null, status: null };
     const colorChips = new Map();
     const placeRows = new Map();
     const pillarOffsetRows = new Map();
@@ -318,6 +326,82 @@ export function createPanel(opts) {
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
 
+    // A single stepper arrow beside the Turn label: nudges the rotation to the
+    // next / previous position on the slider (dir is -1 or +1).
+    const TURN_STEP = 15; // degrees per arrow click - one slider position
+    function turnStepArrow(dir, onStep) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'w-6 h-6 rounded border border-gray-300 dark:border-zinc-600 '
+            + 'text-gray-500 dark:text-zinc-400 hover:border-sky-400 hover:text-sky-500 '
+            + 'transition-colors flex items-center justify-center';
+        b.title = dir < 0 ? 'Turn left' : 'Turn right';
+        b.setAttribute('aria-label', b.title);
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', dir < 0 ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6');
+        svg.appendChild(path);
+        b.appendChild(svg);
+        b.addEventListener('click', onStep);
+        return b;
+    }
+
+    // Placement controls for one mounted flower panel - X and Depth sliders,
+    // plus a Turn (rotate) control: a slider with two stepper arrows flanking
+    // the Turn label that step it to the next / previous angle. Wired straight
+    // to the scene (no rebuild while a finger is on a control).
+    function buildFlowerPlacement(fp) {
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-1';
+        for (const [label, prop, min, max, step, unit] of [
+            ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Depth', 'z', -40, 40, 0.5, ' ft'],
+            ['Turn', 'ry', 0, 360, TURN_STEP, '°']
+        ]) {
+            // Turn lives in 0..360; normalise a stray negative/over value so the
+            // slider and the readout agree.
+            const init = prop === 'ry'
+                ? ((Math.round(Number(fp[prop]) || 0) % 360) + 360) % 360
+                : fp[prop];
+            const built = placeRangeBlock(`${fp.id}-pos-${prop}`, label, prop,
+                init, min, max, step, unit);
+            built.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                built.value.textContent = fmt(v, unit);
+                if (opts.onFlowerMove) opts.onFlowerMove(fp.id, { [prop]: v });
+            });
+            live.selects.push(built.input);
+            wrap.appendChild(built.wrap);
+            if (prop === 'ry') {
+                // Two arrows flank the Turn label: each steps the slider to the
+                // next / previous position - a clean rotate control.
+                const stepBy = d => {
+                    let v = Math.round(Number(built.input.value) || 0) + d;
+                    v = ((v % 360) + 360) % 360;
+                    built.input.value = String(v);
+                    built.value.textContent = fmt(v, unit);
+                    if (opts.onFlowerMove) opts.onFlowerMove(fp.id, { ry: v });
+                };
+                const left = document.createElement('div');
+                left.className = 'flex items-center gap-0.5';
+                built.head.insertBefore(left, built.label);
+                left.appendChild(turnStepArrow(-1, () => stepBy(-TURN_STEP)));
+                left.appendChild(built.label);
+                left.appendChild(turnStepArrow(1, () => stepBy(TURN_STEP)));
+            }
+        }
+        return wrap;
+    }
+
     // The Flowers chip ships in its own module (objects/flowerchip.js) - wire
     // it into the toolbar right after Lights and hand it what it needs.
     const flowerChip = createFlowerChip({
@@ -325,6 +409,10 @@ export function createPanel(opts) {
         getFlowerList: () => flowerList,
         onMount: arr => { if (opts.onFlowerMount) opts.onFlowerMount(arr); },
         onOpenStudio: () => { if (opts.onFlowerOpenStudio) opts.onFlowerOpenStudio(); },
+        getMountedFlowers: () => mountedFlowers,
+        onFlowerMove: (id, patch) => { if (opts.onFlowerMove) opts.onFlowerMove(id, patch); },
+        onFlowerRemove: id => { if (opts.onFlowerRemove) opts.onFlowerRemove(id); },
+        buildFlowerPlacement,
         live,
         emptyNote
     });
@@ -1809,6 +1897,69 @@ export function createPanel(opts) {
                 x => x.id, x => x.name);
             for (const [id, btn] of btns) sceneChips.set(id, btn);
             wrap.appendChild(row);
+
+            // Shadow debugging: "sometimes the shadows are visible,
+            // sometimes not" is usually furniture outside the key light's
+            // ortho box - the counts say which, the toggles prove it.
+            const info = shadowInfo ? shadowInfo() : null;
+            if (info) {
+                const box = document.createElement('div');
+                box.className = 'mt-3 pt-2 border-t border-dashed '
+                    + 'border-gray-300 dark:border-zinc-600';
+                box.appendChild(heading('Shadows'));
+                const trow = document.createElement('div');
+                trow.className = 'flex flex-wrap gap-2 mb-1';
+                const mk = (on, label, apply) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = chipCls(on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.textContent = label;
+                    btn.addEventListener('click', apply);
+                    live.buttons.push(btn);
+                    trow.appendChild(btn);
+                    return btn;
+                };
+                let on = info.enabled !== false;
+                let showBox = !!info.boxVisible;
+                const onBtn = mk(on, on ? 'Shadows on' : 'Shadows off', () => {
+                    on = !on;
+                    onBtn.className = chipCls(on);
+                    onBtn.textContent = on ? 'Shadows on' : 'Shadows off';
+                    onBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    onShadowToggle && onShadowToggle(on);
+                });
+                const boxBtn = mk(showBox, 'Key box', () => {
+                    showBox = !showBox;
+                    boxBtn.className = chipCls(showBox);
+                    boxBtn.setAttribute('aria-pressed', showBox ? 'true' : 'false');
+                    onShadowBoxToggle && onShadowBoxToggle(showBox);
+                });
+                box.appendChild(trow);
+                const status = document.createElement('div');
+                status.className = 'text-[11px] text-gray-500 dark:text-zinc-400';
+                box.appendChild(status);
+                const paint = (i) => {
+                    const inBox = i.meshes ? i.meshes - i.outside : 0;
+                    const pct = i.meshes
+                        ? Math.round(100 * inBox / i.meshes) : 100;
+                    status.textContent = `${i.casters} cast - ${i.receivers} recv `
+                        + `- ${pct}% in key box ${i.box} ft`;
+                    if (i.outside > 0) {
+                        const warn = document.createElement('span');
+                        warn.className = 'text-amber-600 dark:text-amber-400 '
+                            + 'font-semibold';
+                        warn.textContent = ` - ${i.outside} outside!`;
+                        status.appendChild(warn);
+                    }
+                };
+                paint(info);
+                shadowRefs.on = onBtn;
+                shadowRefs.box = boxBtn;
+                shadowRefs.status = status;
+                shadowRefs.paint = paint;
+                wrap.appendChild(box);
+            }
         }
         return wrap;
     }
@@ -1986,7 +2137,8 @@ export function createPanel(opts) {
             JSON.stringify(pillarShape),
             JSON.stringify(elemShape),
             (current && current.name) || '',
-            flowerList.map(a => (a && a.id) || '').join(',')
+            flowerList.map(a => (a && a.id) || '').join(','),
+            mountedFlowers.map(f => (f && f.id) || '').join(',')
         ].join('|');
     }
 
@@ -1998,6 +2150,8 @@ export function createPanel(opts) {
         rgbDialRef = null;
         recipeBtns.clear();
         sceneChips.clear();
+        shadowRefs.on = shadowRefs.box = shadowRefs.status = null;
+        shadowRefs.paint = null;
         colorChips.clear();
         placeRows.clear();
         pillarOffsetRows.clear();
@@ -2179,6 +2333,17 @@ export function createPanel(opts) {
                             ? 'border-sky-500 ring-1 ring-sky-400 font-semibold'
                             : 'border-gray-300 dark:border-zinc-600 hover:border-sky-400');
                 }
+                // Fresh caster/coverage counts for the new room, in place.
+                if (shadowRefs.paint && shadowInfo) {
+                    const i = shadowInfo();
+                    shadowRefs.paint(i);
+                    if (shadowRefs.on) {
+                        const o = i.enabled !== false;
+                        shadowRefs.on.className = chipCls(o);
+                        shadowRefs.on.textContent = o ? 'Shadows on' : 'Shadows off';
+                        shadowRefs.on.setAttribute('aria-pressed', o ? 'true' : 'false');
+                    }
+                }
             }
             if (next.recipe !== undefined) {
                 currentRecipe = next.recipe;
@@ -2285,6 +2450,13 @@ export function createPanel(opts) {
         // repaint just the shelf if the Flowers tool is showing.
         setFlowerArrangements(list) {
             flowerList = Array.isArray(list) ? list : [];
+            renderIfChanged(true);
+            return this;
+        },
+        // Swap the list of panels already in the scene (mount / remove) and
+        // repaint - a structural change, unlike a placement drag.
+        setMountedFlowers(list) {
+            mountedFlowers = Array.isArray(list) ? list : [];
             renderIfChanged(true);
             return this;
         },
