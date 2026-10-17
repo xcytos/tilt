@@ -34,7 +34,7 @@ function check(label, cond, extra = '') {
 function boundsFor(ui) {
   const panRad = ui.pan * Math.PI / 180, pitchRad = ui.pitch * Math.PI / 180;
   const halfX = ui.gap / 2 + 12 * Math.cos(panRad) + 1 * Math.sin(panRad);
-  const halfZ = 12 * Math.sin(panRad) + 1 * Math.cos(panRad);
+  const halfZ = 12 * Math.sin(panRad) + 1.3 * Math.cos(panRad);
   const topY = 8 + Math.sin(pitchRad) + 0.4;
   const c = new THREE.Vector3(0, topY / 2, 0);
   return new THREE.Box3(

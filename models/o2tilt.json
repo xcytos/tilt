@@ -83,6 +83,24 @@
       "hue": 40,
       "sat": 40
      }
+    },
+    {
+     "type": "light-strip",
+     "anchor": "stripline-L-T",
+     "params": {
+      "power": 55,
+      "hue": 40,
+      "sat": 25
+     }
+    },
+    {
+     "type": "light-strip",
+     "anchor": "stripline-R-T",
+     "params": {
+      "power": 55,
+      "hue": 40,
+      "sat": 25
+     }
     }
    ]
   }

@@ -30,6 +30,15 @@ const UPLIGHT_STANDOFF = 1.35;
 // Front-side z floor: the stand base frames reach 0.8 ft off the wall
 // line, so a fixture's centre stays at least this far front of z=0.
 const UPLIGHT_MIN_Z = 1.15;
+// Where a hem strip rides: the curtain's foot on the floor, the same
+// serpentine as the rail above it, at tube height.
+const STRIP_HEM_Y = 0.12;
+// How far backstage each stand sits behind its curtain line. A single
+// drape is dressed on the audience side of the rail, so the uprights
+// hide behind their own curtain from the guest view; a short arm at
+// the top ties each stand back to the bracket on the rail. Covers the
+// square-pole corner (0.113) + pleat depth (0.12) + margin.
+const STAND_BACK = 0.30;
 
 // A stand is telescoping: a fixed sleeve standing out of the floor, with a
 // slimmer inner tube running out of its open top and on up to the rail.
@@ -348,9 +357,9 @@ export function createO2TiltModel(initial = {}) {
     let anchors = [];
     let anchorsStale = true;
 
-    // The coupling sleeves joining each stand top to the rail. They follow
-    // the rail's own tangent so the rail runs through them, and they are
-    // round so the rail can be pitched inside them.
+    // Per-stand hardware cleared on rebuild: the pivot brackets that hold
+    // the rail, and the arms reaching from each backstage stand back to
+    // its bracket.
     const joints = [];
     // Shared pivot-bracket geometries (one set for all six brackets).
     const brSleeveGeo = new THREE.CylinderGeometry(BR_SLEEVE_OUTER_R, BR_SLEEVE_OUTER_R, BR_SLEEVE_LEN, 16);
@@ -359,6 +368,8 @@ export function createO2TiltModel(initial = {}) {
     const brHeadGeo = new THREE.CylinderGeometry(BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_H, 6);
     const brLockGeo = new THREE.CylinderGeometry(BR_LOCK_R, BR_LOCK_R, BR_LOCK_LEN, 8);
     const brLockHeadGeo = new THREE.CylinderGeometry(BR_LOCK_R * 1.8, BR_LOCK_R * 1.8, BR_LOCK_R * 2, 6);
+    // Horizontal stand-to-bracket arm (one shared geometry, six arms).
+    const standArmGeo = new THREE.BoxGeometry(STAND_BACK + 0.1, 0.07, 0.07);
 
     function release(mesh) {
         if (!mesh) return;
@@ -393,9 +404,6 @@ export function createO2TiltModel(initial = {}) {
                 const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
                 const innerH = railY - sleeveH;
 
-                // The stand rises straight up under the rail point - the
-                // sleeve on top of it holds the rail, so the rail sits
-                // exactly on the vertical tube with no sideways offset.
                 const bx = p.x;
                 const bz = p.z;
 
@@ -407,7 +415,19 @@ export function createO2TiltModel(initial = {}) {
                 if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
                 tan.normalize();
 
-                stand.group.position.set(bx, 0, bz);
+                // Horizontal curtain normal (same convention as the
+                // fabric: (-tz, 0, tx), flipped for the left wall). It
+                // points backstage, so the stand hides behind its own
+                // drape from the guest side; a short arm at the top
+                // reaches back to the bracket on the rail.
+                const n = new THREE.Vector3(-tan.z, 0, tan.x);
+                if (turn < 0) n.negate();
+                if (n.lengthSq() < 1e-12) n.set(0, 0, 1);
+                n.normalize();
+                const sx = bx + n.x * STAND_BACK;
+                const sz = bz + n.z * STAND_BACK;
+
+                stand.group.position.set(sx, 0, sz);
                 stand.group.rotation.y = turn * panRad;
                 stand.sleeve.position.set(0, 0, 0);
                 stand.sleeve.scale.set(1, sleeveH, 1);
@@ -416,15 +436,26 @@ export function createO2TiltModel(initial = {}) {
                 stand.inner.visible = innerH > INNER_HIDE;
                 stand.height = railY;
 
-                bases[i].position.set(bx, 0, bz);
+                bases[i].position.set(sx, 0, sz);
                 bases[i].rotation.y = turn * panRad;
 
-                // Pivot bracket: sits ON the stand top, directly under the
-                // rail. The round sleeve holds the rail and tilts with it
-                // (pitch), two side plates (clevis ears) hang down onto
-                // the stand, and a pivot bolt through plates and sleeve
-                // lets the rail tilt. A smaller locking bolt clamps the
-                // chosen angle.
+                // Horizontal arm from the stand top back to the bracket
+                // on the rail. Long axis is local X, so yaw it onto the
+                // stand-to-bracket direction (-n).
+                const arm = new THREE.Mesh(standArmGeo, matJoint);
+                arm.name = `stand-arm-${turn < 0 ? 'L' : 'R'}-${i}`;
+                arm.position.set((sx + bx) / 2, railY, (sz + bz) / 2);
+                arm.rotation.y = Math.atan2(n.z, -n.x);
+                arm.castShadow = true;
+                root.add(arm);
+                joints.push(arm);
+
+                // Pivot bracket: sits at the rail point, reached from
+                // the offset stand by the arm above. The round sleeve
+                // holds the rail and tilts with it (pitch), two side
+                // plates (clevis ears) hang down, and a pivot bolt
+                // through plates and sleeve lets the rail tilt. A
+                // smaller locking bolt clamps the chosen angle.
                 const bracket = new THREE.Group();
                 bracket.position.set(bx, railY, bz);
                 // Yaw only — the plates and bolt stay horizontal; the
@@ -543,51 +574,86 @@ export function createO2TiltModel(initial = {}) {
             }
 
             // Floor uplights: one per section of the wall (ten per side),
-            // evenly spaced ALONG THE WALL'S X SPAN - curve-parameter
-            // spacing bunches up in the steep parts of the wave, and the
-            // samples themselves are too sparse to snap to, so the hook's
-            // point and tangent are interpolated from the rail polyline at
-            // its x. Each hook stands off on the guest-facing side and is
-            // then guaranteed a minimum z clearance from the stand base
-            // frames (1.6 ft square on the line) so no fixture ever sits
-            // on a plate. The standoff itself is pure -Z so the hooks keep
-            // their even x spacing; the blended normal only steers the
-            // fixture's aim back at the fabric.
-            const xs = pts.map(p => p.x);
-            const xIn = xs[0], xOut = xs[xs.length - 1];
-            const xLo = Math.min(xIn, xOut), xHi = Math.max(xIn, xOut);
-            const at = target => {
-                const xT = Math.max(xLo, Math.min(xHi, target));
-                let j = 0;
-                for (let i = 0; i < pts.length - 1; i++) {
-                    const xa = pts[i].x, xb = pts[i + 1].x;
-                    if (xT >= Math.min(xa, xb) && xT <= Math.max(xa, xb)) {
-                        j = i;
-                        break;
-                    }
-                }
+            // spaced evenly ALONG THE WALL ITSELF - the rail polyline's own
+            // parameter - so the hooks stay spread from gap to far end even
+            // when Swing Pan turns the wall nearly edge-on, where even-x
+            // spacing would pile every hook at the same spot. Each hook
+            // stands off on the guest-facing side along the WALL'S OWN
+            // facing - the chord from gap to far end, the same way the old
+            // -Z rule read the unswung wall - not pure -Z (which slips
+            // behind a swung curtain past ~67 degrees or parks the hook
+            // when the wall swings the other way) and not the local pleat
+            // normal either (the serpentine backwaves it, which would
+            // bunch neighbouring hooks). The standoff keeps its 1.35 ft,
+            // then steps further out along the same line until the hook
+            // clears every stand plate on its own wall - plates are 1.6 ft
+            // square, so distance to the plate centre is the honest guard
+            // at any swing.
+            const chord = pts[pts.length - 1].clone().sub(pts[0]).setY(0);
+            if (chord.lengthSq() < 1e-12) chord.set(1, 0, 0);
+            chord.normalize();
+            const back = new THREE.Vector3(-chord.z, 0, chord.x);
+            if (!side) back.negate();
+            const front = back.clone().negate();
+            const atT = u => {
+                const f = Math.max(0, Math.min(1, u)) * (pts.length - 1);
+                const j = Math.min(pts.length - 2, Math.floor(f));
+                const v = f - j;
                 const a = pts[j], b = pts[j + 1];
-                const u = Math.abs(b.x - a.x) < 1e-9
-                    ? 0 : Math.max(0, Math.min(1, (xT - a.x) / (b.x - a.x)));
                 return {
-                    p: a.clone().lerp(b, u),
+                    p: a.clone().lerp(b, v),
                     t: b.clone().sub(a).setY(0).normalize()
                 };
             };
+            // Strip lines: one mount per wall at the top rail and one at
+            // the hem, both mid-wall on the curtain's own curve. An RGB
+            // strip clamped here draws along the exact serpentine of the
+            // fabric - top tube on the rail itself, hem tube at the foot.
+            const mid = atT(0.5);
+            anchors.push({
+                id: `stripline-${tag}-T`,
+                kind: 'stripline',
+                mount: 'top',
+                side: tag,
+                position: mid.p.clone(),
+                tangent: mid.t.clone(),
+                normal: front.clone()
+            });
+            anchors.push({
+                id: `stripline-${tag}-B`,
+                kind: 'stripline',
+                mount: 'hem',
+                side: tag,
+                position: new THREE.Vector3(mid.p.x, STRIP_HEM_Y, mid.p.z),
+                tangent: mid.t.clone(),
+                normal: front.clone()
+            });
+            const plates = side ? basesR : basesL;
             for (let k = 0; k < UPLIGHT_PER_SIDE; k++) {
-                const t = (k + 0.5) / UPLIGHT_PER_SIDE;
-                const { p, t: tangent } = at(xIn + (xOut - xIn) * t);
-                const front = new THREE.Vector3(-tangent.z, 0, tangent.x);
-                if (front.z > 0) front.negate();
-                front.add(new THREE.Vector3(0, 0, -1)).normalize();
-                const z = Math.min(p.z - UPLIGHT_STANDOFF, -UPLIGHT_MIN_Z);
+                const { p, t: tangent } = atT((k + 0.5) / UPLIGHT_PER_SIDE);
+                const pos = new THREE.Vector3(
+                    p.x + front.x * UPLIGHT_STANDOFF, 0,
+                    p.z + front.z * UPLIGHT_STANDOFF);
+                for (let step = 0; step < 6; step++) {
+                    let clear = true;
+                    for (const b of plates) {
+                        const dx = pos.x - b.position.x;
+                        const dz = pos.z - b.position.z;
+                        if (dx * dx + dz * dz < UPLIGHT_MIN_Z * UPLIGHT_MIN_Z) {
+                            clear = false;
+                            break;
+                        }
+                    }
+                    if (clear) break;
+                    pos.addScaledVector(front, 0.4);
+                }
                 anchors.push({
                     id: `uplight-${tag}-${k}`,
                     kind: 'uplight',
                     side: tag,
-                    position: new THREE.Vector3(p.x, 0, z),
+                    position: pos,
                     tangent,
-                    normal: front
+                    normal: front.clone()
                 });
             }
         }

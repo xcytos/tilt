@@ -110,28 +110,103 @@ console.log('\nStage 2: anchors (where ELEMENTS attach)');
 const anchors = model.getAnchors();
 check('anchors exist', anchors.length > 0, `${anchors.length}`);
 const kinds = [...new Set(anchors.map(a => a.kind))].sort();
-check('has rail + pole + base + uplight anchors',
-      kinds.join(',') === 'base,pole,rail,uplight', kinds.join(','));
+check('has rail + pole + base + uplight + stripline anchors',
+      kinds.join(',') === 'base,pole,rail,stripline,uplight', kinds.join(','));
 check('every anchor has position/tangent/normal', anchors.every(a =>
   a.position && a.tangent && a.normal &&
   Number.isFinite(a.position.x) && Number.isFinite(a.position.y) && Number.isFinite(a.position.z)));
 check('rail anchors lie on the rail (y within +/-1 of the pole height)',
       anchors.filter(a => a.kind === 'rail').every(a => a.position.y > 2 && a.position.y < 9));
 check('base anchors sit on the floor', anchors.filter(a => a.kind === 'base').every(a => a.position.y === 0));
-check('20 floor uplights (10 per wall), on the floor, clear of the wave band', (() => {
+check('20 floor uplights (10 per wall), on the floor, clear of every stand plate', (() => {
   const ups = anchors.filter(a => a.kind === 'uplight');
+  const bases = anchors.filter(a => a.kind === 'base');
   const xs = anchors.filter(a => a.kind === 'rail').map(r => r.position.x);
+  let clear = true;
+  for (const h of ups) {
+    for (const b of bases) {
+      if (Math.hypot(h.position.x - b.position.x, h.position.z - b.position.z) < 1.0) {
+        clear = false;
+      }
+    }
+  }
   return ups.length === 20
     && ups.filter(a => a.side === 'L').length === 10
     && ups.filter(a => a.side === 'R').length === 10
     && ups.every(a => a.position.y === 0
-      && a.position.z <= -1
       && a.position.x >= Math.min(...xs) - 0.5
-      && a.position.x <= Math.max(...xs) + 0.5);
+      && a.position.x <= Math.max(...xs) + 0.5)
+    && clear;
+})());
+check('uplight hooks follow Swing Pan: front of the cloth, spread, aimed at it', (() => {
+  // Each hook must sit in front of (along its own normal) the rail sample it
+  // was sampled from - any pan sign, even 75 degrees where a pure -Z offset
+  // would slip behind the curtain - stay spread, clear of plates, and aim
+  // back at that same piece of cloth.
+  const railsOn = (list, side, idx) => list.find(a =>
+    a.kind === 'rail' && a.side === side && a.id === `rail-${side}-${idx}`);
+  const samples = anchors.filter(a => a.kind === 'rail' && a.side === 'R').length - 1;
+  for (const pan of [0, -75, 75]) {
+    model.setParams({ pan });
+    model.build();
+    const swing = model.getAnchors();
+    const ups = swing.filter(a => a.kind === 'uplight');
+    const bases = swing.filter(a => a.kind === 'base');
+    for (const h of ups) {
+      const k = Number(/-(\d+)$/.exec(h.id)[1]);
+      const rail = railsOn(swing, h.side, Math.max(0, Math.min(samples,
+        Math.round(((k + 0.5) / 10) * samples))));
+      const dx = h.position.x - rail.position.x;
+      const dz = h.position.z - rail.position.z;
+      if (dx * h.normal.x + dz * h.normal.z < 1.0) return false;
+      const ax = h.position.x - h.normal.x;
+      const az = h.position.z - h.normal.z;
+      if (Math.hypot(ax - rail.position.x, az - rail.position.z)
+          >= Math.hypot(dx, dz)) return false;
+      for (const b of bases) {
+        if (Math.hypot(h.position.x - b.position.x,
+                       h.position.z - b.position.z) < 1.0) return false;
+      }
+      for (const o of ups) {
+        if (o === h || o.side !== h.side) continue;
+        if (Math.hypot(h.position.x - o.position.x,
+                       h.position.z - o.position.z) < 0.8) return false;
+      }
+    }
+  }
+  model.setParams({ pan: 0 });
+  model.build();
+  return true;
 })());
 check('anchors are cached until rebuild', (() => {
   const first = model.getAnchors();
   return model.getAnchors() === first;
+})());
+check('strip lines ride the rail: top on the curve, hem at the foot', (() => {
+  const lines = anchors.filter(a => a.kind === 'stripline');
+  if (lines.length !== 4) return false;
+  const rail = side => anchors.filter(a => a.kind === 'rail' && a.side === side);
+  for (const a of lines) {
+    if (!a.normal || !a.tangent || a.position.y === undefined) return false;
+    if (a.mount !== 'top' && a.mount !== 'hem') return false;
+    const row = rail(a.side);
+    if (row.length < 2) return false;
+    const xs = row.map(r => r.position.x);
+    if (a.position.x < Math.min(...xs) - 0.5
+        || a.position.x > Math.max(...xs) + 0.5) return false;
+    if (a.mount === 'top') {
+      const ys = row.map(r => r.position.y);
+      if (a.position.y < Math.min(...ys) - 0.5
+          || a.position.y > Math.max(...ys) + 0.5) return false;
+    } else if (a.position.y !== 0.12) return false;
+  }
+  for (const side of ['L', 'R']) {
+    const top = lines.find(a => a.side === side && a.mount === 'top');
+    const hem = lines.find(a => a.side === side && a.mount === 'hem');
+    if (Math.abs(top.position.x - hem.position.x) > 1e-9
+        || Math.abs(top.position.z - hem.position.z) > 1e-9) return false;
+  }
+  return true;
 })());
 check('setTheme() does not throw for either mode', (() => {
   try { model.setTheme(true); model.setTheme(false); return true; } catch { return false; }
@@ -160,18 +235,37 @@ const standIndex = g => Number(g.name.slice(-1));
         s.every(g => part(g, 'stand-sleeve').geometry.type === 'ExtrudeGeometry'));
   check('stands stand on the floor',
         s.every(g => g.position.y === 0 && part(g, 'stand-sleeve').position.y === 0));
-  check('stands rise straight up under the rail point', (() => {
+  check('stands sit backstage of their rail point, hidden by the drape', (() => {
     const st = model.state;
     const ptsL = mod.getStructuralPoints(st, false, 300);
     const ptsR = mod.getStructuralPoints(st, true, 300);
+    const BACK = 0.3; // STAND_BACK: drape hides its own uprights from the guest
     return s.every(g => {
-      const pts = g.name.startsWith('stand-L') ? ptsL : ptsR;
+      const isLeft = g.name.startsWith('stand-L');
+      const pts = isLeft ? ptsL : ptsR;
       const i = Number(g.name.slice(-1));
       const idx = Math.floor((i / 2) * 300);
       const p = pts[idx];
-      const dist = Math.hypot(g.position.x - p.x, g.position.z - p.z);
+      const jPrev = pts[Math.max(0, idx - 1)];
+      const jNext = pts[Math.min(pts.length - 1, idx + 1)];
+      const tan = jNext.clone().sub(jPrev);
+      if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
+      tan.normalize();
+      const n = new THREE.Vector3(-tan.z, 0, tan.x);
+      if (isLeft) n.negate();
+      if (n.lengthSq() < 1e-12) n.set(0, 0, 1);
+      n.normalize();
+      const ex = p.x + n.x * BACK, ez = p.z + n.z * BACK;
+      const dist = Math.hypot(g.position.x - ex, g.position.z - ez);
       return dist < 1e-6;
     });
+  })());
+  check('every stand has an arm reaching back to its rail bracket', (() => {
+    const arms = [];
+    model.object3D.traverse(o => {
+      if (o.type === 'Mesh' && /^stand-arm-[LR]-\d+$/.test(o.name)) arms.push(o);
+    });
+    return arms.length === 6;
   })());
 }
 

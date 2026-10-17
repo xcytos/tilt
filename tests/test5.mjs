@@ -229,19 +229,25 @@ console.log('\n7b. the S Curve def seeds the recommended entrance rig');
 {
   const def = JSON.parse(fs.readFileSync(path.join(DECOR, 'models', 'o2tilt.json'), 'utf8'));
   const els = def.objects[0].elements;
+  const pars = els.filter(e => e.type === 'light-par');
+  const strips = els.filter(e => e.type === 'light-strip');
   check('six floor PAR uplights, exactly',
-        Array.isArray(els) && els.length === 6
-        && els.every(e => e.type === 'light-par' && /^uplight-[LR]-\d+$/.test(e.anchor)));
+        Array.isArray(pars) && pars.length === 6
+        && pars.every(e => /^uplight-[LR]-\d+$/.test(e.anchor)));
   check('three hooks per curtain wall (the S-curve walls, both sides)',
-        Array.isArray(els)
-        && els.filter(e => e.anchor.includes('-L-')).length === 3
-        && els.filter(e => e.anchor.includes('-R-')).length === 3);
+        Array.isArray(pars)
+        && pars.filter(e => e.anchor.includes('-L-')).length === 3
+        && pars.filter(e => e.anchor.includes('-R-')).length === 3);
   check('aimed up (floor mounts may never point at the ground), wide wash, 40-70% power, warm white/amber',
-        Array.isArray(els) && els.every(e =>
+        Array.isArray(pars) && pars.every(e =>
           e.params.tilt >= -90 && e.params.tilt <= -30
           && e.params.focus >= 30 && e.params.focus <= 45
           && e.params.power >= 40 && e.params.power <= 70
           && e.params.hue === 40 && e.params.sat > 0 && e.params.sat <= 100));
+  check('two rail strips ride the curtain tops',
+        strips.length === 2
+        && strips.every(e => /^stripline-[LR]-T$/.test(e.anchor)
+          && e.params.hue === 40 && e.params.sat > 0 && e.params.power > 0));
   check('the rig validates against the live schemas',
         validateDef(def, types).length === 0);
 }

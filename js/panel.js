@@ -120,12 +120,14 @@ export function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, frameElements = {}, frameAnchors = {}, places = {},
+        frameSpacing = {},
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
         onSetChange, onFramePillarsChange,
         onElementAdd, onElementRemove, onElementPatch, onElementCount,
+        onFrameSpacing,
         onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
@@ -260,18 +262,33 @@ export function createPanel(opts) {
     let currentFramePillars = framePillars;
     let currentFrameElements = frameElements;
     let currentFrameAnchors = frameAnchors;
+    let currentFrameSpacing = frameSpacing;
     let currentPlaces = places;
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
     let currentRecipe = recipe;
     // Which toolbar chip owns the shelf right now. Structural: switching
-    // tools rebuilds the shelf body, never the viewer.
-    let activeTool = 'shape';
+    // tools rebuilds the shelf body, never the viewer. A project opens on
+    // Sets - the set list is the first thing a viewing session needs - and
+    // only falls back when that chip is not on the toolbar.
+    let activeTool = 'sets';
     // Which type the next Add light plants; remembered across rebuilds.
     let lastAddType = 'light-par';
     // Which fixtures the light numbers reach: each on its own, one wall,
-    // or the whole rig. Session-local, like the type chooser.
-    let lightsMode = 'separate';
+    // or the whole rig. All is the default for the PAR rig - one mirrored
+    // set of numbers for the whole rig. Session-local, like the type
+    // chooser.
+    let lightsMode = 'all';
+    // LED wash panels open on Separate: one card per fixture, remove
+    // right there, the mode row beside it for wall-wide edits.
+    let ledMode = 'separate';
+    // The strip group's side filter: which walls its palette and power
+    // reach - left, right, or both at once.
+    let stripSide = 'both';
+    // Which sections and fixture cards the user folded away. Survives the
+    // re-render an Add or retarget triggers - a fold is a preference, not
+    // a accident of one paint.
+    const folded = new Set();
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -303,6 +320,113 @@ export function createPanel(opts) {
 
     function emit(partial, targets) {
         onParamsChange && onParamsChange(partial, targets);
+    }
+
+    // HSV maths for the shared colour square: the curtain keeps the
+    // swatch's brightness while the palette picks its hue and saturation.
+    const hexToHsv = hex => {
+        const r = ((hex >> 16) & 255) / 255;
+        const g = ((hex >> 8) & 255) / 255;
+        const b = (hex & 255) / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const d = max - min;
+        let h = 0;
+        if (d) {
+            if (max === r) h = ((g - b) / d) % 6;
+            else if (max === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h *= 60;
+            if (h < 0) h += 360;
+        }
+        return { h, s: max ? (d / max) * 100 : 0, v: max * 100 };
+    };
+    const hsvToHex = (h, s, v) => {
+        const c = (s / 100) * (v / 100);
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        const m = v / 100 - c;
+        const seg = Math.floor(h / 60) % 6;
+        const rgb = [[c, x, 0], [x, c, 0], [0, c, x],
+            [0, x, c], [x, 0, c], [c, 0, x]][seg];
+        const r = Math.round((rgb[0] + m) * 255);
+        const g = Math.round((rgb[1] + m) * 255);
+        const b = Math.round((rgb[2] + m) * 255);
+        return (r << 16) | (g << 8) | b;
+    };
+
+    // The one colour square every hue uses: hue across, saturation up from
+    // white, a live preview chip. Drags emit on every move - the lights
+    // recolour while the finger travels, not on release. `opts.v` freezes
+    // brightness so a curtain keeps its swatch's lightness.
+    function paletteBlock(init, onLive, opts = {}) {
+        const wrap = document.createElement('div');
+        wrap.className = opts.className || 'mt-2';
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between mb-1';
+        const lab = document.createElement('span');
+        lab.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400';
+        lab.textContent = opts.label || 'Colour';
+        const prev = document.createElement('span');
+        prev.className = 'w-5 h-5 rounded-full border border-black/10 shrink-0';
+        head.append(lab, prev);
+        wrap.appendChild(head);
+        const square = document.createElement('div');
+        if (opts.id) square.id = opts.id;
+        square.className = 'relative w-full h-24 rounded-lg border '
+            + 'border-gray-300 dark:border-zinc-600 cursor-crosshair select-none';
+        square.style.background = 'linear-gradient(to top, '
+            + 'rgba(255,255,255,1), rgba(255,255,255,0)), '
+            + 'linear-gradient(to right, hsl(0,100%,50%), hsl(60,100%,50%), '
+            + 'hsl(120,100%,50%), hsl(180,100%,50%), hsl(240,100%,50%), '
+            + 'hsl(300,100%,50%), hsl(360,100%,50%))';
+        const dot = document.createElement('span');
+        dot.className = 'absolute w-3.5 h-3.5 -ml-1.75 -mt-1.75 rounded-full '
+            + 'border-2 border-white shadow ring-1 ring-black/30 pointer-events-none';
+        square.appendChild(dot);
+        wrap.appendChild(square);
+        let hue = Number.isFinite(init && init.hue) ? init.hue : 40;
+        let sat = Number.isFinite(init && init.sat) ? init.sat : 25;
+        const placeDot = () => {
+            dot.style.left = `${(hue / 360) * 100}%`;
+            dot.style.top = `${(1 - sat / 100) * 100}%`;
+            prev.style.background = `hsl(${hue}, ${Math.max(10, sat)}%, `
+                + `${Number.isFinite(opts.v) ? Math.max(20, opts.v) : 60}%)`;
+        };
+        placeDot();
+        const dial = e => {
+            const t = e.touches && e.touches[0] ? e.touches[0] : e;
+            const r = square.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            const x = Math.max(0, Math.min(1, (t.clientX - r.left) / r.width));
+            const y = Math.max(0, Math.min(1, (t.clientY - r.top) / r.height));
+            hue = Math.round(x * 360);
+            sat = Math.round((1 - y) * 100);
+            placeDot();
+            onLive && onLive(hue, sat);
+        };
+        let dragging = false;
+        square.addEventListener('mousedown', e => {
+            dragging = true;
+            dial(e);
+            e.preventDefault();
+        });
+        square.addEventListener('touchstart', e => {
+            dragging = true;
+            dial(e);
+            e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('mousemove', e => { if (dragging) dial(e); });
+        document.addEventListener('touchmove',
+            e => { if (dragging) dial(e); }, { passive: false });
+        document.addEventListener('mouseup', () => { dragging = false; });
+        document.addEventListener('touchend', () => { dragging = false; });
+        // Drive the dot from the outside (applyLive after a swatch tap).
+        wrap._set = (h, s) => {
+            if (Number.isFinite(h)) hue = h;
+            if (Number.isFinite(s)) sat = s;
+            placeDot();
+        };
+        return wrap;
     }
 
     // Busy takes everything down, but a control can also be off on its own
@@ -838,7 +962,7 @@ export function createPanel(opts) {
     }
 
     // This frame's own lights, as one rig that only exists while the frame
-    // has any: a type chooser and Add at the top, a per-wall count (1-3,
+    // has any: a type chooser and Add at the top, a per-wall count (1-10,
     // default 3), then a mode row - Separate is one card per fixture
     // (mount, numbers, remove), while Left, Right and All are ONE set of
     // numbers written to every fixture of that group at once. Grouped cards
@@ -916,14 +1040,45 @@ export function createPanel(opts) {
         addRow.appendChild(addBtn);
         wrap.appendChild(addRow);
 
+        // One section per fixture type: PAR keeps the rig controls (count,
+        // spacing, Separate/Left/Right/All with the mirrored pan), LED gets
+        // its own mode row, and Strip runs on its own group - side filter,
+        // a live colour palette, power - because an RGB tube is a mood
+        // line, not another aimed can.
+        const ofType = type => entries
+            .map((e, i) => ({ e, i }))
+            .filter(x => x.e && x.e.type === type);
+        // One collapsible section per fixture type: the heading folds the
+        // whole group away so a long Lights shelf stays short. A fold is
+        // remembered - the next render opens the same way.
+        const sectionOf = (name, open = true) => {
+            const sec = document.createElement('details');
+            sec.open = open && !folded.has(name);
+            sec.className = 'mt-3 pt-2 border-t border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            sec.addEventListener('toggle', () => {
+                if (sec.open) folded.delete(name); else folded.add(name);
+            });
+            const sum = document.createElement('summary');
+            sum.className = 'cursor-pointer select-none pt-2 text-[11px] '
+                + 'font-semibold uppercase tracking-wider '
+                + 'text-gray-500 dark:text-zinc-400';
+            sum.textContent = name;
+            sec.appendChild(sum);
+            wrap.appendChild(sec);
+            return sec;
+        };
+
         // How many floor uplights stand on EACH wall: a 1-10 slider. Only
         // frames with floor-uplight hooks offer it; committing a number
         // plants or removes the rig lights and never touches hand-placed
         // ones. It emits on release, not mid-drag: a count change rebuilds
         // the rig under the panel.
+        const parSec = sectionOf('PAR');
         if (anchors.some(o => o.kind === 'uplight')) {
             const perWall = Math.max(0, ...['L', 'R'].map(s => entries
-                .filter(e => e && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
+                .filter(e => e && e.type === 'light-par'
+                    && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
                 .length));
             const cur = Math.max(1, Math.min(10, perWall || 3));
             const cnt = rangeBlock('lightcount', {
@@ -940,77 +1095,113 @@ export function createPanel(opts) {
                 }
             });
             live.selects.push(cnt.input);
-            wrap.appendChild(cnt.wrap);
-        }
+            parSec.appendChild(cnt.wrap);
 
-        // Mode row: which fixtures the numbers below reach. Separate keeps
-        // the per-fixture cards; Left / Right / All collapse to one card
-        // that writes every fixture in the group at once.
-        const modeRow = document.createElement('div');
-        modeRow.className = 'mt-2 flex items-center gap-2';
-        const modeBtns = new Map();
-        for (const [val, label, desc] of [
-            ['separate', 'Separate', 'Each fixture keeps its own numbers'],
-            ['left', 'Left', 'One set of numbers for the left curtain wall'],
-            ['right', 'Right', 'One set of numbers for the right curtain wall'],
-            ['all', 'All', 'One set of numbers for every fixture']
-        ]) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            const on = val === lightsMode;
-            btn.className = chipCls(on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            btn.textContent = label;
-            btn.title = desc;
-            btn.addEventListener('click', () => {
-                if (lightsMode === val) return;
-                lightsMode = val;
-                for (const [v, b] of modeBtns) {
-                    const act = v === lightsMode;
-                    b.className = chipCls(act);
-                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
-                }
-                paint();
+            // How far apart those floor PARs stand. Even (0) keeps the
+            // wall's full-width bays; any number pulls the rig into a
+            // centred line - mirrored on both walls - snapped to the
+            // frame's own real hooks the moment the drag is released.
+            const spCur = Number(currentFrameSpacing[id]) || 0;
+            const spText = v => v > 0
+                ? `${Math.round(v * 10) / 10} ft` : 'Even';
+            const sp = rangeBlock('lightspacing', {
+                label: 'Spacing', type: 'range', min: 0, max: 12, step: 0.5,
+                value: spCur, unit: ' ft'
+            }, spCur, true);
+            sp.value.textContent = spText(spCur);
+            sp.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                sp.value.textContent = spText(v);
             });
-            live.buttons.push(btn);
-            modeBtns.set(val, btn);
-            modeRow.appendChild(btn);
+            sp.input.addEventListener('change', e => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) onFrameSpacing && onFrameSpacing(id, v);
+            });
+            live.selects.push(sp.input);
+            parSec.appendChild(sp.wrap);
         }
-        wrap.appendChild(modeRow);
 
-        const body = document.createElement('div');
-        wrap.appendChild(body);
-
-        const byInst = new Map();
-        for (const g of currentGroups) {
-            if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
-        }
+        // Resolved from the panel's groups on every use, never captured: a
+        // sync can swap the rig's models underneath the shelf, and a stale
+        // reference would send the drag to fixtures no longer on stage -
+        // the settings would land nowhere. This is what keeps every light
+        // in the group answering a shared slider.
         const lmOf = i => {
-            const g = byInst.get(i);
+            const g = currentGroups.find(x => x.owner === id
+                && x.inst === i && x.id !== PILLAR_ID);
             return (g && g.models && g.models[0]) || null;
         };
         // Which wall a fixture stands on: every anchor id carries its side
-        // (uplight-L-0, rail-R-4, pole-L-1); a sideless anchor is only
-        // editable in Separate and All.
+        // (uplight-L-0, rail-R-4, pole-L-1, stripline-L-T); a sideless
+        // anchor is only editable in Separate and All.
         const sideOf = anchor => {
-            const hit = /-([LR])-\d+$/.exec(anchor || '');
+            const hit = /-(L|R)-/.exec(anchor || '');
             return hit ? hit[1] : null;
         };
-        const memberIdx = mode => entries.map((_, i) => i)
+        const memberIdx = (mode, typeFilter) => entries
+            .map((_, i) => i)
+            .filter(i => !typeFilter
+                || ((entries[i] || {}).type === typeFilter))
             .filter(i => mode === 'all'
-                || sideOf(entries[i] && entries[i].anchor)
+                || sideOf((entries[i] || {}).anchor)
                     === (mode === 'left' ? 'L' : 'R'));
 
-        // One card per fixture, in the order of its frame's own list.
-        const paintSeparate = () => {
-        entries.forEach((entry, i) => {
+        // Which fixtures the numbers below reach. Separate keeps the
+        // per-fixture cards; Left / Right / All collapse to one card that
+        // writes every fixture in the group at once.
+        const modeRowFor = (getMode, setMode, repaint) => {
+            const modeRow = document.createElement('div');
+            modeRow.className = 'mt-2 flex items-center gap-2';
+            const modeBtns = new Map();
+            for (const [val, label, desc] of [
+                ['separate', 'Separate', 'Each fixture keeps its own numbers'],
+                ['left', 'Left', 'One set of numbers for the left curtain wall'],
+                ['right', 'Right', 'One set of numbers for the right curtain wall'],
+                ['all', 'All', 'One set of numbers for every fixture - the right wall mirrors the left']
+            ]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === getMode();
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = desc;
+                btn.addEventListener('click', () => {
+                    if (getMode() === val) return;
+                    setMode(val);
+                    for (const [v, b] of modeBtns) {
+                        const act = v === getMode();
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaint();
+                });
+                live.buttons.push(btn);
+                modeBtns.set(val, btn);
+                modeRow.appendChild(btn);
+            }
+            return modeRow;
+        };
+
+        // One collapsible card per fixture, in the order of its frame's
+        // own list: the heading folds the card away, remove stays in the
+        // heading so it is reachable either way.
+        const paintSeparate = (parent, typeFilter) => {
+        ofType(typeFilter).forEach(({ e: entry, i }) => {
             const lm = lmOf(i);
-            const card = document.createElement('div');
+            const card = document.createElement('details');
+            const foldKey = `${typeFilter}:${i}`;
+            card.open = !folded.has(foldKey);
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
+            card.addEventListener('toggle', () => {
+                if (card.open) folded.delete(foldKey); else folded.add(foldKey);
+            });
 
-            const ch = document.createElement('div');
-            ch.className = 'flex items-center justify-between';
+            const ch = document.createElement('summary');
+            ch.className = 'cursor-pointer select-none flex items-center '
+                + 'justify-between';
             const nameEl = document.createElement('span');
             nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
             nameEl.textContent = ((lm && lm.name) || entry.type) + ' ' + (i + 1);
@@ -1022,7 +1213,10 @@ export function createPanel(opts) {
                 + 'transition-colors';
             rm.textContent = '\u00d7';
             rm.title = 'Remove this light';
-            rm.addEventListener('click', () => onElementRemove && onElementRemove(id, i));
+            rm.addEventListener('click', ev => {
+                ev.stopPropagation();
+                onElementRemove && onElementRemove(id, i);
+            });
             live.buttons.push(rm);
             ch.append(nameEl, rm);
             card.appendChild(ch);
@@ -1039,55 +1233,80 @@ export function createPanel(opts) {
                 // them, else the stand base plates.
                 const floorKind = anchors.some(o => o.kind === 'uplight')
                     ? 'uplight' : 'base';
+                // A strip on a frame with strip lines rides the rail or
+                // the hem - its two mounts are the wall's own curve.
+                const stripLine = entry.type === 'light-strip'
+                    && anchors.some(o => o.kind === 'stripline');
                 const kind = ['pole', 'rail', 'uplight', 'base'].includes(curKind0)
                     ? curKind0 : anchors[0].kind;
 
                 const mount = document.createElement('div');
                 mount.className = 'mt-1.5 flex items-center gap-1.5';
-                for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
-                    [floorKind, 'Floor']]) {
-                    const has = poolFor(k).length > 0;
-                    const on = has && k === kind;
+                const chipMount = (on, label, apply) => {
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = chipCls(on);
                     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                     btn.textContent = label;
-                    btn.disabled = !has;
-                    btn.dataset.off = has ? '0' : '1';
-                    btn.addEventListener('click', () => {
-                        if (on) return;
-                        const pool = poolFor(k);
-                        const at = Math.min(ordinal(entry.anchor), pool.length - 1);
-                        onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
-                    });
+                    btn.addEventListener('click', apply);
                     live.buttons.push(btn);
                     mount.appendChild(btn);
-                }
-                const step = delta => {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.textContent = delta > 0 ? '\u25b6' : '\u25c0';
-                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
-                        + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
-                        + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
-                    const pool = poolFor(kind);
-                    btn.disabled = pool.length < 2;
-                    btn.dataset.off = pool.length < 2 ? '1' : '0';
-                    btn.addEventListener('click', () => {
-                        const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
-                        const nextAt = (at + delta + pool.length) % pool.length;
-                        onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
-                    });
-                    live.buttons.push(btn);
                     return btn;
                 };
-                const readout = document.createElement('span');
-                readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
-                    + 'dark:text-zinc-300 tabular-nums';
-                const hit = anchors.find(o => o.id === entry.anchor);
-                readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
-                mount.append(step(-1), readout, step(1));
+                if (stripLine) {
+                    const side = sideOf(entry.anchor) || 'L';
+                    for (const [suffix, label] of [['T', 'Top'], ['B', 'Bottom']]) {
+                        const target = `stripline-${side}-${suffix}`;
+                        const has = anchors.some(o => o.id === target);
+                        const on = has && entry.anchor === target;
+                        const btn = chipMount(on, label, () => {
+                            if (on || !has) return;
+                            onElementPatch && onElementPatch(id, i, { anchor: target });
+                        });
+                        btn.disabled = !has;
+                        btn.dataset.off = has ? '0' : '1';
+                    }
+                } else {
+                    for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
+                        [floorKind, 'Floor']]) {
+                        const has = poolFor(k).length > 0;
+                        const on = has && k === kind;
+                        const btn = chipMount(on, label, () => {
+                            if (on) return;
+                            const pool = poolFor(k);
+                            const at = Math.min(ordinal(entry.anchor), pool.length - 1);
+                            onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
+                        });
+                        btn.disabled = !has;
+                        btn.dataset.off = has ? '0' : '1';
+                    }
+                }
+                if (!stripLine) {
+                    const step = delta => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.textContent = delta > 0 ? '▶' : '◀';
+                        btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                            + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
+                            + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
+                        const pool = poolFor(kind);
+                        btn.disabled = pool.length < 2;
+                        btn.dataset.off = pool.length < 2 ? '1' : '0';
+                        btn.addEventListener('click', () => {
+                            const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
+                            const nextAt = (at + delta + pool.length) % pool.length;
+                            onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
+                        });
+                        live.buttons.push(btn);
+                        return btn;
+                    };
+                    const readout = document.createElement('span');
+                    readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
+                        + 'dark:text-zinc-300 tabular-nums';
+                    const hit = anchors.find(o => o.id === entry.anchor);
+                    readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
+                    mount.append(step(-1), readout, step(1));
+                }
                 card.appendChild(mount);
             } else {
                 const note = document.createElement('p');
@@ -1098,9 +1317,11 @@ export function createPanel(opts) {
 
             // Its own numbers: the light model's own schema, emitted against
             // THIS model alone - one fixture's focus never moves another's.
+            // Hue and saturation never show as sliders: the colour square
+            // below is the one colour control every fixture shares.
             if (lm && lm.params) {
                 for (const [k, p] of Object.entries(lm.params)) {
-                    if (p.type !== 'range') continue;
+                    if (p.type !== 'range' || k === 'hue' || k === 'sat') continue;
                     // A floor mount may only aim up: the slider tops out at
                     // -30 so the whole cone can never point at the ground.
                     // (Mirrors FLOOR_TILT_MAX in app.js.)
@@ -1116,8 +1337,18 @@ export function createPanel(opts) {
                     live.selects.push(built.input);
                     card.appendChild(built.wrap);
                 }
+                if (lm.params.hue && lm.params.sat) {
+                    const pal = paletteBlock({
+                        hue: Number.isFinite(lm.state.hue)
+                            ? lm.state.hue : lm.params.hue.value,
+                        sat: Number.isFinite(lm.state.sat)
+                            ? lm.state.sat : lm.params.sat.value
+                    }, (h, s) => emit({ hue: h, sat: s }, [lm]),
+                    { id: `param-palette-${i}` });
+                    card.appendChild(pal);
+                }
             }
-            body.appendChild(card);
+            parent.appendChild(card);
         });
         };
 
@@ -1125,8 +1356,8 @@ export function createPanel(opts) {
         // numbers, one slider row per number, each change written to every
         // fixture in the group that understands it. Mount and remove stay
         // per-fixture, in Separate.
-        const paintGroup = mode => {
-            const idxs = memberIdx(mode);
+        const paintGroup = (parent, mode, typeFilter, prefix) => {
+            const idxs = memberIdx(mode, typeFilter);
             const card = document.createElement('div');
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -1145,14 +1376,17 @@ export function createPanel(opts) {
                 const lm = lmOf(i);
                 if (!lm || !lm.params) continue;
                 for (const [k, p] of Object.entries(lm.params)) {
-                    if (p.type !== 'range') continue;
+                    // Hue and saturation are the colour square's job.
+                    if (p.type !== 'range' || k === 'hue' || k === 'sat') continue;
                     if (!params.has(k)) params.set(k, p);
                 }
             }
+            const colourLms = idxs.map(lmOf)
+                .filter(lm => lm && lm.params && lm.params.hue && lm.params.sat);
             if (!params.size) {
                 const note = document.createElement('p');
                 note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
-                note.textContent = !entries.length
+                note.textContent = !ofType(typeFilter).length
                     ? 'Add a light to the frame first.'
                     : idxs.length
                         ? 'These fixtures expose no numbers yet.'
@@ -1167,7 +1401,7 @@ export function createPanel(opts) {
                 const floorTilt = k === 'tilt' && idxs.some(i => /^(uplight|base)-/
                     .test((entries[i] || {}).anchor || ''));
                 const pp = floorTilt ? { ...p, max: -30 } : p;
-                const built = rangeBlock(`lightgrp-${mode}-${k}`, pp,
+                const built = rangeBlock(`${prefix}-${mode}-${k}`, pp,
                     holder ? holder.state[k] : pp.value);
                 built.input.addEventListener('input', e => {
                     const v = parseFloat(e.target.value);
@@ -1175,20 +1409,249 @@ export function createPanel(opts) {
                     built.value.textContent = fmt(v, p.unit);
                     const targets = idxs.map(lmOf)
                         .filter(lm => lm && lm.params && lm.params[k]);
+                    // One number for the whole rig, exactly mirrored: Pan
+                    // is an aim relative to each wall, so the right wall
+                    // receives the negation of the left's number and the
+                    // entrance stays symmetric under one drag. Every other
+                    // number is shared as-is. Without a wall on both sides
+                    // there is nothing to mirror against.
+                    if (mode === 'all' && k === 'pan') {
+                        const lt = [], rt = [];
+                        for (const i of idxs) {
+                            const lm = lmOf(i);
+                            if (!lm || !lm.params || !lm.params[k]) continue;
+                            const side = sideOf((entries[i] || {}).anchor);
+                            (side === 'R' ? rt : lt).push(lm);
+                        }
+                        if (lt.length && rt.length) {
+                            emit({ [k]: v }, lt);
+                            emit({ [k]: -v }, rt);
+                            return;
+                        }
+                    }
                     emit({ [k]: v }, targets);
                 });
                 live.selects.push(built.input);
                 card.appendChild(built.wrap);
             }
-            body.appendChild(card);
+            // One colour square for the whole group: every member of the
+            // wall (or the rig) answers the same drag at once.
+            if (colourLms.length) {
+                const holder = colourLms
+                    .find(lm => lm.state && Number.isFinite(lm.state.hue));
+                const pal = paletteBlock({
+                    hue: holder ? holder.state.hue : 40,
+                    sat: holder ? holder.state.sat : 35
+                }, (h, s) => emit({ hue: h, sat: s }, colourLms),
+                { id: `param-palette-${prefix}-${mode}` });
+                card.appendChild(pal);
+            }
+            parent.appendChild(card);
         };
 
-        const paint = () => {
-            body.textContent = '';
-            if (lightsMode === 'separate') paintSeparate();
-            else paintGroup(lightsMode);
+        const paintInto = (parent, mode, typeFilter, prefix) => {
+            parent.textContent = '';
+            if (mode === 'separate') paintSeparate(parent, typeFilter);
+            else paintGroup(parent, mode, typeFilter, prefix);
         };
-        paint();
+
+        const parBody = document.createElement('div');
+        parSec.appendChild(parBody);
+        parSec.appendChild(modeRowFor(() => lightsMode, v => { lightsMode = v; },
+            () => paintInto(parBody, lightsMode, 'light-par', 'lightgrp')));
+        paintInto(parBody, lightsMode, 'light-par', 'lightgrp');
+
+        if (ofType('light-led').length) {
+            const ledSec = sectionOf('LED');
+            const ledBody = document.createElement('div');
+            ledSec.appendChild(ledBody);
+            ledSec.appendChild(modeRowFor(() => ledMode, v => { ledMode = v; },
+                () => paintInto(ledBody, ledMode, 'light-led', 'ledgrp')));
+            paintInto(ledBody, ledMode, 'light-led', 'ledgrp');
+        }
+
+        // The strip group: an RGB mood line along the curtain's own rail
+        // or hem. It only appears once a strip lives on the frame. Side
+        // picks which walls the numbers reach; the palette is the main
+        // control - drag it live and every filtered tube answers at once.
+        // Power and a per-fixture list (mount, remove) finish the card;
+        // straight-mounted strips on other frames keep a length slider of
+        // their own.
+        const strips = ofType('light-strip');
+        if (strips.length) {
+            const stripSec = sectionOf('Strip');
+            const stripMatch = e => stripSide === 'both'
+                || sideOf(e && e.anchor) === (stripSide === 'left' ? 'L' : 'R');
+            const stripLms = () => strips.filter(x => stripMatch(x.e))
+                .map(x => lmOf(x.i)).filter(Boolean);
+            const straightLms = () => strips
+                .filter(x => stripMatch(x.e)
+                    && !String(x.e.anchor || '').startsWith('stripline-'))
+                .map(x => lmOf(x.i)).filter(Boolean);
+
+            const sideRow = document.createElement('div');
+            sideRow.className = 'mt-1 flex items-center gap-2';
+            const sideBtns = new Map();
+            for (const [val, label] of [['left', 'Left'], ['right', 'Right'],
+                ['both', 'Both']]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === stripSide;
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = 'Which walls this group\'s numbers reach';
+                btn.addEventListener('click', () => {
+                    if (stripSide === val) return;
+                    stripSide = val;
+                    for (const [v, b] of sideBtns) {
+                        const act = v === stripSide;
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaintStrip();
+                });
+                live.buttons.push(btn);
+                sideBtns.set(val, btn);
+                sideRow.appendChild(btn);
+            }
+            stripSec.appendChild(sideRow);
+
+            // The shared colour square: hue across, saturation up from
+            // white, dragging live to every filtered strip.
+            const initEntry = (strips.find(x => lmOf(x.i) && lmOf(x.i).state
+                && Number.isFinite(lmOf(x.i).state.hue)) || strips[0] || {}).e || {};
+            const initLm = strips.map(x => lmOf(x.i))
+                .find(lm => lm && lm.state && Number.isFinite(lm.state.hue));
+            const pal = paletteBlock({
+                hue: initLm ? initLm.state.hue
+                    : Number.isFinite(initEntry.params && initEntry.params.hue)
+                        ? initEntry.params.hue : 40,
+                sat: initLm ? initLm.state.sat
+                    : Number.isFinite(initEntry.params && initEntry.params.sat)
+                        ? initEntry.params.sat : 25
+            }, (h, s) => {
+                const targets = stripLms().filter(lm => lm.params && lm.params.hue);
+                if (targets.length) emit({ hue: h, sat: s }, targets);
+            }, { id: 'param-strippalette' });
+            stripSec.appendChild(pal);
+
+            const power0 = stripLms().find(lm => lm.state && 'power' in lm.state);
+            if (power0) {
+                const pow = rangeBlock('strippower', power0.params.power,
+                    power0.state.power);
+                pow.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    pow.value.textContent = fmt(v, power0.params.power.unit);
+                    const targets = stripLms()
+                        .filter(lm => lm.params && lm.params.power);
+                    if (targets.length) emit({ power: v }, targets);
+                });
+                live.selects.push(pow.input);
+                stripSec.appendChild(pow.wrap);
+            }
+            const straight0 = straightLms().find(lm => lm.state && 'length' in lm.state);
+            if (straight0) {
+                const len = rangeBlock('striplength', straight0.params.length,
+                    straight0.state.length);
+                len.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    len.value.textContent = fmt(v, straight0.params.length.unit);
+                    const targets = straightLms()
+                        .filter(lm => lm.params && lm.params.length);
+                    if (targets.length) emit({ length: v }, targets);
+                });
+                live.selects.push(len.input);
+                stripSec.appendChild(len.wrap);
+            }
+
+            // One settings block for the whole filter - never a card per
+            // tube. On a curtained frame the block carries the wall's own
+            // mount chips and a small remove per strip; straight strips
+            // (rail/pole mounts on other frames) keep their fixture cards,
+            // because that is where their mounting lives.
+            const railLines = anchors.some(o => o.kind === 'stripline');
+            const stripLower = document.createElement('div');
+            stripSec.appendChild(stripLower);
+            const repaintStrip = () => {
+                stripLower.textContent = '';
+                if (!strips.length) return;
+                if (!railLines) {
+                    paintSeparate(stripLower, 'light-strip');
+                    return;
+                }
+                const lines = () => strips.filter(x => stripMatch(x.e)
+                    && String(x.e.anchor || '').startsWith('stripline-'));
+
+                // Top / Bottom: every strip inside the filter moves to that
+                // wall's rail or hem - one tap dresses the whole side (or
+                // both sides at once under Both).
+                const mountRow = document.createElement('div');
+                mountRow.className = 'mt-1 flex items-center gap-1.5';
+                const mountLab = document.createElement('span');
+                mountLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                mountLab.textContent = 'Mount';
+                mountRow.appendChild(mountLab);
+                for (const [suffix, label] of [['T', 'Top'], ['B', 'Bottom']]) {
+                    const pool = lines();
+                    const on = pool.length > 0 && pool
+                        .every(x => String(x.e.anchor).endsWith(`-${suffix}`));
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = chipCls(on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.textContent = label;
+                    btn.title = 'Seat the filtered strips on the rail (Top) '
+                        + 'or the hem (Bottom)';
+                    btn.disabled = pool.length === 0;
+                    btn.dataset.off = pool.length === 0 ? '1' : '0';
+                    btn.addEventListener('click', () => {
+                        if (on) return;
+                        for (const x of pool) {
+                            const side = sideOf(x.e.anchor) || 'L';
+                            onElementPatch
+                                && onElementPatch(id, x.i,
+                                    { anchor: `stripline-${side}-${suffix}` });
+                        }
+                    });
+                    live.buttons.push(btn);
+                    mountRow.appendChild(btn);
+                }
+                stripLower.appendChild(mountRow);
+
+                // One small remove per strip in the filter - the only
+                // per-fixture control left once the cards are gone.
+                const rmRow = document.createElement('div');
+                rmRow.className = 'mt-2 flex items-center gap-1.5 flex-wrap';
+                const rmLab = document.createElement('span');
+                rmLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                rmLab.textContent = 'Fixtures';
+                rmRow.appendChild(rmLab);
+                for (const x of strips.filter(y => stripMatch(y.e))) {
+                    const side = sideOf(x.e.anchor) || '?';
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                        + 'dark:text-zinc-400 hover:border-red-400 '
+                        + 'hover:text-red-500 transition-colors';
+                    btn.textContent = '\u00d7';
+                    btn.title = `Remove the ${side === 'L' ? 'left' : side === 'R' ? 'right' : side} strip`;
+                    btn.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        onElementRemove && onElementRemove(id, x.i);
+                    });
+                    live.buttons.push(btn);
+                    rmRow.appendChild(btn);
+                }
+                stripLower.appendChild(rmRow);
+            };
+            repaintStrip();
+        }
         return wrap;
     }
 
@@ -1378,35 +1841,32 @@ export function createPanel(opts) {
         rgbSum.textContent = 'Custom colour (RGB)';
         const rgb = document.createElement('div');
         rgb.className = 'px-2 pb-2';
-        const head = document.createElement('div');
-        head.className = 'flex items-center gap-3 mb-2';
 
-        // The native colour pad: a real wheel on every phone, no three
-        // fiddly channel sliders to fight with. The hex label keeps the
-        // exact value readable; the fold still holds Save swatch.
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = hexText(eff);
-        colorInput.className = 'w-14 h-14 rounded-xl border border-gray-300 '
-            + 'dark:border-zinc-600 cursor-pointer bg-transparent p-0 shrink-0';
-        colorInput.setAttribute('aria-label', 'Curtain colour dial');
-        colorInput.addEventListener('input', e => {
-            const hex = parseInt(String(e.target.value).replace('#', ''), 16);
-            hexLabel.textContent = hexText(hex) + ' custom';
-            onRgbChange && onRgbChange(hex);
-        });
-        if (live.inputs) live.inputs.push(colorInput);
-
+        // The same colour square the lights use: hue across, saturation
+        // up, the swatch's brightness kept. Live - the curtain wears the
+        // colour while the finger travels.
+        const initHsv = hexToHsv(eff);
+        let keepV = initHsv.v;
         const hexLabel = document.createElement('span');
-        hexLabel.className = 'text-[11px] font-mono text-gray-500 dark:text-zinc-400';
+        hexLabel.className = 'block text-[11px] font-mono text-gray-500 '
+            + 'dark:text-zinc-400 mt-1';
         hexLabel.textContent = hexText(eff) + ' custom';
-        head.append(colorInput, hexLabel);
-        rgb.appendChild(head);
+        const pal = paletteBlock(
+            { hue: Math.round(initHsv.h), sat: Math.round(initHsv.s) },
+            (h, s) => {
+                const hex = hsvToHex(h, s, keepV);
+                hexLabel.textContent = hexText(hex) + ' custom';
+                onRgbChange && onRgbChange(hex);
+            },
+            { id: 'param-fabricpalette', v: Math.round(initHsv.v), label: 'Custom' });
+        rgb.append(pal, hexLabel);
 
-        // applyLive drives the pad without firing onRgbChange.
+        // applyLive drives the square without firing onRgbChange.
         rgbDialRef = {
             set(hex) {
-                colorInput.value = hexText(hex);
+                const q = hexToHsv(hex);
+                keepV = q.v;
+                pal._set(Math.round(q.h), Math.round(q.s));
                 hexLabel.textContent = hexText(hex) + ' custom';
             }
         };
@@ -1615,6 +2075,9 @@ export function createPanel(opts) {
             }
             if (next.frameAnchors !== undefined) {
                 currentFrameAnchors = next.frameAnchors;
+            }
+            if (next.frameSpacing !== undefined) {
+                currentFrameSpacing = next.frameSpacing;
             }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;

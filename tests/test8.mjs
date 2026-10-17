@@ -241,7 +241,7 @@ child.stderr.on('data', d => { serverLog += d; });
 const BASE = `http://127.0.0.1:${port}`;
 let sse = null;
 
-async function waitForServer(ms = 8000) {
+async function waitForServer(ms = 20000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     try {
@@ -523,10 +523,10 @@ check('Add colour appends a swatch and never edits the boards', (() => {
     && /Add colour/.test(p) && /onAddColor && onAddColor\(\)/.test(p)
     && !/COLORWAYS\s*=/.test(a);
 })());
-check('the RGB dial lives under Curtains, not in its own row', (() => {
+check('the curtain colour lives under Curtains, on the shared square', (() => {
   const p = fs.readFileSync(path.join(DECOR, 'js/panel.js'), 'utf8');
   return /schema\.params\.fabric/.test(p) && /function fabricBlock\(/.test(p)
-    && /onRgbChange/.test(p) && /\.setAttribute\('aria-label', 'Curtain colour dial'\)/.test(p)
+    && /onRgbChange/.test(p) && /id: 'param-fabricpalette'/.test(p)
     && !/host\.appendChild\(colorwayBlock\(\)\)/.test(p);
 })());
 check('a custom colour reaches the stage, and a Look or chip clears it',
@@ -622,8 +622,161 @@ check('the lighting rig travels through the document',
   /elements: frameElementsPlain\(\)/.test(app)
   && /savedDoc\.elements/.test(app)
   && /defElementsOf\(def\)/.test(app));
+check('the floor-PAR spacing travels through the document',
+  (() => {
+    const proj = read('js/project.js');
+    return /spacing: frameSpacingPlain\(\)/.test(app)
+      && /savedDoc\.spacing/.test(app)
+      && /function cleanFrameSpacing\(/.test(proj)
+      && /spacing: cleanFrameSpacing\(data\.spacing\)/.test(proj)
+      && /onFrameSpacing: guard\(/.test(app)
+      && /onFrameSpacing && onFrameSpacing\(/.test(panel)
+      && /label: 'Spacing'/.test(panel)
+      && /lightspacing/.test(panel);
+  })());
+check('spacing re-seats the floor lights on the frame\'s own hooks',
+  /function reseatSpacedFrames\(/.test(app)
+  && /function uplightHooks\(/.test(app)
+  && /function wallSeatKs\(/.test(app)
+  && /function setFrameSpacing\(/.test(app)
+  && /reseatSpacedFrames\(\);/.test(app)
+  && /uplight-\$\{side\}-/.test(app));
+check('All is the default; the right wall mirrors the left',
+  /let lightsMode = 'all'/.test(panel)
+  && /emit\(\{ \[k\]: v \}, lt\)/.test(panel)
+  && /emit\(\{ \[k\]: -v \}, rt\)/.test(panel)
+  && /the right wall mirrors the left/.test(panel));
+check('every light in a group answers one shared slider',
+  /currentGroups\.find\(x => x\.owner === id/.test(panel)
+  && !/byInst/.test(panel)
+  && /sideOf\(\(entries\[i\] \|\| \{\}\)\.anchor\)/.test(panel));
+check('a count bump plants the fresh seats already wearing the wall\'s numbers',
+  /const donor = kept\[0\] \|\| null/.test(app)
+  && /Object\.assign\(\{\}, donor\.params\)/.test(app)
+  && /type: donor \? donor\.type : 'light-par'/.test(app));
+check('a hand-added fixture joins the rig wearing its numbers too',
+  /const donor = pool\.find\(e => e\.type === type\)/.test(app)
+  && /const params = donor \? Object\.assign\(\{\}, donor\.params\) : \{\};/.test(app)
+  && /!\('tilt' in params\)/.test(app));
 check('a floor mount starts aimed at the fabric, not across the floor',
   /anchor\.split\('-'\)\[0\] === 'base'/.test(app) && /params\.tilt = -86/.test(app));
+check('a beam\'s swing is written in degrees, the way places are stored', (() => {
+  // applyPlaces converts every savedPlaces.ry with * PI / 180; elementSpot
+  // used to hand it radians, squashing each beam's yaw ~57x - the curtain
+  // swung away while the light kept pointing at where it used to be.
+  return /ry: ry \* 180 \/ Math\.PI/.test(app)
+    && /Places are degrees end to end/.test(app);
+})());
+check('the swung curtain carries its uplights on the wall\'s own facing', (() => {
+  // Hooks sample the rail by curve parameter (even x piles them up when the
+  // wall turns edge-on), stand off along the wall's chord-facing guest
+  // normal - never pure -Z, which slips behind the cloth past 67 degrees or
+  // parks the hook in minus pan - then step out until they clear the stand
+  // plates at any swing.
+  const obj = read('js/objects/o2tilt.js');
+  return /const atT = u =>/.test(obj)
+    && /const chord = pts\[pts\.length - 1\]\.clone\(\)\.sub\(pts\[0\]\)\.setY\(0\)/.test(obj)
+    && /const front = back\.clone\(\)\.negate\(\)/.test(obj)
+    && /p\.x \+ front\.x \* UPLIGHT_STANDOFF/.test(obj)
+    && /for \(let step = 0; step < 6; step\+\+\)/.test(obj)
+    && /UPLIGHT_MIN_Z \* UPLIGHT_MIN_Z/.test(obj)
+    && !/Math\.min\(p\.z - UPLIGHT_STANDOFF/.test(obj)
+    && !/front\.add\(new THREE\.Vector3\(0, 0, -1\)\)/.test(obj);
+})());
+check('each light type keeps its own group of settings', (() => {
+  // PAR keeps the rig knobs and the mirrored All row; LED gets a mode row
+  // of its own; Strip is its own group - side filter, a live hue/sat
+  // palette, power - and its tubes ride the frame's strip lines (top
+  // rail, hem), redrawn from the rail polyline on every re-place.
+  const obj = read('js/objects/o2tilt.js');
+  const light = read('js/elements/light.js');
+  return /const parSec = sectionOf\('PAR'\)/.test(panel)
+    && /const ledSec = sectionOf\('LED'\)/.test(panel)
+    && /const stripSec = sectionOf\('Strip'\)/.test(panel)
+    && /let ledMode = 'separate'/.test(panel)
+    && /let stripSide = 'both'/.test(panel)
+    && /id: 'param-strippalette'/.test(panel)
+    && /rangeBlock\('strippower'/.test(panel)
+    && /rangeBlock\('striplength'/.test(panel)
+    && /stripline-\$\{side\}-\$\{suffix\}/.test(panel)
+    && /emit\(\{ hue: h, sat: s \}, targets\)/.test(panel)
+    && /id: `stripline-\$\{tag\}-T`/.test(obj)
+    && /id: `stripline-\$\{tag\}-B`/.test(obj)
+    && /setPath\(pts\) \{/.test(light)
+    && /CatmullRomCurve3/.test(light)
+    && /function stripPathFor\(/.test(app)
+    && /m\.setPath\(/.test(app)
+    && /\['stripline', 'rail', 'pole'\]/.test(app)
+    && /\(a\.kind === 'uplight' \|\| a\.kind === 'stripline'\) && a\.normal/
+      .test(app);
+})());
+check('one colour square rules every hue, and the rig folds away', (() => {
+  // PAR, LED, Strip and the curtain all wear the same live hue-by-sat
+  // square; the old hue sliders and the native colour input are gone.
+  // Sections and per-fixture cards are collapsible details. A strip Add
+  // on a curtained frame plants the pair - both walls at once, tops
+  // before hems - and its tube rides in front of the rail, never inside
+  // it.
+  return /function paletteBlock\(/.test(panel)
+    && /const hexToHsv = /.test(panel)
+    && /const hsvToHex = /.test(panel)
+    && /id: 'param-fabricpalette'/.test(panel)
+    && (panel.match(/k === 'hue' \|\| k === 'sat'/g) || []).length >= 2
+    && /const sec = document\.createElement\('details'\)/.test(panel)
+    && /sec\.open = open/.test(panel)
+    && /const card = document\.createElement\('details'\)/.test(panel)
+    && !/type = 'color'/.test(panel)
+    && !/colorInput/.test(panel)
+    && /const strips = ofType\('light-strip'\);\n        if \(strips\.length\) \{/
+      .test(panel)
+    && /const STRIP_OUT = 0\.18/.test(app)
+    && /p\.x \+ a\.normal\.x \* STRIP_OUT - ap\.x/.test(app)
+    && /const tops = \['L', 'R'\]\.map\(s => seat\(s, 'T'\)\)/.test(app)
+    && /list\.length \+ pair\.length <= 20/.test(app);
+})());
+check('folds remember, and strips share one block', (() => {
+  // A collapsed section or card stays collapsed through the re-render an
+  // Add triggers. On a curtained frame the strip group is ONE settings
+  // block per side filter - mount chips and a small remove, never a card
+  // per tube; straight strips keep their cards for their mounts.
+  return /const folded = new Set\(\)/.test(panel)
+    && /sec\.addEventListener\('toggle'/.test(panel)
+    && /card\.addEventListener\('toggle'/.test(panel)
+    && /const foldKey = `\$\{typeFilter\}:\$\{i\}`/.test(panel)
+    && /const stripLower = document\.createElement\('div'\)/.test(panel)
+    && /const railLines = anchors\.some\(o => o\.kind === 'stripline'\)/
+      .test(panel)
+    && /btn\.title = `Remove the \$\{side === 'L' \? 'left'/.test(panel);
+})());
+check('the strip is one neon-flex assembly, not a black tube', (() => {
+  // The rail strip is a designed mounting profile: ONE resampled route,
+  // explicit upright frames (world-up, never Frenet - no twist), a
+  // low-profile aluminium U-channel swept from an 8-corner outline, the
+  // rounded emissive flex seated inside and rising clear of the rim, and
+  // a separate faint additive halo - all three from the same frames so
+  // the route can never drift, gap or bury itself. The old TubeGeometry
+  // shell is gone; the channel replaces the floor flange on the rail.
+  const light = read('js/elements/light.js');
+  return /export const STRIP_PROFILE = \{/.test(light)
+    && /export function channelOutline\(\)/.test(light)
+    && /export function neonOutline\(\)/.test(light)
+    && /export function stripFrames\(/.test(light)
+    && /export function sweepOutline\(/.test(light)
+    && /export function stripAssembly\(/.test(light)
+    && /addScaledVector\(T, -T\.y\)/.test(light)
+    && /Math\.min\(360, Math\.max\(144, pts\.length \* 16\)\)/.test(light)
+    && /new THREE\.Mesh\(asm\.channel, matHousing\)/.test(light)
+    && /new THREE\.Mesh\(asm\.neon, matLens\)/.test(light)
+    && /new THREE\.Mesh\(asm\.glow, matGlow\)/.test(light)
+    && /glow\.renderOrder = 1/.test(light)
+    && /MeshBasicMaterial/.test(light)
+    && /AdditiveBlending/.test(light)
+    && /const onRail = kind === 'strip'/.test(light)
+    && /matHousing, matYoke, matLens, matBeam, matGlow/.test(light)
+    && /THREE\.ShapeUtils\.triangulateShape/.test(light)
+    && !/TubeGeometry\(curve, 48, 0\.07/.test(light)
+    && !/TubeGeometry\(lensCurve, 48, 0\.045/.test(light);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)

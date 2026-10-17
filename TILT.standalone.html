@@ -1235,6 +1235,23 @@ function cleanFrameElements(raw) {
     return out;
 }
 
+// One frame's floor-PAR spacing in feet: absent or zero keeps the wall's
+// full-width even bays; a positive number is a centred line of lights the
+// frame re-seats on its own hooks. Keys follow the place-id rules.
+function cleanFrameSpacing(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    let keys = 0;
+    for (const [id, v] of Object.entries(raw)) {
+        if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(id)) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        out[id] = Math.max(1, Math.min(12, Math.round(n * 10) / 10));
+        keys++;
+    }
+    return out;
+}
+
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
@@ -1309,6 +1326,7 @@ function parseProject(raw) {
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
         elements: cleanFrameElements(data.elements),
+        spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)
@@ -1782,6 +1800,15 @@ const UPLIGHT_STANDOFF = 1.35;
 // Front-side z floor: the stand base frames reach 0.8 ft off the wall
 // line, so a fixture's centre stays at least this far front of z=0.
 const UPLIGHT_MIN_Z = 1.15;
+// Where a hem strip rides: the curtain's foot on the floor, the same
+// serpentine as the rail above it, at tube height.
+const STRIP_HEM_Y = 0.12;
+// How far backstage each stand sits behind its curtain line. A single
+// drape is dressed on the audience side of the rail, so the uprights
+// hide behind their own curtain from the guest view; a short arm at
+// the top ties each stand back to the bracket on the rail. Covers the
+// square-pole corner (0.113) + pleat depth (0.12) + margin.
+const STAND_BACK = 0.30;
 
 // A stand is telescoping: a fixed sleeve standing out of the floor, with a
 // slimmer inner tube running out of its open top and on up to the rail.
@@ -2100,9 +2127,9 @@ function createO2TiltModel(initial = {}) {
     let anchors = [];
     let anchorsStale = true;
 
-    // The coupling sleeves joining each stand top to the rail. They follow
-    // the rail's own tangent so the rail runs through them, and they are
-    // round so the rail can be pitched inside them.
+    // Per-stand hardware cleared on rebuild: the pivot brackets that hold
+    // the rail, and the arms reaching from each backstage stand back to
+    // its bracket.
     const joints = [];
     // Shared pivot-bracket geometries (one set for all six brackets).
     const brSleeveGeo = new THREE.CylinderGeometry(BR_SLEEVE_OUTER_R, BR_SLEEVE_OUTER_R, BR_SLEEVE_LEN, 16);
@@ -2111,6 +2138,8 @@ function createO2TiltModel(initial = {}) {
     const brHeadGeo = new THREE.CylinderGeometry(BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_R, BR_PIVOT_HEAD_H, 6);
     const brLockGeo = new THREE.CylinderGeometry(BR_LOCK_R, BR_LOCK_R, BR_LOCK_LEN, 8);
     const brLockHeadGeo = new THREE.CylinderGeometry(BR_LOCK_R * 1.8, BR_LOCK_R * 1.8, BR_LOCK_R * 2, 6);
+    // Horizontal stand-to-bracket arm (one shared geometry, six arms).
+    const standArmGeo = new THREE.BoxGeometry(STAND_BACK + 0.1, 0.07, 0.07);
 
     function release(mesh) {
         if (!mesh) return;
@@ -2145,9 +2174,6 @@ function createO2TiltModel(initial = {}) {
                 const sleeveH = Math.min(Math.max(0.05, state.sleeve), railY);
                 const innerH = railY - sleeveH;
 
-                // The stand rises straight up under the rail point - the
-                // sleeve on top of it holds the rail, so the rail sits
-                // exactly on the vertical tube with no sideways offset.
                 const bx = p.x;
                 const bz = p.z;
 
@@ -2159,7 +2185,19 @@ function createO2TiltModel(initial = {}) {
                 if (tan.lengthSq() < 1e-12) tan.set(1, 0, 0);
                 tan.normalize();
 
-                stand.group.position.set(bx, 0, bz);
+                // Horizontal curtain normal (same convention as the
+                // fabric: (-tz, 0, tx), flipped for the left wall). It
+                // points backstage, so the stand hides behind its own
+                // drape from the guest side; a short arm at the top
+                // reaches back to the bracket on the rail.
+                const n = new THREE.Vector3(-tan.z, 0, tan.x);
+                if (turn < 0) n.negate();
+                if (n.lengthSq() < 1e-12) n.set(0, 0, 1);
+                n.normalize();
+                const sx = bx + n.x * STAND_BACK;
+                const sz = bz + n.z * STAND_BACK;
+
+                stand.group.position.set(sx, 0, sz);
                 stand.group.rotation.y = turn * panRad;
                 stand.sleeve.position.set(0, 0, 0);
                 stand.sleeve.scale.set(1, sleeveH, 1);
@@ -2168,15 +2206,26 @@ function createO2TiltModel(initial = {}) {
                 stand.inner.visible = innerH > INNER_HIDE;
                 stand.height = railY;
 
-                bases[i].position.set(bx, 0, bz);
+                bases[i].position.set(sx, 0, sz);
                 bases[i].rotation.y = turn * panRad;
 
-                // Pivot bracket: sits ON the stand top, directly under the
-                // rail. The round sleeve holds the rail and tilts with it
-                // (pitch), two side plates (clevis ears) hang down onto
-                // the stand, and a pivot bolt through plates and sleeve
-                // lets the rail tilt. A smaller locking bolt clamps the
-                // chosen angle.
+                // Horizontal arm from the stand top back to the bracket
+                // on the rail. Long axis is local X, so yaw it onto the
+                // stand-to-bracket direction (-n).
+                const arm = new THREE.Mesh(standArmGeo, matJoint);
+                arm.name = `stand-arm-${turn < 0 ? 'L' : 'R'}-${i}`;
+                arm.position.set((sx + bx) / 2, railY, (sz + bz) / 2);
+                arm.rotation.y = Math.atan2(n.z, -n.x);
+                arm.castShadow = true;
+                root.add(arm);
+                joints.push(arm);
+
+                // Pivot bracket: sits at the rail point, reached from
+                // the offset stand by the arm above. The round sleeve
+                // holds the rail and tilts with it (pitch), two side
+                // plates (clevis ears) hang down, and a pivot bolt
+                // through plates and sleeve lets the rail tilt. A
+                // smaller locking bolt clamps the chosen angle.
                 const bracket = new THREE.Group();
                 bracket.position.set(bx, railY, bz);
                 // Yaw only — the plates and bolt stay horizontal; the
@@ -2295,51 +2344,86 @@ function createO2TiltModel(initial = {}) {
             }
 
             // Floor uplights: one per section of the wall (ten per side),
-            // evenly spaced ALONG THE WALL'S X SPAN - curve-parameter
-            // spacing bunches up in the steep parts of the wave, and the
-            // samples themselves are too sparse to snap to, so the hook's
-            // point and tangent are interpolated from the rail polyline at
-            // its x. Each hook stands off on the guest-facing side and is
-            // then guaranteed a minimum z clearance from the stand base
-            // frames (1.6 ft square on the line) so no fixture ever sits
-            // on a plate. The standoff itself is pure -Z so the hooks keep
-            // their even x spacing; the blended normal only steers the
-            // fixture's aim back at the fabric.
-            const xs = pts.map(p => p.x);
-            const xIn = xs[0], xOut = xs[xs.length - 1];
-            const xLo = Math.min(xIn, xOut), xHi = Math.max(xIn, xOut);
-            const at = target => {
-                const xT = Math.max(xLo, Math.min(xHi, target));
-                let j = 0;
-                for (let i = 0; i < pts.length - 1; i++) {
-                    const xa = pts[i].x, xb = pts[i + 1].x;
-                    if (xT >= Math.min(xa, xb) && xT <= Math.max(xa, xb)) {
-                        j = i;
-                        break;
-                    }
-                }
+            // spaced evenly ALONG THE WALL ITSELF - the rail polyline's own
+            // parameter - so the hooks stay spread from gap to far end even
+            // when Swing Pan turns the wall nearly edge-on, where even-x
+            // spacing would pile every hook at the same spot. Each hook
+            // stands off on the guest-facing side along the WALL'S OWN
+            // facing - the chord from gap to far end, the same way the old
+            // -Z rule read the unswung wall - not pure -Z (which slips
+            // behind a swung curtain past ~67 degrees or parks the hook
+            // when the wall swings the other way) and not the local pleat
+            // normal either (the serpentine backwaves it, which would
+            // bunch neighbouring hooks). The standoff keeps its 1.35 ft,
+            // then steps further out along the same line until the hook
+            // clears every stand plate on its own wall - plates are 1.6 ft
+            // square, so distance to the plate centre is the honest guard
+            // at any swing.
+            const chord = pts[pts.length - 1].clone().sub(pts[0]).setY(0);
+            if (chord.lengthSq() < 1e-12) chord.set(1, 0, 0);
+            chord.normalize();
+            const back = new THREE.Vector3(-chord.z, 0, chord.x);
+            if (!side) back.negate();
+            const front = back.clone().negate();
+            const atT = u => {
+                const f = Math.max(0, Math.min(1, u)) * (pts.length - 1);
+                const j = Math.min(pts.length - 2, Math.floor(f));
+                const v = f - j;
                 const a = pts[j], b = pts[j + 1];
-                const u = Math.abs(b.x - a.x) < 1e-9
-                    ? 0 : Math.max(0, Math.min(1, (xT - a.x) / (b.x - a.x)));
                 return {
-                    p: a.clone().lerp(b, u),
+                    p: a.clone().lerp(b, v),
                     t: b.clone().sub(a).setY(0).normalize()
                 };
             };
+            // Strip lines: one mount per wall at the top rail and one at
+            // the hem, both mid-wall on the curtain's own curve. An RGB
+            // strip clamped here draws along the exact serpentine of the
+            // fabric - top tube on the rail itself, hem tube at the foot.
+            const mid = atT(0.5);
+            anchors.push({
+                id: `stripline-${tag}-T`,
+                kind: 'stripline',
+                mount: 'top',
+                side: tag,
+                position: mid.p.clone(),
+                tangent: mid.t.clone(),
+                normal: front.clone()
+            });
+            anchors.push({
+                id: `stripline-${tag}-B`,
+                kind: 'stripline',
+                mount: 'hem',
+                side: tag,
+                position: new THREE.Vector3(mid.p.x, STRIP_HEM_Y, mid.p.z),
+                tangent: mid.t.clone(),
+                normal: front.clone()
+            });
+            const plates = side ? basesR : basesL;
             for (let k = 0; k < UPLIGHT_PER_SIDE; k++) {
-                const t = (k + 0.5) / UPLIGHT_PER_SIDE;
-                const { p, t: tangent } = at(xIn + (xOut - xIn) * t);
-                const front = new THREE.Vector3(-tangent.z, 0, tangent.x);
-                if (front.z > 0) front.negate();
-                front.add(new THREE.Vector3(0, 0, -1)).normalize();
-                const z = Math.min(p.z - UPLIGHT_STANDOFF, -UPLIGHT_MIN_Z);
+                const { p, t: tangent } = atT((k + 0.5) / UPLIGHT_PER_SIDE);
+                const pos = new THREE.Vector3(
+                    p.x + front.x * UPLIGHT_STANDOFF, 0,
+                    p.z + front.z * UPLIGHT_STANDOFF);
+                for (let step = 0; step < 6; step++) {
+                    let clear = true;
+                    for (const b of plates) {
+                        const dx = pos.x - b.position.x;
+                        const dz = pos.z - b.position.z;
+                        if (dx * dx + dz * dz < UPLIGHT_MIN_Z * UPLIGHT_MIN_Z) {
+                            clear = false;
+                            break;
+                        }
+                    }
+                    if (clear) break;
+                    pos.addScaledVector(front, 0.4);
+                }
                 anchors.push({
                     id: `uplight-${tag}-${k}`,
                     kind: 'uplight',
                     side: tag,
-                    position: new THREE.Vector3(p.x, 0, z),
+                    position: pos,
                     tangent,
-                    normal: front
+                    normal: front.clone()
                 });
             }
         }
@@ -2614,6 +2698,191 @@ const LIGHT_DEG = Math.PI / 180;
 // full of fixtures harmless. The strip is emissive only.
 const SPOT_BASE = { par: 2.2, led: 1.4 };
 
+// ---- the neon-flex strip assembly --------------------------------------
+// One S-curve route in, three pieces out - an aluminium U-channel, the
+// rounded neon flex seated inside it, and an optional soft halo. Every
+// piece is swept from the SAME resampled path with an EXPLICIT upright
+// frame (world-up transported into each binormal), never a Frenet frame:
+// the channel always opens skyward, the cross-section never twists or
+// pinches, and the neon sits a fixed height above the channel rim, so
+// gaps, buried sections and drifting halves are impossible by
+// construction. All dimensions in feet.
+const STRIP_PROFILE = {
+    channel: { w: 0.15, h: 0.045, t: 0.016 },  // low-profile U-channel
+    neon: { w: 0.1, h: 0.066, r: 0.028 },       // rounded neon flex
+    glow: { r: 0.072 }                          // halo, just past the corners
+};
+
+// The channel's closed outline in the (side, up) plane: floor, two walls,
+// two lips folded inward - an extruded mounting profile, not a hose.
+function channelOutline() {
+    const { w, h, t } = STRIP_PROFILE.channel;
+    const w2 = w / 2;
+    return [
+        [-w2, 0], [w2, 0], [w2, h], [w2 - t, h],
+        [w2 - t, t], [-(w2 - t), t], [-(w2 - t), h], [-w2, h]
+    ];
+}
+
+// The neon flex: a rounded rectangle seated on the channel floor - flat
+// bottom, generous corner radius, its top rising clear above the rim.
+function neonOutline() {
+    const { w, h, r } = STRIP_PROFILE.neon;
+    const t0 = STRIP_PROFILE.channel.t;
+    const w2 = w / 2;
+    const u0 = t0, u1 = t0 + h;
+    const seg = 6;
+    const pts = [];
+    const arc = (cx, cy, a0, a1) => {
+        for (let i = 0; i <= seg; i++) {
+            const a = a0 + (a1 - a0) * (i / seg);
+            pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+        }
+    };
+    // Counter-clockwise: bottom-left arc, bottom-right, top-right,
+    // top-left. The straight edges fall out as the chords between
+    // consecutive arcs - bottom, right, top, left.
+    arc(-(w2 - r), u0 + r, Math.PI, Math.PI * 1.5);
+    arc(w2 - r, u0 + r, Math.PI * 1.5, Math.PI * 2);
+    arc(w2 - r, u1 - r, 0, Math.PI / 2);
+    arc(-(w2 - r), u1 - r, Math.PI / 2, Math.PI);
+    return pts;
+}
+
+// Resample the route and carry world-up through every binormal: T along
+// the path, U as upright as the slope allows, S = T x U across. Returns
+// the evenly spaced samples and their frames.
+function stripFrames(pathPts) {
+    const pts = pathPts.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+    const N = Math.min(360, Math.max(144, pts.length * 16));
+    const samples = curve.getSpacedPoints(N);
+    const frames = [];
+    for (let i = 0; i < samples.length; i++) {
+        const prev = samples[Math.max(0, i - 1)];
+        const next = samples[Math.min(samples.length - 1, i + 1)];
+        const T = next.clone().sub(prev);
+        if (T.lengthSq() < 1e-12) T.set(1, 0, 0);
+        T.normalize();
+        // Up projected off the tangent - never flips while the path stays
+        // short of vertical.
+        const U = new THREE.Vector3(0, 1, 0)
+            .addScaledVector(T, -T.y);
+        if (U.lengthSq() < 1e-12) U.set(0, 0, 1);
+        U.normalize();
+        const S = new THREE.Vector3().crossVectors(T, U).normalize();
+        frames.push({ p: samples[i], T, S, U });
+    }
+    return { samples, frames };
+}
+
+// Sweep a closed 2D outline along the frames. `flat` shades each quad
+// with its own face normal (crisp extruded metal); smooth mode carries
+// the outline's own 2D outward normals (rounded flex). Caps close both
+// ends so there are no abrupt open tips.
+function sweepOutline(outline, frames, opts = {}) {
+    const flat = opts.flat === true;
+    const caps = opts.caps !== false;
+    const m = outline.length;
+    // Outward normals per outline vertex (CCW polygon: edge normal =
+    // (dy, -dx)); duplicated corners would sharpen - none needed here.
+    const onrm = outline.map((p, k) => {
+        const q = outline[(k + 1) % m];
+        const dx = q[0] - p[0], dy = q[1] - p[1];
+        const r = Math.hypot(dx, dy) || 1;
+        return [dy / r, -dx / r];
+    });
+    const verts = [];
+    const nrms = [];
+    const push = (v, n) => {
+        verts.push(v.x, v.y, v.z);
+        nrms.push(n.x, n.y, n.z);
+    };
+    const at = (f, o) => new THREE.Vector3()
+        .copy(f.p)
+        .addScaledVector(f.S, o[0])
+        .addScaledVector(f.U, o[1]);
+    for (let i = 0; i < frames.length - 1; i++) {
+        const fa = frames[i], fb = frames[i + 1];
+        for (let k = 0; k < m; k++) {
+            const k2 = (k + 1) % m;
+            const a = at(fa, outline[k]);
+            const b = at(fa, outline[k2]);
+            const c = at(fb, outline[k2]);
+            const d = at(fb, outline[k]);
+            if (flat) {
+                const n = new THREE.Vector3().crossVectors(
+                    new THREE.Vector3().subVectors(d, a),
+                    new THREE.Vector3().subVectors(b, a)).normalize();
+                push(a, n); push(d, n); push(c, n);
+                push(a, n); push(c, n); push(b, n);
+            } else {
+                const na = new THREE.Vector3()
+                    .addScaledVector(fa.S, onrm[k][0])
+                    .addScaledVector(fa.U, onrm[k][1]).normalize();
+                const nb = new THREE.Vector3()
+                    .addScaledVector(fa.S, onrm[k2][0])
+                    .addScaledVector(fa.U, onrm[k2][1]).normalize();
+                const n2 = new THREE.Vector3()
+                    .addScaledVector(fb.S, onrm[k2][0])
+                    .addScaledVector(fb.U, onrm[k2][1]).normalize();
+                const n2a = new THREE.Vector3()
+                    .addScaledVector(fb.S, onrm[k][0])
+                    .addScaledVector(fb.U, onrm[k][1]).normalize();
+                push(a, na); push(d, n2a); push(c, n2);
+                push(a, na); push(c, n2); push(b, nb);
+            }
+        }
+    }
+    if (caps && frames.length > 1) {
+        const contour = outline.map(p => new THREE.Vector2(p[0], p[1]));
+        const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+        const capsSpec = [
+            { f: frames[0], flip: false },       // start: outward = -T
+            { f: frames[frames.length - 1], flip: true }  // end: outward = +T
+        ];
+        for (const { f, flip } of capsSpec) {
+            const n = flip ? f.T.clone() : f.T.clone().negate();
+            const ring = outline.map(o => at(f, o));
+            for (const tri of tris) {
+                const order = flip ? [tri[0], tri[2], tri[1]]
+                    : [tri[0], tri[1], tri[2]];
+                for (const idx of order) push(ring[idx], n);
+            }
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position',
+        new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrms, 3));
+    return geo;
+}
+
+// The whole assembly from one route: frames, channel, neon, halo.
+function stripAssembly(pathPts) {
+    const { frames } = stripFrames(pathPts);
+    const glowCircle = (() => {
+        const r = STRIP_PROFILE.glow.r;
+        const cu = STRIP_PROFILE.channel.t + STRIP_PROFILE.neon.h / 2;
+        const out = [];
+        for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2;
+            out.push([Math.cos(a) * r, cu + Math.sin(a) * r]);
+        }
+        return out;
+    })();
+    return {
+        frames,
+        channel: sweepOutline(channelOutline(), frames,
+            { flat: true, caps: true }),
+        neon: sweepOutline(neonOutline(), frames,
+            { flat: false, caps: true }),
+        glow: sweepOutline(glowCircle, frames,
+            { flat: false, caps: false })
+    };
+}
+
+
 // The visible beam: not a solid cone, but light in haze. The shader fades
 // the surface out at the silhouette (fresnel) and toward the mouth, so the
 // cone has no hard edge - it reads as a glow around the real spotlight.
@@ -2675,11 +2944,22 @@ function createLightModel(type = 'light-par', initial = {}) {
         color: 0x0c0c10, emissive: 0xfff4e2, emissiveIntensity: 1,
         roughness: 0.3, metalness: 0
     });
+    // The glow is a SEPARATE, optional shell around the physical neon -
+    // additive and faint, so bloom never hides the profile's real shape.
+    const matGlow = new THREE.MeshBasicMaterial({
+        color: 0xfff4e2, transparent: true, opacity: 0.14,
+        blending: THREE.AdditiveBlending, depthWrite: false
+    });
     const matBeam = createBeamMaterial();
 
     let spot = null;
     let beam = null;
     let themeNow = 'light';
+    // A strip on a stripline anchor rides its frame's own curve - the rail
+    // serpentine or the hem - handed over in the fixture's local space by
+    // the app on every re-place. null means a straight tube of `length`.
+    let pathPts = null;
+    let pathKey = '';
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
@@ -2697,9 +2977,11 @@ function createLightModel(type = 'light-par', initial = {}) {
     function applyGlow() {
         const tint = tintColor();
         matLens.emissive.copy(tint);
+        matGlow.color.copy(tint);
         matBeam.uniforms.uColor.value.copy(tint);
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
@@ -2756,28 +3038,47 @@ function createLightModel(type = 'light-par', initial = {}) {
     function build() {
         clearRoot();
 
-        // Universal mount: flange + spigot at the anchor point. The app
-        // decides where that is (pole top, rail, floor plate); the fixture
-        // only knows its own local frame, +Y up, aiming along -Z.
-        const flange = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
-        flange.position.y = 0.02;
-        const spigot = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.05, 0.05, 0.16, 12), matHousing);
-        spigot.position.y = 0.12;
-        root.add(flange, spigot);
+        // A strip riding the frame's own curve IS its mounting assembly:
+        // the extruded channel replaces the floor flange and spigot
+        // entirely. Everything else keeps the universal anchor mount -
+        // flange + spigot at the anchor point (pole top, rail, floor
+        // plate); the fixture only knows its own local frame, +Y up,
+        // aiming along -Z.
+        const onRail = kind === 'strip' && !!pathPts && pathPts.length >= 2;
+        if (!onRail) {
+            const flange = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
+            flange.position.y = 0.02;
+            const spigot = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.05, 0.05, 0.16, 12), matHousing);
+            spigot.position.y = 0.12;
+            root.add(flange, spigot);
+        }
 
         if (kind === 'strip') {
-            // Linear tube hanging below the mount; emissive face on the
-            // underside. No pan/tilt - its orientation comes from the rail.
-            const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), matHousing);
-            stem.position.y = -0.07;
-            const len = state.length;
-            const tube = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.12), matHousing);
-            tube.position.y = -0.2;
-            const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
-            face.position.y = -0.262;
-            root.add(stem, tube, face);
+            if (onRail) {
+                // The full neon-flex assembly, continuous end to end from
+                // the one S-curve route: low-profile U-channel, rounded
+                // emissive flex seated inside and rising clear of the rim,
+                // faint halo shell - all swept on the same upright frames.
+                const asm = stripAssembly(pathPts);
+                const channel = new THREE.Mesh(asm.channel, matHousing);
+                const neon = new THREE.Mesh(asm.neon, matLens);
+                const glow = new THREE.Mesh(asm.glow, matGlow);
+                glow.renderOrder = 1;
+                root.add(channel, neon, glow);
+            } else {
+                // Linear tube hanging below the mount; emissive face on the
+                // underside. No pan/tilt - its orientation comes from the rail.
+                const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), matHousing);
+                stem.position.y = -0.07;
+                const len = state.length;
+                const tube = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.12), matHousing);
+                tube.position.y = -0.2;
+                const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
+                face.position.y = -0.262;
+                root.add(stem, tube, face);
+            }
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
             root.add(panG);
@@ -2843,7 +3144,7 @@ function createLightModel(type = 'light-par', initial = {}) {
         root.clear();
         spot = null;
         beam = null;
-        [matHousing, matYoke, matLens, matBeam].forEach(m => m.dispose());
+        [matHousing, matYoke, matLens, matBeam, matGlow].forEach(m => m.dispose());
     }
 
     const model = {
@@ -2859,6 +3160,20 @@ function createLightModel(type = 'light-par', initial = {}) {
         setParams(partial) {
             Object.assign(state, partial);
             model.dirty = true;
+        },
+        // The frame's rail (or hem) polyline for this strip, in the
+        // fixture's own local space. Rebuilds at once when it changes so
+        // a Swing Pan drag redraws the tube in the same frame, not the
+        // next one.
+        setPath(pts) {
+            const next = Array.isArray(pts) && pts.length >= 2 ? pts : null;
+            const key = next
+                ? next.map(p => `${p.x},${p.y},${p.z}`).join(';') : '';
+            if (key === pathKey) return false;
+            pathKey = key;
+            pathPts = next;
+            build();
+            return true;
         },
         dispose
     };
@@ -3406,12 +3721,14 @@ function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, frameElements = {}, frameAnchors = {}, places = {},
+        frameSpacing = {},
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
         onSetChange, onFramePillarsChange,
         onElementAdd, onElementRemove, onElementPatch, onElementCount,
+        onFrameSpacing,
         onPlaceChange,
         onShelfChange, themeIsDark = false
     } = opts;
@@ -3546,18 +3863,33 @@ function createPanel(opts) {
     let currentFramePillars = framePillars;
     let currentFrameElements = frameElements;
     let currentFrameAnchors = frameAnchors;
+    let currentFrameSpacing = frameSpacing;
     let currentPlaces = places;
     let currentColorway = colorway;
     let currentFabricColor = fabricColor;
     let currentRecipe = recipe;
     // Which toolbar chip owns the shelf right now. Structural: switching
-    // tools rebuilds the shelf body, never the viewer.
-    let activeTool = 'shape';
+    // tools rebuilds the shelf body, never the viewer. A project opens on
+    // Sets - the set list is the first thing a viewing session needs - and
+    // only falls back when that chip is not on the toolbar.
+    let activeTool = 'sets';
     // Which type the next Add light plants; remembered across rebuilds.
     let lastAddType = 'light-par';
     // Which fixtures the light numbers reach: each on its own, one wall,
-    // or the whole rig. Session-local, like the type chooser.
-    let lightsMode = 'separate';
+    // or the whole rig. All is the default for the PAR rig - one mirrored
+    // set of numbers for the whole rig. Session-local, like the type
+    // chooser.
+    let lightsMode = 'all';
+    // LED wash panels open on Separate: one card per fixture, remove
+    // right there, the mode row beside it for wall-wide edits.
+    let ledMode = 'separate';
+    // The strip group's side filter: which walls its palette and power
+    // reach - left, right, or both at once.
+    let stripSide = 'both';
+    // Which sections and fixture cards the user folded away. Survives the
+    // re-render an Add or retarget triggers - a fold is a preference, not
+    // a accident of one paint.
+    const folded = new Set();
     // Add colour swaps this list without a structural render.
     let currentColorways = colorways;
     // Live refs for applyLive: value-level updates never rebuild the DOM.
@@ -3589,6 +3921,113 @@ function createPanel(opts) {
 
     function emit(partial, targets) {
         onParamsChange && onParamsChange(partial, targets);
+    }
+
+    // HSV maths for the shared colour square: the curtain keeps the
+    // swatch's brightness while the palette picks its hue and saturation.
+    const hexToHsv = hex => {
+        const r = ((hex >> 16) & 255) / 255;
+        const g = ((hex >> 8) & 255) / 255;
+        const b = (hex & 255) / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const d = max - min;
+        let h = 0;
+        if (d) {
+            if (max === r) h = ((g - b) / d) % 6;
+            else if (max === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h *= 60;
+            if (h < 0) h += 360;
+        }
+        return { h, s: max ? (d / max) * 100 : 0, v: max * 100 };
+    };
+    const hsvToHex = (h, s, v) => {
+        const c = (s / 100) * (v / 100);
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        const m = v / 100 - c;
+        const seg = Math.floor(h / 60) % 6;
+        const rgb = [[c, x, 0], [x, c, 0], [0, c, x],
+            [0, x, c], [x, 0, c], [c, 0, x]][seg];
+        const r = Math.round((rgb[0] + m) * 255);
+        const g = Math.round((rgb[1] + m) * 255);
+        const b = Math.round((rgb[2] + m) * 255);
+        return (r << 16) | (g << 8) | b;
+    };
+
+    // The one colour square every hue uses: hue across, saturation up from
+    // white, a live preview chip. Drags emit on every move - the lights
+    // recolour while the finger travels, not on release. `opts.v` freezes
+    // brightness so a curtain keeps its swatch's lightness.
+    function paletteBlock(init, onLive, opts = {}) {
+        const wrap = document.createElement('div');
+        wrap.className = opts.className || 'mt-2';
+        const head = document.createElement('div');
+        head.className = 'flex items-center justify-between mb-1';
+        const lab = document.createElement('span');
+        lab.className = 'text-[11px] font-semibold uppercase tracking-wider '
+            + 'text-gray-500 dark:text-zinc-400';
+        lab.textContent = opts.label || 'Colour';
+        const prev = document.createElement('span');
+        prev.className = 'w-5 h-5 rounded-full border border-black/10 shrink-0';
+        head.append(lab, prev);
+        wrap.appendChild(head);
+        const square = document.createElement('div');
+        if (opts.id) square.id = opts.id;
+        square.className = 'relative w-full h-24 rounded-lg border '
+            + 'border-gray-300 dark:border-zinc-600 cursor-crosshair select-none';
+        square.style.background = 'linear-gradient(to top, '
+            + 'rgba(255,255,255,1), rgba(255,255,255,0)), '
+            + 'linear-gradient(to right, hsl(0,100%,50%), hsl(60,100%,50%), '
+            + 'hsl(120,100%,50%), hsl(180,100%,50%), hsl(240,100%,50%), '
+            + 'hsl(300,100%,50%), hsl(360,100%,50%))';
+        const dot = document.createElement('span');
+        dot.className = 'absolute w-3.5 h-3.5 -ml-1.75 -mt-1.75 rounded-full '
+            + 'border-2 border-white shadow ring-1 ring-black/30 pointer-events-none';
+        square.appendChild(dot);
+        wrap.appendChild(square);
+        let hue = Number.isFinite(init && init.hue) ? init.hue : 40;
+        let sat = Number.isFinite(init && init.sat) ? init.sat : 25;
+        const placeDot = () => {
+            dot.style.left = `${(hue / 360) * 100}%`;
+            dot.style.top = `${(1 - sat / 100) * 100}%`;
+            prev.style.background = `hsl(${hue}, ${Math.max(10, sat)}%, `
+                + `${Number.isFinite(opts.v) ? Math.max(20, opts.v) : 60}%)`;
+        };
+        placeDot();
+        const dial = e => {
+            const t = e.touches && e.touches[0] ? e.touches[0] : e;
+            const r = square.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            const x = Math.max(0, Math.min(1, (t.clientX - r.left) / r.width));
+            const y = Math.max(0, Math.min(1, (t.clientY - r.top) / r.height));
+            hue = Math.round(x * 360);
+            sat = Math.round((1 - y) * 100);
+            placeDot();
+            onLive && onLive(hue, sat);
+        };
+        let dragging = false;
+        square.addEventListener('mousedown', e => {
+            dragging = true;
+            dial(e);
+            e.preventDefault();
+        });
+        square.addEventListener('touchstart', e => {
+            dragging = true;
+            dial(e);
+            e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('mousemove', e => { if (dragging) dial(e); });
+        document.addEventListener('touchmove',
+            e => { if (dragging) dial(e); }, { passive: false });
+        document.addEventListener('mouseup', () => { dragging = false; });
+        document.addEventListener('touchend', () => { dragging = false; });
+        // Drive the dot from the outside (applyLive after a swatch tap).
+        wrap._set = (h, s) => {
+            if (Number.isFinite(h)) hue = h;
+            if (Number.isFinite(s)) sat = s;
+            placeDot();
+        };
+        return wrap;
     }
 
     // Busy takes everything down, but a control can also be off on its own
@@ -4124,7 +4563,7 @@ function createPanel(opts) {
     }
 
     // This frame's own lights, as one rig that only exists while the frame
-    // has any: a type chooser and Add at the top, a per-wall count (1-3,
+    // has any: a type chooser and Add at the top, a per-wall count (1-10,
     // default 3), then a mode row - Separate is one card per fixture
     // (mount, numbers, remove), while Left, Right and All are ONE set of
     // numbers written to every fixture of that group at once. Grouped cards
@@ -4202,14 +4641,45 @@ function createPanel(opts) {
         addRow.appendChild(addBtn);
         wrap.appendChild(addRow);
 
+        // One section per fixture type: PAR keeps the rig controls (count,
+        // spacing, Separate/Left/Right/All with the mirrored pan), LED gets
+        // its own mode row, and Strip runs on its own group - side filter,
+        // a live colour palette, power - because an RGB tube is a mood
+        // line, not another aimed can.
+        const ofType = type => entries
+            .map((e, i) => ({ e, i }))
+            .filter(x => x.e && x.e.type === type);
+        // One collapsible section per fixture type: the heading folds the
+        // whole group away so a long Lights shelf stays short. A fold is
+        // remembered - the next render opens the same way.
+        const sectionOf = (name, open = true) => {
+            const sec = document.createElement('details');
+            sec.open = open && !folded.has(name);
+            sec.className = 'mt-3 pt-2 border-t border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            sec.addEventListener('toggle', () => {
+                if (sec.open) folded.delete(name); else folded.add(name);
+            });
+            const sum = document.createElement('summary');
+            sum.className = 'cursor-pointer select-none pt-2 text-[11px] '
+                + 'font-semibold uppercase tracking-wider '
+                + 'text-gray-500 dark:text-zinc-400';
+            sum.textContent = name;
+            sec.appendChild(sum);
+            wrap.appendChild(sec);
+            return sec;
+        };
+
         // How many floor uplights stand on EACH wall: a 1-10 slider. Only
         // frames with floor-uplight hooks offer it; committing a number
         // plants or removes the rig lights and never touches hand-placed
         // ones. It emits on release, not mid-drag: a count change rebuilds
         // the rig under the panel.
+        const parSec = sectionOf('PAR');
         if (anchors.some(o => o.kind === 'uplight')) {
             const perWall = Math.max(0, ...['L', 'R'].map(s => entries
-                .filter(e => e && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
+                .filter(e => e && e.type === 'light-par'
+                    && e.anchor && e.anchor.startsWith(`uplight-${s}-`))
                 .length));
             const cur = Math.max(1, Math.min(10, perWall || 3));
             const cnt = rangeBlock('lightcount', {
@@ -4226,77 +4696,113 @@ function createPanel(opts) {
                 }
             });
             live.selects.push(cnt.input);
-            wrap.appendChild(cnt.wrap);
-        }
+            parSec.appendChild(cnt.wrap);
 
-        // Mode row: which fixtures the numbers below reach. Separate keeps
-        // the per-fixture cards; Left / Right / All collapse to one card
-        // that writes every fixture in the group at once.
-        const modeRow = document.createElement('div');
-        modeRow.className = 'mt-2 flex items-center gap-2';
-        const modeBtns = new Map();
-        for (const [val, label, desc] of [
-            ['separate', 'Separate', 'Each fixture keeps its own numbers'],
-            ['left', 'Left', 'One set of numbers for the left curtain wall'],
-            ['right', 'Right', 'One set of numbers for the right curtain wall'],
-            ['all', 'All', 'One set of numbers for every fixture']
-        ]) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            const on = val === lightsMode;
-            btn.className = chipCls(on);
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            btn.textContent = label;
-            btn.title = desc;
-            btn.addEventListener('click', () => {
-                if (lightsMode === val) return;
-                lightsMode = val;
-                for (const [v, b] of modeBtns) {
-                    const act = v === lightsMode;
-                    b.className = chipCls(act);
-                    b.setAttribute('aria-pressed', act ? 'true' : 'false');
-                }
-                paint();
+            // How far apart those floor PARs stand. Even (0) keeps the
+            // wall's full-width bays; any number pulls the rig into a
+            // centred line - mirrored on both walls - snapped to the
+            // frame's own real hooks the moment the drag is released.
+            const spCur = Number(currentFrameSpacing[id]) || 0;
+            const spText = v => v > 0
+                ? `${Math.round(v * 10) / 10} ft` : 'Even';
+            const sp = rangeBlock('lightspacing', {
+                label: 'Spacing', type: 'range', min: 0, max: 12, step: 0.5,
+                value: spCur, unit: ' ft'
+            }, spCur, true);
+            sp.value.textContent = spText(spCur);
+            sp.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) return;
+                sp.value.textContent = spText(v);
             });
-            live.buttons.push(btn);
-            modeBtns.set(val, btn);
-            modeRow.appendChild(btn);
+            sp.input.addEventListener('change', e => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) onFrameSpacing && onFrameSpacing(id, v);
+            });
+            live.selects.push(sp.input);
+            parSec.appendChild(sp.wrap);
         }
-        wrap.appendChild(modeRow);
 
-        const body = document.createElement('div');
-        wrap.appendChild(body);
-
-        const byInst = new Map();
-        for (const g of currentGroups) {
-            if (g.owner === id && g.id !== PILLAR_ID) byInst.set(g.inst, g);
-        }
+        // Resolved from the panel's groups on every use, never captured: a
+        // sync can swap the rig's models underneath the shelf, and a stale
+        // reference would send the drag to fixtures no longer on stage -
+        // the settings would land nowhere. This is what keeps every light
+        // in the group answering a shared slider.
         const lmOf = i => {
-            const g = byInst.get(i);
+            const g = currentGroups.find(x => x.owner === id
+                && x.inst === i && x.id !== PILLAR_ID);
             return (g && g.models && g.models[0]) || null;
         };
         // Which wall a fixture stands on: every anchor id carries its side
-        // (uplight-L-0, rail-R-4, pole-L-1); a sideless anchor is only
-        // editable in Separate and All.
+        // (uplight-L-0, rail-R-4, pole-L-1, stripline-L-T); a sideless
+        // anchor is only editable in Separate and All.
         const sideOf = anchor => {
-            const hit = /-([LR])-\d+$/.exec(anchor || '');
+            const hit = /-(L|R)-/.exec(anchor || '');
             return hit ? hit[1] : null;
         };
-        const memberIdx = mode => entries.map((_, i) => i)
+        const memberIdx = (mode, typeFilter) => entries
+            .map((_, i) => i)
+            .filter(i => !typeFilter
+                || ((entries[i] || {}).type === typeFilter))
             .filter(i => mode === 'all'
-                || sideOf(entries[i] && entries[i].anchor)
+                || sideOf((entries[i] || {}).anchor)
                     === (mode === 'left' ? 'L' : 'R'));
 
-        // One card per fixture, in the order of its frame's own list.
-        const paintSeparate = () => {
-        entries.forEach((entry, i) => {
+        // Which fixtures the numbers below reach. Separate keeps the
+        // per-fixture cards; Left / Right / All collapse to one card that
+        // writes every fixture in the group at once.
+        const modeRowFor = (getMode, setMode, repaint) => {
+            const modeRow = document.createElement('div');
+            modeRow.className = 'mt-2 flex items-center gap-2';
+            const modeBtns = new Map();
+            for (const [val, label, desc] of [
+                ['separate', 'Separate', 'Each fixture keeps its own numbers'],
+                ['left', 'Left', 'One set of numbers for the left curtain wall'],
+                ['right', 'Right', 'One set of numbers for the right curtain wall'],
+                ['all', 'All', 'One set of numbers for every fixture - the right wall mirrors the left']
+            ]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === getMode();
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = desc;
+                btn.addEventListener('click', () => {
+                    if (getMode() === val) return;
+                    setMode(val);
+                    for (const [v, b] of modeBtns) {
+                        const act = v === getMode();
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaint();
+                });
+                live.buttons.push(btn);
+                modeBtns.set(val, btn);
+                modeRow.appendChild(btn);
+            }
+            return modeRow;
+        };
+
+        // One collapsible card per fixture, in the order of its frame's
+        // own list: the heading folds the card away, remove stays in the
+        // heading so it is reachable either way.
+        const paintSeparate = (parent, typeFilter) => {
+        ofType(typeFilter).forEach(({ e: entry, i }) => {
             const lm = lmOf(i);
-            const card = document.createElement('div');
+            const card = document.createElement('details');
+            const foldKey = `${typeFilter}:${i}`;
+            card.open = !folded.has(foldKey);
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
+            card.addEventListener('toggle', () => {
+                if (card.open) folded.delete(foldKey); else folded.add(foldKey);
+            });
 
-            const ch = document.createElement('div');
-            ch.className = 'flex items-center justify-between';
+            const ch = document.createElement('summary');
+            ch.className = 'cursor-pointer select-none flex items-center '
+                + 'justify-between';
             const nameEl = document.createElement('span');
             nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
             nameEl.textContent = ((lm && lm.name) || entry.type) + ' ' + (i + 1);
@@ -4308,7 +4814,10 @@ function createPanel(opts) {
                 + 'transition-colors';
             rm.textContent = '\u00d7';
             rm.title = 'Remove this light';
-            rm.addEventListener('click', () => onElementRemove && onElementRemove(id, i));
+            rm.addEventListener('click', ev => {
+                ev.stopPropagation();
+                onElementRemove && onElementRemove(id, i);
+            });
             live.buttons.push(rm);
             ch.append(nameEl, rm);
             card.appendChild(ch);
@@ -4325,55 +4834,80 @@ function createPanel(opts) {
                 // them, else the stand base plates.
                 const floorKind = anchors.some(o => o.kind === 'uplight')
                     ? 'uplight' : 'base';
+                // A strip on a frame with strip lines rides the rail or
+                // the hem - its two mounts are the wall's own curve.
+                const stripLine = entry.type === 'light-strip'
+                    && anchors.some(o => o.kind === 'stripline');
                 const kind = ['pole', 'rail', 'uplight', 'base'].includes(curKind0)
                     ? curKind0 : anchors[0].kind;
 
                 const mount = document.createElement('div');
                 mount.className = 'mt-1.5 flex items-center gap-1.5';
-                for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
-                    [floorKind, 'Floor']]) {
-                    const has = poolFor(k).length > 0;
-                    const on = has && k === kind;
+                const chipMount = (on, label, apply) => {
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = chipCls(on);
                     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                     btn.textContent = label;
-                    btn.disabled = !has;
-                    btn.dataset.off = has ? '0' : '1';
-                    btn.addEventListener('click', () => {
-                        if (on) return;
-                        const pool = poolFor(k);
-                        const at = Math.min(ordinal(entry.anchor), pool.length - 1);
-                        onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
-                    });
+                    btn.addEventListener('click', apply);
                     live.buttons.push(btn);
                     mount.appendChild(btn);
-                }
-                const step = delta => {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.textContent = delta > 0 ? '\u25b6' : '\u25c0';
-                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
-                        + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
-                        + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
-                    const pool = poolFor(kind);
-                    btn.disabled = pool.length < 2;
-                    btn.dataset.off = pool.length < 2 ? '1' : '0';
-                    btn.addEventListener('click', () => {
-                        const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
-                        const nextAt = (at + delta + pool.length) % pool.length;
-                        onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
-                    });
-                    live.buttons.push(btn);
                     return btn;
                 };
-                const readout = document.createElement('span');
-                readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
-                    + 'dark:text-zinc-300 tabular-nums';
-                const hit = anchors.find(o => o.id === entry.anchor);
-                readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
-                mount.append(step(-1), readout, step(1));
+                if (stripLine) {
+                    const side = sideOf(entry.anchor) || 'L';
+                    for (const [suffix, label] of [['T', 'Top'], ['B', 'Bottom']]) {
+                        const target = `stripline-${side}-${suffix}`;
+                        const has = anchors.some(o => o.id === target);
+                        const on = has && entry.anchor === target;
+                        const btn = chipMount(on, label, () => {
+                            if (on || !has) return;
+                            onElementPatch && onElementPatch(id, i, { anchor: target });
+                        });
+                        btn.disabled = !has;
+                        btn.dataset.off = has ? '0' : '1';
+                    }
+                } else {
+                    for (const [k, label] of [['pole', 'Pole'], ['rail', 'Rail'],
+                        [floorKind, 'Floor']]) {
+                        const has = poolFor(k).length > 0;
+                        const on = has && k === kind;
+                        const btn = chipMount(on, label, () => {
+                            if (on) return;
+                            const pool = poolFor(k);
+                            const at = Math.min(ordinal(entry.anchor), pool.length - 1);
+                            onElementPatch && onElementPatch(id, i, { anchor: pool[at].id });
+                        });
+                        btn.disabled = !has;
+                        btn.dataset.off = has ? '0' : '1';
+                    }
+                }
+                if (!stripLine) {
+                    const step = delta => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.textContent = delta > 0 ? '▶' : '◀';
+                        btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                            + 'dark:border-zinc-600 text-[10px] leading-none text-gray-600 '
+                            + 'dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700';
+                        const pool = poolFor(kind);
+                        btn.disabled = pool.length < 2;
+                        btn.dataset.off = pool.length < 2 ? '1' : '0';
+                        btn.addEventListener('click', () => {
+                            const at = Math.max(0, pool.findIndex(o => o.id === entry.anchor));
+                            const nextAt = (at + delta + pool.length) % pool.length;
+                            onElementPatch && onElementPatch(id, i, { anchor: pool[nextAt].id });
+                        });
+                        live.buttons.push(btn);
+                        return btn;
+                    };
+                    const readout = document.createElement('span');
+                    readout.className = 'flex-1 text-center text-[11px] text-gray-600 '
+                        + 'dark:text-zinc-300 tabular-nums';
+                    const hit = anchors.find(o => o.id === entry.anchor);
+                    readout.textContent = hit ? hit.label : (entry.anchor || 'no mount');
+                    mount.append(step(-1), readout, step(1));
+                }
                 card.appendChild(mount);
             } else {
                 const note = document.createElement('p');
@@ -4384,9 +4918,11 @@ function createPanel(opts) {
 
             // Its own numbers: the light model's own schema, emitted against
             // THIS model alone - one fixture's focus never moves another's.
+            // Hue and saturation never show as sliders: the colour square
+            // below is the one colour control every fixture shares.
             if (lm && lm.params) {
                 for (const [k, p] of Object.entries(lm.params)) {
-                    if (p.type !== 'range') continue;
+                    if (p.type !== 'range' || k === 'hue' || k === 'sat') continue;
                     // A floor mount may only aim up: the slider tops out at
                     // -30 so the whole cone can never point at the ground.
                     // (Mirrors FLOOR_TILT_MAX in app.js.)
@@ -4402,8 +4938,18 @@ function createPanel(opts) {
                     live.selects.push(built.input);
                     card.appendChild(built.wrap);
                 }
+                if (lm.params.hue && lm.params.sat) {
+                    const pal = paletteBlock({
+                        hue: Number.isFinite(lm.state.hue)
+                            ? lm.state.hue : lm.params.hue.value,
+                        sat: Number.isFinite(lm.state.sat)
+                            ? lm.state.sat : lm.params.sat.value
+                    }, (h, s) => emit({ hue: h, sat: s }, [lm]),
+                    { id: `param-palette-${i}` });
+                    card.appendChild(pal);
+                }
             }
-            body.appendChild(card);
+            parent.appendChild(card);
         });
         };
 
@@ -4411,8 +4957,8 @@ function createPanel(opts) {
         // numbers, one slider row per number, each change written to every
         // fixture in the group that understands it. Mount and remove stay
         // per-fixture, in Separate.
-        const paintGroup = mode => {
-            const idxs = memberIdx(mode);
+        const paintGroup = (parent, mode, typeFilter, prefix) => {
+            const idxs = memberIdx(mode, typeFilter);
             const card = document.createElement('div');
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
@@ -4431,14 +4977,17 @@ function createPanel(opts) {
                 const lm = lmOf(i);
                 if (!lm || !lm.params) continue;
                 for (const [k, p] of Object.entries(lm.params)) {
-                    if (p.type !== 'range') continue;
+                    // Hue and saturation are the colour square's job.
+                    if (p.type !== 'range' || k === 'hue' || k === 'sat') continue;
                     if (!params.has(k)) params.set(k, p);
                 }
             }
+            const colourLms = idxs.map(lmOf)
+                .filter(lm => lm && lm.params && lm.params.hue && lm.params.sat);
             if (!params.size) {
                 const note = document.createElement('p');
                 note.className = 'text-[11px] text-gray-400 dark:text-zinc-500 mt-1';
-                note.textContent = !entries.length
+                note.textContent = !ofType(typeFilter).length
                     ? 'Add a light to the frame first.'
                     : idxs.length
                         ? 'These fixtures expose no numbers yet.'
@@ -4453,7 +5002,7 @@ function createPanel(opts) {
                 const floorTilt = k === 'tilt' && idxs.some(i => /^(uplight|base)-/
                     .test((entries[i] || {}).anchor || ''));
                 const pp = floorTilt ? { ...p, max: -30 } : p;
-                const built = rangeBlock(`lightgrp-${mode}-${k}`, pp,
+                const built = rangeBlock(`${prefix}-${mode}-${k}`, pp,
                     holder ? holder.state[k] : pp.value);
                 built.input.addEventListener('input', e => {
                     const v = parseFloat(e.target.value);
@@ -4461,20 +5010,249 @@ function createPanel(opts) {
                     built.value.textContent = fmt(v, p.unit);
                     const targets = idxs.map(lmOf)
                         .filter(lm => lm && lm.params && lm.params[k]);
+                    // One number for the whole rig, exactly mirrored: Pan
+                    // is an aim relative to each wall, so the right wall
+                    // receives the negation of the left's number and the
+                    // entrance stays symmetric under one drag. Every other
+                    // number is shared as-is. Without a wall on both sides
+                    // there is nothing to mirror against.
+                    if (mode === 'all' && k === 'pan') {
+                        const lt = [], rt = [];
+                        for (const i of idxs) {
+                            const lm = lmOf(i);
+                            if (!lm || !lm.params || !lm.params[k]) continue;
+                            const side = sideOf((entries[i] || {}).anchor);
+                            (side === 'R' ? rt : lt).push(lm);
+                        }
+                        if (lt.length && rt.length) {
+                            emit({ [k]: v }, lt);
+                            emit({ [k]: -v }, rt);
+                            return;
+                        }
+                    }
                     emit({ [k]: v }, targets);
                 });
                 live.selects.push(built.input);
                 card.appendChild(built.wrap);
             }
-            body.appendChild(card);
+            // One colour square for the whole group: every member of the
+            // wall (or the rig) answers the same drag at once.
+            if (colourLms.length) {
+                const holder = colourLms
+                    .find(lm => lm.state && Number.isFinite(lm.state.hue));
+                const pal = paletteBlock({
+                    hue: holder ? holder.state.hue : 40,
+                    sat: holder ? holder.state.sat : 35
+                }, (h, s) => emit({ hue: h, sat: s }, colourLms),
+                { id: `param-palette-${prefix}-${mode}` });
+                card.appendChild(pal);
+            }
+            parent.appendChild(card);
         };
 
-        const paint = () => {
-            body.textContent = '';
-            if (lightsMode === 'separate') paintSeparate();
-            else paintGroup(lightsMode);
+        const paintInto = (parent, mode, typeFilter, prefix) => {
+            parent.textContent = '';
+            if (mode === 'separate') paintSeparate(parent, typeFilter);
+            else paintGroup(parent, mode, typeFilter, prefix);
         };
-        paint();
+
+        const parBody = document.createElement('div');
+        parSec.appendChild(parBody);
+        parSec.appendChild(modeRowFor(() => lightsMode, v => { lightsMode = v; },
+            () => paintInto(parBody, lightsMode, 'light-par', 'lightgrp')));
+        paintInto(parBody, lightsMode, 'light-par', 'lightgrp');
+
+        if (ofType('light-led').length) {
+            const ledSec = sectionOf('LED');
+            const ledBody = document.createElement('div');
+            ledSec.appendChild(ledBody);
+            ledSec.appendChild(modeRowFor(() => ledMode, v => { ledMode = v; },
+                () => paintInto(ledBody, ledMode, 'light-led', 'ledgrp')));
+            paintInto(ledBody, ledMode, 'light-led', 'ledgrp');
+        }
+
+        // The strip group: an RGB mood line along the curtain's own rail
+        // or hem. It only appears once a strip lives on the frame. Side
+        // picks which walls the numbers reach; the palette is the main
+        // control - drag it live and every filtered tube answers at once.
+        // Power and a per-fixture list (mount, remove) finish the card;
+        // straight-mounted strips on other frames keep a length slider of
+        // their own.
+        const strips = ofType('light-strip');
+        if (strips.length) {
+            const stripSec = sectionOf('Strip');
+            const stripMatch = e => stripSide === 'both'
+                || sideOf(e && e.anchor) === (stripSide === 'left' ? 'L' : 'R');
+            const stripLms = () => strips.filter(x => stripMatch(x.e))
+                .map(x => lmOf(x.i)).filter(Boolean);
+            const straightLms = () => strips
+                .filter(x => stripMatch(x.e)
+                    && !String(x.e.anchor || '').startsWith('stripline-'))
+                .map(x => lmOf(x.i)).filter(Boolean);
+
+            const sideRow = document.createElement('div');
+            sideRow.className = 'mt-1 flex items-center gap-2';
+            const sideBtns = new Map();
+            for (const [val, label] of [['left', 'Left'], ['right', 'Right'],
+                ['both', 'Both']]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === stripSide;
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = 'Which walls this group\'s numbers reach';
+                btn.addEventListener('click', () => {
+                    if (stripSide === val) return;
+                    stripSide = val;
+                    for (const [v, b] of sideBtns) {
+                        const act = v === stripSide;
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaintStrip();
+                });
+                live.buttons.push(btn);
+                sideBtns.set(val, btn);
+                sideRow.appendChild(btn);
+            }
+            stripSec.appendChild(sideRow);
+
+            // The shared colour square: hue across, saturation up from
+            // white, dragging live to every filtered strip.
+            const initEntry = (strips.find(x => lmOf(x.i) && lmOf(x.i).state
+                && Number.isFinite(lmOf(x.i).state.hue)) || strips[0] || {}).e || {};
+            const initLm = strips.map(x => lmOf(x.i))
+                .find(lm => lm && lm.state && Number.isFinite(lm.state.hue));
+            const pal = paletteBlock({
+                hue: initLm ? initLm.state.hue
+                    : Number.isFinite(initEntry.params && initEntry.params.hue)
+                        ? initEntry.params.hue : 40,
+                sat: initLm ? initLm.state.sat
+                    : Number.isFinite(initEntry.params && initEntry.params.sat)
+                        ? initEntry.params.sat : 25
+            }, (h, s) => {
+                const targets = stripLms().filter(lm => lm.params && lm.params.hue);
+                if (targets.length) emit({ hue: h, sat: s }, targets);
+            }, { id: 'param-strippalette' });
+            stripSec.appendChild(pal);
+
+            const power0 = stripLms().find(lm => lm.state && 'power' in lm.state);
+            if (power0) {
+                const pow = rangeBlock('strippower', power0.params.power,
+                    power0.state.power);
+                pow.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    pow.value.textContent = fmt(v, power0.params.power.unit);
+                    const targets = stripLms()
+                        .filter(lm => lm.params && lm.params.power);
+                    if (targets.length) emit({ power: v }, targets);
+                });
+                live.selects.push(pow.input);
+                stripSec.appendChild(pow.wrap);
+            }
+            const straight0 = straightLms().find(lm => lm.state && 'length' in lm.state);
+            if (straight0) {
+                const len = rangeBlock('striplength', straight0.params.length,
+                    straight0.state.length);
+                len.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    len.value.textContent = fmt(v, straight0.params.length.unit);
+                    const targets = straightLms()
+                        .filter(lm => lm.params && lm.params.length);
+                    if (targets.length) emit({ length: v }, targets);
+                });
+                live.selects.push(len.input);
+                stripSec.appendChild(len.wrap);
+            }
+
+            // One settings block for the whole filter - never a card per
+            // tube. On a curtained frame the block carries the wall's own
+            // mount chips and a small remove per strip; straight strips
+            // (rail/pole mounts on other frames) keep their fixture cards,
+            // because that is where their mounting lives.
+            const railLines = anchors.some(o => o.kind === 'stripline');
+            const stripLower = document.createElement('div');
+            stripSec.appendChild(stripLower);
+            const repaintStrip = () => {
+                stripLower.textContent = '';
+                if (!strips.length) return;
+                if (!railLines) {
+                    paintSeparate(stripLower, 'light-strip');
+                    return;
+                }
+                const lines = () => strips.filter(x => stripMatch(x.e)
+                    && String(x.e.anchor || '').startsWith('stripline-'));
+
+                // Top / Bottom: every strip inside the filter moves to that
+                // wall's rail or hem - one tap dresses the whole side (or
+                // both sides at once under Both).
+                const mountRow = document.createElement('div');
+                mountRow.className = 'mt-1 flex items-center gap-1.5';
+                const mountLab = document.createElement('span');
+                mountLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                mountLab.textContent = 'Mount';
+                mountRow.appendChild(mountLab);
+                for (const [suffix, label] of [['T', 'Top'], ['B', 'Bottom']]) {
+                    const pool = lines();
+                    const on = pool.length > 0 && pool
+                        .every(x => String(x.e.anchor).endsWith(`-${suffix}`));
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = chipCls(on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    btn.textContent = label;
+                    btn.title = 'Seat the filtered strips on the rail (Top) '
+                        + 'or the hem (Bottom)';
+                    btn.disabled = pool.length === 0;
+                    btn.dataset.off = pool.length === 0 ? '1' : '0';
+                    btn.addEventListener('click', () => {
+                        if (on) return;
+                        for (const x of pool) {
+                            const side = sideOf(x.e.anchor) || 'L';
+                            onElementPatch
+                                && onElementPatch(id, x.i,
+                                    { anchor: `stripline-${side}-${suffix}` });
+                        }
+                    });
+                    live.buttons.push(btn);
+                    mountRow.appendChild(btn);
+                }
+                stripLower.appendChild(mountRow);
+
+                // One small remove per strip in the filter - the only
+                // per-fixture control left once the cards are gone.
+                const rmRow = document.createElement('div');
+                rmRow.className = 'mt-2 flex items-center gap-1.5 flex-wrap';
+                const rmLab = document.createElement('span');
+                rmLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                rmLab.textContent = 'Fixtures';
+                rmRow.appendChild(rmLab);
+                for (const x of strips.filter(y => stripMatch(y.e))) {
+                    const side = sideOf(x.e.anchor) || '?';
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                        + 'dark:text-zinc-400 hover:border-red-400 '
+                        + 'hover:text-red-500 transition-colors';
+                    btn.textContent = '\u00d7';
+                    btn.title = `Remove the ${side === 'L' ? 'left' : side === 'R' ? 'right' : side} strip`;
+                    btn.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        onElementRemove && onElementRemove(id, x.i);
+                    });
+                    live.buttons.push(btn);
+                    rmRow.appendChild(btn);
+                }
+                stripLower.appendChild(rmRow);
+            };
+            repaintStrip();
+        }
         return wrap;
     }
 
@@ -4664,35 +5442,32 @@ function createPanel(opts) {
         rgbSum.textContent = 'Custom colour (RGB)';
         const rgb = document.createElement('div');
         rgb.className = 'px-2 pb-2';
-        const head = document.createElement('div');
-        head.className = 'flex items-center gap-3 mb-2';
 
-        // The native colour pad: a real wheel on every phone, no three
-        // fiddly channel sliders to fight with. The hex label keeps the
-        // exact value readable; the fold still holds Save swatch.
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = hexText(eff);
-        colorInput.className = 'w-14 h-14 rounded-xl border border-gray-300 '
-            + 'dark:border-zinc-600 cursor-pointer bg-transparent p-0 shrink-0';
-        colorInput.setAttribute('aria-label', 'Curtain colour dial');
-        colorInput.addEventListener('input', e => {
-            const hex = parseInt(String(e.target.value).replace('#', ''), 16);
-            hexLabel.textContent = hexText(hex) + ' custom';
-            onRgbChange && onRgbChange(hex);
-        });
-        if (live.inputs) live.inputs.push(colorInput);
-
+        // The same colour square the lights use: hue across, saturation
+        // up, the swatch's brightness kept. Live - the curtain wears the
+        // colour while the finger travels.
+        const initHsv = hexToHsv(eff);
+        let keepV = initHsv.v;
         const hexLabel = document.createElement('span');
-        hexLabel.className = 'text-[11px] font-mono text-gray-500 dark:text-zinc-400';
+        hexLabel.className = 'block text-[11px] font-mono text-gray-500 '
+            + 'dark:text-zinc-400 mt-1';
         hexLabel.textContent = hexText(eff) + ' custom';
-        head.append(colorInput, hexLabel);
-        rgb.appendChild(head);
+        const pal = paletteBlock(
+            { hue: Math.round(initHsv.h), sat: Math.round(initHsv.s) },
+            (h, s) => {
+                const hex = hsvToHex(h, s, keepV);
+                hexLabel.textContent = hexText(hex) + ' custom';
+                onRgbChange && onRgbChange(hex);
+            },
+            { id: 'param-fabricpalette', v: Math.round(initHsv.v), label: 'Custom' });
+        rgb.append(pal, hexLabel);
 
-        // applyLive drives the pad without firing onRgbChange.
+        // applyLive drives the square without firing onRgbChange.
         rgbDialRef = {
             set(hex) {
-                colorInput.value = hexText(hex);
+                const q = hexToHsv(hex);
+                keepV = q.v;
+                pal._set(Math.round(q.h), Math.round(q.s));
                 hexLabel.textContent = hexText(hex) + ' custom';
             }
         };
@@ -4901,6 +5676,9 @@ function createPanel(opts) {
             }
             if (next.frameAnchors !== undefined) {
                 currentFrameAnchors = next.frameAnchors;
+            }
+            if (next.frameSpacing !== undefined) {
+                currentFrameSpacing = next.frameSpacing;
             }
             if (next.places !== undefined) currentPlaces = next.places;
             if (next.model !== undefined) current = next.model;
@@ -5479,6 +6257,7 @@ function buildDoc() {
         layout: layoutId,
         pillars: framePillarsPlain(),
         elements: frameElementsPlain(),
+        spacing: frameSpacingPlain(),
         places: Object.fromEntries([...savedPlaces]
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
@@ -5748,6 +6527,15 @@ function frameElementsPlain() {
         }))]));
 }
 
+// How far apart one frame's floor PARs stand, in feet. Absent means the
+// wall's own even bays; a positive number is a centred line of lights the
+// frame re-seats on its real hooks - session data, like pillars and lights.
+const frameSpacing = new Map();
+
+function frameSpacingPlain() {
+    return Object.fromEntries([...frameSpacing].filter(([, v]) => v > 0));
+}
+
 // A fixture's numbers are the registered schema's business: anything the
 // schema does not know, or clamps, is dropped here - both for documents and
 // for a def's own elements. The registry validates again on the way in.
@@ -5815,6 +6603,8 @@ function anchorOptionsFor(frameId) {
         counts[key] = (counts[key] || 0) + 1;
         const n = counts[key];
         const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
+            : a.kind === 'stripline'
+                ? `Rail ${a.side || ''} ${a.mount === 'hem' ? 'hem' : 'top'}`
             : a.kind === 'pole' ? `Pole ${n}`
             : a.kind === 'uplight' ? `Floor ${n}`
             : `Base ${n}`;
@@ -5835,8 +6625,11 @@ function frameAnchorsPlain() {
 function defaultAnchorFor(frameId, type) {
     const opts = anchorOptionsFor(frameId);
     // PAR and LED lead with the floor-uplight hooks; a frame without them
-    // falls back to the base plates, then the poles. Strips clamp high.
-    const kinds = type === 'light-strip' ? ['rail', 'pole'] : ['uplight', 'base', 'pole'];
+    // falls back to the base plates, then the poles. Strips clamp to the
+    // curtain's own strip lines (top rail, then hem) when the frame has
+    // them, else high on the rail.
+    const kinds = type === 'light-strip'
+        ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
     for (const kind of kinds) {
         const pool = opts.filter(o => o.kind === kind);
         if (pool.length) {
@@ -5950,9 +6743,10 @@ function unmountAll() {
 
 // Both ends of both modules of ONE O2, measured from the model itself: the
 // outer stand bases (far ends) and the inner ones beside the centre gap (the
-// opposite ends), each carried around that frame's own turn. The stands sit
-// on the rail, so these points include Centre Gap and Swing Pan - a pillar
-// put here stands at the end of its module, in whatever swing the rail has.
+// opposite ends), each carried around that frame's own turn. The bases sit
+// backstage of the rail line, so these points include Centre Gap and Swing
+// Pan - a pillar put here stands at the end of its module, in whatever swing
+// the rail has.
 function frameAnchorOf(m) {
     if (!m || !m.object3D) return null;
     let leftOut = null, leftIn = null, rightIn = null, rightOut = null;
@@ -6088,7 +6882,7 @@ function refreshPillarPlaces() {
 
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
-const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0 };
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0, stripline: 0 };
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -6112,15 +6906,57 @@ function elementSpot(owner, anchors, anchorId) {
     // wall, so the -86 tilt leans the beam into the fabric, never over it.
     const ry = a.kind === 'rail' && a.tangent
         ? turn + Math.atan2(-a.tangent.z, a.tangent.x)
-        : a.kind === 'uplight' && a.normal
+        : (a.kind === 'uplight' || a.kind === 'stripline') && a.normal
             ? turn + Math.atan2(a.normal.x, a.normal.z)
             : turn;
     return {
         x: pos.x + p.x * c + p.z * s,
         y: p.y + (MOUNT_Y[a.kind] || 0),
         z: pos.z - p.x * s + p.z * c,
-        ry
+        // Places are degrees end to end - the panel, the document, and
+        // applyPlaces' own * PI / 180 - so this yaw (turn is radians on the
+        // frame, atan2 is radians) converts once, here. Left in radians the
+        // degree conversion divides every beam's swing by ~57: the curtain
+        // swings away while the light keeps pointing at where it was.
+        ry: ry * 180 / Math.PI
     };
+}
+
+// The curve a strip on a stripline anchor draws along, in the fixture's
+// own local space: the wall's rail polyline - or that same footprint at
+// the hem - read from the frame's own anchors, so the tube follows Swing
+// Pan, Centre Gap and the wave exactly. Straight mounts (pole, rail
+// clamp, base) return null: those strips keep their `length` box.
+function stripPathFor(owner, anchors, entry) {
+    const a = (anchors || []).find(x => x.id === (entry && entry.anchor));
+    if (!a || a.kind !== 'stripline' || !a.normal) return null;
+    const side = a.side || (/-L-/.test(a.id) ? 'L' : 'R');
+    const hem = a.mount === 'hem' || /-B$/.test(a.id);
+    const re = new RegExp('^rail-' + side + '-(\\d+)$');
+    const rail = (anchors || []).filter(x => re.test(x.id))
+        .map(x => ({ k: Number(re.exec(x.id)[1]), p: x.position }))
+        .sort((m, n) => m.k - n.k)
+        .map(x => x.p);
+    if (rail.length < 2) return null;
+    // The tube rides just IN FRONT of the curtain line, never on it: the
+    // rail itself is a 0.12 ft tube, and a strip drawn on the centreline
+    // would be swallowed whole - invisible at the top mount. The same
+    // stand-off keeps the hem line clear of the fabric.
+    const STRIP_OUT = 0.18;
+    // The spot's yaw carries the mount facing; the path arrives in the
+    // fixture's own space by undoing it - the frame's turn cancels out,
+    // only the anchor's facing remains.
+    const facing = Math.atan2(a.normal.x, a.normal.z);
+    const c = Math.cos(facing), s = Math.sin(facing);
+    const ap = a.position;
+    return rail.map(p => {
+        const q = {
+            x: p.x + a.normal.x * STRIP_OUT - ap.x,
+            y: (hem ? ap.y : p.y) - ap.y,
+            z: p.z + a.normal.z * STRIP_OUT - ap.z
+        };
+        return { x: q.x * c - q.z * s, y: q.y, z: q.x * s + q.z * c };
+    });
 }
 
 function refreshElementPlaces() {
@@ -6136,6 +6972,15 @@ function refreshElementPlaces() {
         const list = frameElementsFor(frameId);
         const arr = models.map((m, i) => elementSpot(
             owner, anchors, list[i] && list[i].anchor));
+        // A strip on a stripline anchor redraws along its frame's own
+        // curve every re-place - Swing Pan drags move the cloth and the
+        // tube together, in the same frame.
+        models.forEach((m, i) => {
+            if (typeof m.setPath !== 'function') return;
+            const entry = list[i];
+            m.setPath(entry && entry.type === 'light-strip'
+                ? stripPathFor(owner, anchors, entry) : null);
+        });
         const prev = savedPlaces.get(key);
         if (!prev || prev.length !== arr.length
             || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
@@ -6364,9 +7209,11 @@ async function syncScene(forcePanel = false) {
         }
 
         // Convert first, space second: the new SET's sliders must already
-        // be on the frames when the row is laid out. The panel moves the
-        // numbers in place - a SET tap is a state change, not a reload.
+        // be on the frames when the row is laid out, and each spaced wall
+        // must stand on its hooks. The panel moves the numbers in place -
+        // a SET tap is a state change, not a reload.
         const shaped = applySetParams(layoutId);
+        reseatSpacedFrames();
         if (shaped) {
             console.info('[set]', layoutId, shaped);
             // The shape must land on the geometry NOW, not on the next
@@ -6406,6 +7253,7 @@ async function syncScene(forcePanel = false) {
                 framePillars: framePillarsPlain(),
                 frameElements: frameElementsPlain(),
                 frameAnchors: frameAnchorsPlain(),
+                frameSpacing: frameSpacingPlain(),
                 places: placesFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
@@ -6555,14 +7403,56 @@ function onElementAdd(id, type) {
     const list = frameElementsFor(id).slice();
     if (list.length >= 20) return false;
     const anchor = defaultAnchorFor(id, type);
-    const params = {};
-    // A floor mount is an uplight: start it aimed at the fabric above, not
-    // across the floor into the guests' eyes. -86 leans the beam ~4° into
-    // the curtain from its 1.2 ft standoff - it can never cross the fabric
-    // plane. Pole and rail fixtures keep the schema's own default.
-    if ((anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
+    // The new fixture joins the rig already wearing its numbers: the most
+    // recent light of its own kind on the same wall (so a mirrored pan
+    // comes along), else any light of its kind, else the nearest light on
+    // that wall, else the last one on the frame. Keys the new schema
+    // lacks are dropped on the way in by the clamps.
+    const sideOfAnchor = a => {
+        const hit = /-(L|R)-/.exec(a || '');
+        return hit ? hit[1] : null;
+    };
+    const side = sideOfAnchor(anchor);
+    const pool = side ? list.filter(e => sideOfAnchor(e.anchor) === side) : list;
+    const donor = pool.find(e => e.type === type)
+        || list.find(e => e.type === type)
+        || pool[pool.length - 1]
+        || list[list.length - 1]
+        || null;
+    const params = donor ? Object.assign({}, donor.params) : {};
+    // With nothing to copy, a floor mount starts aimed at the fabric
+    // above, not across the floor into the guests' eyes. -86 leans the
+    // beam ~4° into the curtain from its 1.2 ft standoff - it can never
+    // cross the fabric plane. Pole and rail fixtures keep the schema's
+    // own default.
+    if (!('tilt' in params)
+        && (anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
         && LIGHT_PARAMS[type.slice(6)].tilt) {
         params.tilt = -86;
+    }
+    // A strip on a frame with curtain strip lines lands on BOTH walls at
+    // once - one Add plants the pair, the top rails first and the hems
+    // once the tops carry a strip. Two hand-adds never pile onto the
+    // same hook.
+    if (type === 'light-strip') {
+        const lines = anchorOptionsFor(id).filter(o => o.kind === 'stripline');
+        const seat = (s, mount) => lines.find(o => o.id === `stripline-${s}-${mount}`);
+        const tops = ['L', 'R'].map(s => seat(s, 'T'));
+        const hems = ['L', 'R'].map(s => seat(s, 'B'));
+        if (tops[0] && tops[1]) {
+            const taken = new Set(list.filter(e => e.anchor).map(e => e.anchor));
+            const pair = tops.some(o => taken.has(o.id))
+                ? (hems.some(o => taken.has(o.id)) ? tops : hems)
+                : tops;
+            if (list.length + pair.length <= 20) {
+                for (const a of pair) {
+                    list.push({ type, anchor: a.id, params: Object.assign({}, params) });
+                }
+                frameElements.set(id, list);
+                scheduleSave();
+                return syncScene();
+            }
+        }
     }
     list.push({ type, anchor, params });
     frameElements.set(id, list);
@@ -6632,12 +7522,56 @@ function wallUplightSeats(n) {
     return seats;
 }
 
+// One wall's floor-uplight hooks as { k, x } in frame-local x, in hook
+// order. The seat maths below works on the frame's real geometry, so a
+// spacing the slider asks for lands on hooks the frame actually offers -
+// and both walls run the same maths on their mirrored hooks.
+function uplightHooks(frameId, side) {
+    const owner = (mounted.get(frameId) || [])[0] || null;
+    if (!owner || typeof owner.getAnchors !== 'function') return [];
+    let anchors = [];
+    try { anchors = owner.getAnchors() || []; } catch { return []; }
+    const re = new RegExp('^uplight-' + side + '-(\\d+)$');
+    return anchors.filter(a => re.test(a.id))
+        .map(a => ({ k: Number(re.exec(a.id)[1]), x: a.position.x }))
+        .sort((a, b) => a.k - b.k);
+}
+
+// Which n hooks a wall's floor PARs stand on. No spacing asked for: the
+// bays of the whole wall, exactly as the count slider always has. A
+// spacing in feet: uniform steps of the nearest whole hook gap (the
+// hooks are evenly spaced in x), centred on the wall and shifted inside
+// the hook line so all n keep a hook of their own.
+function wallSeatKs(hooks, n, spacingFt) {
+    const count = Math.max(0, Math.round(n));
+    if (!hooks.length || count <= 0) return [];
+    if (!Number.isFinite(spacingFt) || spacingFt <= 0) {
+        const have = new Set(hooks.map(h => h.k));
+        const nearest = k => hooks.reduce((best, h) =>
+            Math.abs(h.k - k) < Math.abs(best.k - k) ? h : best, hooks[0]);
+        return wallUplightSeats(count)
+            .map(k => have.has(k) ? k : nearest(k).k);
+    }
+    const H = hooks.length;
+    if (count === 1 || H === 1) {
+        return [hooks[Math.min(H - 1, Math.max(0, Math.round((H - 1) / 2)))].k];
+    }
+    const gap = Math.abs(hooks[H - 1].x - hooks[0].x) / (H - 1) || 1;
+    let step = Math.max(1, Math.round(spacingFt / gap));
+    step = Math.min(step, Math.max(1, Math.floor((H - 1) / (count - 1))));
+    const want = Math.round((H - 1) / 2 - ((count - 1) * step) / 2);
+    const lo = Math.max(0, Math.min(H - 1 - (count - 1) * step, want));
+    return Array.from({ length: count }, (_, i) => hooks[lo + i * step].k);
+}
+
 // How many floor uplights stand on EACH curtain wall: the rig sizing knob,
 // a 1-10 slider in the panel. Every change re-seats the wall on the hooks
 // that divide it into n equal bays - the lights spread across the whole
 // wall, never bunched at the entrance gap. Survivors keep their tuned
-// params, extras go, missing seats plant with the entrance-rig numbers.
-// Other fixtures the user placed by hand are never touched.
+// params, extras go, missing seats plant already wearing the wall's own
+// numbers - a count bump never leaves the fresh lights a different colour
+// from the rig they join. Other fixtures the user placed by hand are never
+// touched.
 function onElementCount(id, n) {
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     const want = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
@@ -6663,16 +7597,78 @@ function onElementCount(id, n) {
             if (moved) changed = true;
         }
         for (let i = kept.length; i < want && list.length < 20; i++) {
+            // A new seat joins the wall already wearing its numbers: the
+            // survivor's own params - same wall, so a mirrored pan comes
+            // along - never the entrance defaults. With no survivor to
+            // copy (a wall grown from zero) the entrance rig numbers stand.
+            const donor = kept[0] || null;
             list.push({
-                type: 'light-par',
+                type: donor ? donor.type : 'light-par',
                 anchor: seats[i],
-                params: { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
+                params: donor
+                    ? Object.assign({}, donor.params)
+                    : { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
             });
             changed = true;
         }
     }
     if (!changed) return false;
     frameElements.set(id, normaliseElementList(list));
+    scheduleSave();
+    return syncScene();
+}
+
+// Re-stand every spaced frame's floor PARs on the hooks its spacing asks
+// for. Runs on every scene sync - cheap and idempotent: the count decides
+// HOW MANY, the spacing decides HOW FAR APART, the hooks decide exactly
+// where. Pole, rail and base fixtures are never touched.
+function reseatSpacedFrames() {
+    let changed = false;
+    for (const [frameId, ft] of [...frameSpacing]) {
+        if (!(ft > 0)) continue;
+        const list = frameElementsFor(frameId).slice();
+        let touched = false;
+        for (const side of ['L', 'R']) {
+            const at = [];
+            for (let i = list.length - 1; i >= 0; i--) {
+                const e = list[i];
+                if (e && e.anchor && e.anchor.startsWith(`uplight-${side}-`)) {
+                    at.unshift(i);
+                }
+            }
+            if (!at.length) continue;
+            const ks = wallSeatKs(uplightHooks(frameId, side), at.length, ft);
+            at.forEach((li, j) => {
+                const k = ks[j];
+                if (k === undefined) return;
+                const want = `uplight-${side}-${k}`;
+                if (list[li].anchor === want) return;
+                list[li] = {
+                    type: list[li].type,
+                    anchor: want,
+                    params: Object.assign({}, list[li].params)
+                };
+                touched = true;
+            });
+        }
+        if (touched) {
+            frameElements.set(frameId, normaliseElementList(list));
+            changed = true;
+        }
+    }
+    if (changed) scheduleSave();
+    return changed;
+}
+
+// The spacing slider's commit: 0 slides back to the wall's even bays.
+function setFrameSpacing(id, ft) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    const n = Number(ft);
+    const val = Number.isFinite(n) && n > 0
+        ? Math.max(1, Math.min(12, Math.round(n * 10) / 10)) : 0;
+    if (val === (frameSpacing.get(id) || 0)) return false;
+    if (val > 0) frameSpacing.set(id, val);
+    else frameSpacing.delete(id);
     scheduleSave();
     return syncScene();
 }
@@ -6704,6 +7700,7 @@ async function resetProject() {
     layoutId = null;
     framePillars.clear();
     frameElements.clear();
+    frameSpacing.clear();
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -6798,6 +7795,8 @@ if (savedDoc) {
                 count,
                 place: count === 1 ? 'centre'
                     : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'),
+                gap: typeof v.gap === 'number' && Number.isFinite(v.gap)
+                    ? Math.max(-5, Math.min(40, v.gap)) : 3,
                 offset: {
                     x: Number.isFinite(Number(rawOff.x)) ? Number(rawOff.x) : 0,
                     z: Number.isFinite(Number(rawOff.z)) ? Number(rawOff.z) : 0,
@@ -6831,6 +7830,18 @@ if (savedDoc) {
             if (list.length) frameElements.set(target, list);
         }
     }
+    // Floor-PAR spacing travels the same way: frames this project knows.
+    if (savedDoc.spacing && typeof savedDoc.spacing === 'object'
+        && !Array.isArray(savedDoc.spacing)) {
+        for (const [id, v] of Object.entries(savedDoc.spacing)) {
+            const target = remapId(id);
+            if (!knownIds.has(target)) continue;
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) {
+                frameSpacing.set(target, Math.max(1, Math.min(12, n)));
+            }
+        }
+    }
     // The active frame's own numbers win when two old presets merge into one.
     const placeEntries = Object.entries(savedDoc.places || {})
         .sort((a, b) => (b[0] === savedDoc.activeId) - (a[0] === savedDoc.activeId));
@@ -6843,7 +7854,9 @@ if (savedDoc) {
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         const target = remapId(id);
-        if (!knownIds.has(target)) continue;
+        // The pillar is a registered type, not a catalogue entry, so it is
+        // absent from knownIds - its look preset still has to come back.
+        if (!knownIds.has(target) && target !== PILLAR_ID) continue;
         if (!savedPresets[target] || id === savedDoc.activeId) {
             savedPresets[target] = values;
         }
@@ -6908,6 +7921,7 @@ panel = createPanel({
     framePillars: framePillarsPlain(),
     frameElements: frameElementsPlain(),
     frameAnchors: frameAnchorsPlain(),
+    frameSpacing: frameSpacingPlain(),
     places: placesFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
@@ -6923,6 +7937,7 @@ panel = createPanel({
     onElementRemove: guard((id, index) => onElementRemove(id, index)),
     onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
     onElementCount: guard((id, n) => onElementCount(id, n)),
+    onFrameSpacing: guard((id, ft) => setFrameSpacing(id, ft)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;

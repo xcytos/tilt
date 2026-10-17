@@ -187,6 +187,23 @@ function cleanFrameElements(raw) {
     return out;
 }
 
+// One frame's floor-PAR spacing in feet: absent or zero keeps the wall's
+// full-width even bays; a positive number is a centred line of lights the
+// frame re-seats on its own hooks. Keys follow the place-id rules.
+function cleanFrameSpacing(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    let keys = 0;
+    for (const [id, v] of Object.entries(raw)) {
+        if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(id)) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        out[id] = Math.max(1, Math.min(12, Math.round(n * 10) / 10));
+        keys++;
+    }
+    return out;
+}
+
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
@@ -261,6 +278,7 @@ export function parseProject(raw) {
             ? (LEGACY_LAYOUT[data.layout] || data.layout) : null,
         pillars: cleanFramePillars(data.pillars),
         elements: cleanFrameElements(data.elements),
+        spacing: cleanFrameSpacing(data.spacing),
         places: cleanPlaces(data.places),
         mounted: Array.isArray(data.mounted)
             ? data.mounted.filter(id => typeof id === 'string' && id)

@@ -131,6 +131,7 @@ function buildDoc() {
         layout: layoutId,
         pillars: framePillarsPlain(),
         elements: frameElementsPlain(),
+        spacing: frameSpacingPlain(),
         places: Object.fromEntries([...savedPlaces]
             .filter(([k]) => !k.startsWith(PILLAR_ID) && !k.startsWith(ELEM_PREFIX))
             .map(([k, v]) => [k, v.filter(Boolean)
@@ -400,6 +401,15 @@ function frameElementsPlain() {
         }))]));
 }
 
+// How far apart one frame's floor PARs stand, in feet. Absent means the
+// wall's own even bays; a positive number is a centred line of lights the
+// frame re-seats on its real hooks - session data, like pillars and lights.
+const frameSpacing = new Map();
+
+function frameSpacingPlain() {
+    return Object.fromEntries([...frameSpacing].filter(([, v]) => v > 0));
+}
+
 // A fixture's numbers are the registered schema's business: anything the
 // schema does not know, or clamps, is dropped here - both for documents and
 // for a def's own elements. The registry validates again on the way in.
@@ -467,6 +477,8 @@ function anchorOptionsFor(frameId) {
         counts[key] = (counts[key] || 0) + 1;
         const n = counts[key];
         const label = a.kind === 'rail' ? `Rail ${a.side} ${n}`
+            : a.kind === 'stripline'
+                ? `Rail ${a.side || ''} ${a.mount === 'hem' ? 'hem' : 'top'}`
             : a.kind === 'pole' ? `Pole ${n}`
             : a.kind === 'uplight' ? `Floor ${n}`
             : `Base ${n}`;
@@ -487,8 +499,11 @@ function frameAnchorsPlain() {
 function defaultAnchorFor(frameId, type) {
     const opts = anchorOptionsFor(frameId);
     // PAR and LED lead with the floor-uplight hooks; a frame without them
-    // falls back to the base plates, then the poles. Strips clamp high.
-    const kinds = type === 'light-strip' ? ['rail', 'pole'] : ['uplight', 'base', 'pole'];
+    // falls back to the base plates, then the poles. Strips clamp to the
+    // curtain's own strip lines (top rail, then hem) when the frame has
+    // them, else high on the rail.
+    const kinds = type === 'light-strip'
+        ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
     for (const kind of kinds) {
         const pool = opts.filter(o => o.kind === kind);
         if (pool.length) {
@@ -602,9 +617,10 @@ function unmountAll() {
 
 // Both ends of both modules of ONE O2, measured from the model itself: the
 // outer stand bases (far ends) and the inner ones beside the centre gap (the
-// opposite ends), each carried around that frame's own turn. The stands sit
-// on the rail, so these points include Centre Gap and Swing Pan - a pillar
-// put here stands at the end of its module, in whatever swing the rail has.
+// opposite ends), each carried around that frame's own turn. The bases sit
+// backstage of the rail line, so these points include Centre Gap and Swing
+// Pan - a pillar put here stands at the end of its module, in whatever swing
+// the rail has.
 function frameAnchorOf(m) {
     if (!m || !m.object3D) return null;
     let leftOut = null, leftIn = null, rightIn = null, rightOut = null;
@@ -740,7 +756,7 @@ function refreshPillarPlaces() {
 
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
-const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0 };
+const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0, stripline: 0 };
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -764,15 +780,57 @@ function elementSpot(owner, anchors, anchorId) {
     // wall, so the -86 tilt leans the beam into the fabric, never over it.
     const ry = a.kind === 'rail' && a.tangent
         ? turn + Math.atan2(-a.tangent.z, a.tangent.x)
-        : a.kind === 'uplight' && a.normal
+        : (a.kind === 'uplight' || a.kind === 'stripline') && a.normal
             ? turn + Math.atan2(a.normal.x, a.normal.z)
             : turn;
     return {
         x: pos.x + p.x * c + p.z * s,
         y: p.y + (MOUNT_Y[a.kind] || 0),
         z: pos.z - p.x * s + p.z * c,
-        ry
+        // Places are degrees end to end - the panel, the document, and
+        // applyPlaces' own * PI / 180 - so this yaw (turn is radians on the
+        // frame, atan2 is radians) converts once, here. Left in radians the
+        // degree conversion divides every beam's swing by ~57: the curtain
+        // swings away while the light keeps pointing at where it was.
+        ry: ry * 180 / Math.PI
     };
+}
+
+// The curve a strip on a stripline anchor draws along, in the fixture's
+// own local space: the wall's rail polyline - or that same footprint at
+// the hem - read from the frame's own anchors, so the tube follows Swing
+// Pan, Centre Gap and the wave exactly. Straight mounts (pole, rail
+// clamp, base) return null: those strips keep their `length` box.
+function stripPathFor(owner, anchors, entry) {
+    const a = (anchors || []).find(x => x.id === (entry && entry.anchor));
+    if (!a || a.kind !== 'stripline' || !a.normal) return null;
+    const side = a.side || (/-L-/.test(a.id) ? 'L' : 'R');
+    const hem = a.mount === 'hem' || /-B$/.test(a.id);
+    const re = new RegExp('^rail-' + side + '-(\\d+)$');
+    const rail = (anchors || []).filter(x => re.test(x.id))
+        .map(x => ({ k: Number(re.exec(x.id)[1]), p: x.position }))
+        .sort((m, n) => m.k - n.k)
+        .map(x => x.p);
+    if (rail.length < 2) return null;
+    // The tube rides just IN FRONT of the curtain line, never on it: the
+    // rail itself is a 0.12 ft tube, and a strip drawn on the centreline
+    // would be swallowed whole - invisible at the top mount. The same
+    // stand-off keeps the hem line clear of the fabric.
+    const STRIP_OUT = 0.18;
+    // The spot's yaw carries the mount facing; the path arrives in the
+    // fixture's own space by undoing it - the frame's turn cancels out,
+    // only the anchor's facing remains.
+    const facing = Math.atan2(a.normal.x, a.normal.z);
+    const c = Math.cos(facing), s = Math.sin(facing);
+    const ap = a.position;
+    return rail.map(p => {
+        const q = {
+            x: p.x + a.normal.x * STRIP_OUT - ap.x,
+            y: (hem ? ap.y : p.y) - ap.y,
+            z: p.z + a.normal.z * STRIP_OUT - ap.z
+        };
+        return { x: q.x * c - q.z * s, y: q.y, z: q.x * s + q.z * c };
+    });
 }
 
 function refreshElementPlaces() {
@@ -788,6 +846,15 @@ function refreshElementPlaces() {
         const list = frameElementsFor(frameId);
         const arr = models.map((m, i) => elementSpot(
             owner, anchors, list[i] && list[i].anchor));
+        // A strip on a stripline anchor redraws along its frame's own
+        // curve every re-place - Swing Pan drags move the cloth and the
+        // tube together, in the same frame.
+        models.forEach((m, i) => {
+            if (typeof m.setPath !== 'function') return;
+            const entry = list[i];
+            m.setPath(entry && entry.type === 'light-strip'
+                ? stripPathFor(owner, anchors, entry) : null);
+        });
         const prev = savedPlaces.get(key);
         if (!prev || prev.length !== arr.length
             || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
@@ -1016,9 +1083,11 @@ async function syncScene(forcePanel = false) {
         }
 
         // Convert first, space second: the new SET's sliders must already
-        // be on the frames when the row is laid out. The panel moves the
-        // numbers in place - a SET tap is a state change, not a reload.
+        // be on the frames when the row is laid out, and each spaced wall
+        // must stand on its hooks. The panel moves the numbers in place -
+        // a SET tap is a state change, not a reload.
         const shaped = applySetParams(layoutId);
+        reseatSpacedFrames();
         if (shaped) {
             console.info('[set]', layoutId, shaped);
             // The shape must land on the geometry NOW, not on the next
@@ -1058,6 +1127,7 @@ async function syncScene(forcePanel = false) {
                 framePillars: framePillarsPlain(),
                 frameElements: frameElementsPlain(),
                 frameAnchors: frameAnchorsPlain(),
+                frameSpacing: frameSpacingPlain(),
                 places: placesFor(),
                 model: gs[0] ? gs[0].models[0] : null
             }, forcePanel);
@@ -1207,14 +1277,56 @@ function onElementAdd(id, type) {
     const list = frameElementsFor(id).slice();
     if (list.length >= 20) return false;
     const anchor = defaultAnchorFor(id, type);
-    const params = {};
-    // A floor mount is an uplight: start it aimed at the fabric above, not
-    // across the floor into the guests' eyes. -86 leans the beam ~4° into
-    // the curtain from its 1.2 ft standoff - it can never cross the fabric
-    // plane. Pole and rail fixtures keep the schema's own default.
-    if ((anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
+    // The new fixture joins the rig already wearing its numbers: the most
+    // recent light of its own kind on the same wall (so a mirrored pan
+    // comes along), else any light of its kind, else the nearest light on
+    // that wall, else the last one on the frame. Keys the new schema
+    // lacks are dropped on the way in by the clamps.
+    const sideOfAnchor = a => {
+        const hit = /-(L|R)-/.exec(a || '');
+        return hit ? hit[1] : null;
+    };
+    const side = sideOfAnchor(anchor);
+    const pool = side ? list.filter(e => sideOfAnchor(e.anchor) === side) : list;
+    const donor = pool.find(e => e.type === type)
+        || list.find(e => e.type === type)
+        || pool[pool.length - 1]
+        || list[list.length - 1]
+        || null;
+    const params = donor ? Object.assign({}, donor.params) : {};
+    // With nothing to copy, a floor mount starts aimed at the fabric
+    // above, not across the floor into the guests' eyes. -86 leans the
+    // beam ~4° into the curtain from its 1.2 ft standoff - it can never
+    // cross the fabric plane. Pole and rail fixtures keep the schema's
+    // own default.
+    if (!('tilt' in params)
+        && (anchor.split('-')[0] === 'base' || anchor.split('-')[0] === 'uplight')
         && LIGHT_PARAMS[type.slice(6)].tilt) {
         params.tilt = -86;
+    }
+    // A strip on a frame with curtain strip lines lands on BOTH walls at
+    // once - one Add plants the pair, the top rails first and the hems
+    // once the tops carry a strip. Two hand-adds never pile onto the
+    // same hook.
+    if (type === 'light-strip') {
+        const lines = anchorOptionsFor(id).filter(o => o.kind === 'stripline');
+        const seat = (s, mount) => lines.find(o => o.id === `stripline-${s}-${mount}`);
+        const tops = ['L', 'R'].map(s => seat(s, 'T'));
+        const hems = ['L', 'R'].map(s => seat(s, 'B'));
+        if (tops[0] && tops[1]) {
+            const taken = new Set(list.filter(e => e.anchor).map(e => e.anchor));
+            const pair = tops.some(o => taken.has(o.id))
+                ? (hems.some(o => taken.has(o.id)) ? tops : hems)
+                : tops;
+            if (list.length + pair.length <= 20) {
+                for (const a of pair) {
+                    list.push({ type, anchor: a.id, params: Object.assign({}, params) });
+                }
+                frameElements.set(id, list);
+                scheduleSave();
+                return syncScene();
+            }
+        }
     }
     list.push({ type, anchor, params });
     frameElements.set(id, list);
@@ -1284,12 +1396,56 @@ function wallUplightSeats(n) {
     return seats;
 }
 
+// One wall's floor-uplight hooks as { k, x } in frame-local x, in hook
+// order. The seat maths below works on the frame's real geometry, so a
+// spacing the slider asks for lands on hooks the frame actually offers -
+// and both walls run the same maths on their mirrored hooks.
+function uplightHooks(frameId, side) {
+    const owner = (mounted.get(frameId) || [])[0] || null;
+    if (!owner || typeof owner.getAnchors !== 'function') return [];
+    let anchors = [];
+    try { anchors = owner.getAnchors() || []; } catch { return []; }
+    const re = new RegExp('^uplight-' + side + '-(\\d+)$');
+    return anchors.filter(a => re.test(a.id))
+        .map(a => ({ k: Number(re.exec(a.id)[1]), x: a.position.x }))
+        .sort((a, b) => a.k - b.k);
+}
+
+// Which n hooks a wall's floor PARs stand on. No spacing asked for: the
+// bays of the whole wall, exactly as the count slider always has. A
+// spacing in feet: uniform steps of the nearest whole hook gap (the
+// hooks are evenly spaced in x), centred on the wall and shifted inside
+// the hook line so all n keep a hook of their own.
+function wallSeatKs(hooks, n, spacingFt) {
+    const count = Math.max(0, Math.round(n));
+    if (!hooks.length || count <= 0) return [];
+    if (!Number.isFinite(spacingFt) || spacingFt <= 0) {
+        const have = new Set(hooks.map(h => h.k));
+        const nearest = k => hooks.reduce((best, h) =>
+            Math.abs(h.k - k) < Math.abs(best.k - k) ? h : best, hooks[0]);
+        return wallUplightSeats(count)
+            .map(k => have.has(k) ? k : nearest(k).k);
+    }
+    const H = hooks.length;
+    if (count === 1 || H === 1) {
+        return [hooks[Math.min(H - 1, Math.max(0, Math.round((H - 1) / 2)))].k];
+    }
+    const gap = Math.abs(hooks[H - 1].x - hooks[0].x) / (H - 1) || 1;
+    let step = Math.max(1, Math.round(spacingFt / gap));
+    step = Math.min(step, Math.max(1, Math.floor((H - 1) / (count - 1))));
+    const want = Math.round((H - 1) / 2 - ((count - 1) * step) / 2);
+    const lo = Math.max(0, Math.min(H - 1 - (count - 1) * step, want));
+    return Array.from({ length: count }, (_, i) => hooks[lo + i * step].k);
+}
+
 // How many floor uplights stand on EACH curtain wall: the rig sizing knob,
 // a 1-10 slider in the panel. Every change re-seats the wall on the hooks
 // that divide it into n equal bays - the lights spread across the whole
 // wall, never bunched at the entrance gap. Survivors keep their tuned
-// params, extras go, missing seats plant with the entrance-rig numbers.
-// Other fixtures the user placed by hand are never touched.
+// params, extras go, missing seats plant already wearing the wall's own
+// numbers - a count bump never leaves the fresh lights a different colour
+// from the rig they join. Other fixtures the user placed by hand are never
+// touched.
 function onElementCount(id, n) {
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     const want = Math.max(1, Math.min(10, Math.round(Number(n) || 0)));
@@ -1315,16 +1471,78 @@ function onElementCount(id, n) {
             if (moved) changed = true;
         }
         for (let i = kept.length; i < want && list.length < 20; i++) {
+            // A new seat joins the wall already wearing its numbers: the
+            // survivor's own params - same wall, so a mirrored pan comes
+            // along - never the entrance defaults. With no survivor to
+            // copy (a wall grown from zero) the entrance rig numbers stand.
+            const donor = kept[0] || null;
             list.push({
-                type: 'light-par',
+                type: donor ? donor.type : 'light-par',
                 anchor: seats[i],
-                params: { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
+                params: donor
+                    ? Object.assign({}, donor.params)
+                    : { power: 60, tilt: -86, focus: 36, hue: 40, sat: 40 }
             });
             changed = true;
         }
     }
     if (!changed) return false;
     frameElements.set(id, normaliseElementList(list));
+    scheduleSave();
+    return syncScene();
+}
+
+// Re-stand every spaced frame's floor PARs on the hooks its spacing asks
+// for. Runs on every scene sync - cheap and idempotent: the count decides
+// HOW MANY, the spacing decides HOW FAR APART, the hooks decide exactly
+// where. Pole, rail and base fixtures are never touched.
+function reseatSpacedFrames() {
+    let changed = false;
+    for (const [frameId, ft] of [...frameSpacing]) {
+        if (!(ft > 0)) continue;
+        const list = frameElementsFor(frameId).slice();
+        let touched = false;
+        for (const side of ['L', 'R']) {
+            const at = [];
+            for (let i = list.length - 1; i >= 0; i--) {
+                const e = list[i];
+                if (e && e.anchor && e.anchor.startsWith(`uplight-${side}-`)) {
+                    at.unshift(i);
+                }
+            }
+            if (!at.length) continue;
+            const ks = wallSeatKs(uplightHooks(frameId, side), at.length, ft);
+            at.forEach((li, j) => {
+                const k = ks[j];
+                if (k === undefined) return;
+                const want = `uplight-${side}-${k}`;
+                if (list[li].anchor === want) return;
+                list[li] = {
+                    type: list[li].type,
+                    anchor: want,
+                    params: Object.assign({}, list[li].params)
+                };
+                touched = true;
+            });
+        }
+        if (touched) {
+            frameElements.set(frameId, normaliseElementList(list));
+            changed = true;
+        }
+    }
+    if (changed) scheduleSave();
+    return changed;
+}
+
+// The spacing slider's commit: 0 slides back to the wall's even bays.
+function setFrameSpacing(id, ft) {
+    if (!orderIds().includes(id) && !mounted.has(id)) return false;
+    const n = Number(ft);
+    const val = Number.isFinite(n) && n > 0
+        ? Math.max(1, Math.min(12, Math.round(n * 10) / 10)) : 0;
+    if (val === (frameSpacing.get(id) || 0)) return false;
+    if (val > 0) frameSpacing.set(id, val);
+    else frameSpacing.delete(id);
     scheduleSave();
     return syncScene();
 }
@@ -1356,6 +1574,7 @@ async function resetProject() {
     layoutId = null;
     framePillars.clear();
     frameElements.clear();
+    frameSpacing.clear();
 
     // Unmount everything so syncScene rebuilds from defaults rather than
     // reusing models that still carry the old tweaks in their state.
@@ -1450,6 +1669,8 @@ if (savedDoc) {
                 count,
                 place: count === 1 ? 'centre'
                     : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'),
+                gap: typeof v.gap === 'number' && Number.isFinite(v.gap)
+                    ? Math.max(-5, Math.min(40, v.gap)) : 3,
                 offset: {
                     x: Number.isFinite(Number(rawOff.x)) ? Number(rawOff.x) : 0,
                     z: Number.isFinite(Number(rawOff.z)) ? Number(rawOff.z) : 0,
@@ -1483,6 +1704,18 @@ if (savedDoc) {
             if (list.length) frameElements.set(target, list);
         }
     }
+    // Floor-PAR spacing travels the same way: frames this project knows.
+    if (savedDoc.spacing && typeof savedDoc.spacing === 'object'
+        && !Array.isArray(savedDoc.spacing)) {
+        for (const [id, v] of Object.entries(savedDoc.spacing)) {
+            const target = remapId(id);
+            if (!knownIds.has(target)) continue;
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) {
+                frameSpacing.set(target, Math.max(1, Math.min(12, n)));
+            }
+        }
+    }
     // The active frame's own numbers win when two old presets merge into one.
     const placeEntries = Object.entries(savedDoc.places || {})
         .sort((a, b) => (b[0] === savedDoc.activeId) - (a[0] === savedDoc.activeId));
@@ -1495,7 +1728,9 @@ if (savedDoc) {
 
     for (const [id, values] of Object.entries(savedDoc.presets)) {
         const target = remapId(id);
-        if (!knownIds.has(target)) continue;
+        // The pillar is a registered type, not a catalogue entry, so it is
+        // absent from knownIds - its look preset still has to come back.
+        if (!knownIds.has(target) && target !== PILLAR_ID) continue;
         if (!savedPresets[target] || id === savedDoc.activeId) {
             savedPresets[target] = values;
         }
@@ -1560,6 +1795,7 @@ panel = createPanel({
     framePillars: framePillarsPlain(),
     frameElements: frameElementsPlain(),
     frameAnchors: frameAnchorsPlain(),
+    frameSpacing: frameSpacingPlain(),
     places: placesFor(),
     themeIsDark: viewer.isDark,
     onSelect: guard(id => activate(id)),
@@ -1575,6 +1811,7 @@ panel = createPanel({
     onElementRemove: guard((id, index) => onElementRemove(id, index)),
     onElementPatch: guard((id, index, patch) => onElementPatch(id, index, patch)),
     onElementCount: guard((id, n) => onElementCount(id, n)),
+    onFrameSpacing: guard((id, ft) => setFrameSpacing(id, ft)),
     onPlaceChange: guard((key, index, patch) => setPlace(key, index, patch)),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;

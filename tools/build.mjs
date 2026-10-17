@@ -116,7 +116,10 @@ export function buildTo(out) {
 
     const code = bundle().trimEnd();
     const script = `<script type="module">\n${code}\n    </script>`;
-    const built = html.replace(ENTRY_TAG, script);
+    // Function replacer: the bundle is full of `$&`, `$'` and friends
+    // (regex sources, template strings), and a string replacement would
+    // silently expand them and splice HTML tail into the module.
+    const built = html.replace(ENTRY_TAG, () => script);
 
     fs.writeFileSync(out, built);
     return built;

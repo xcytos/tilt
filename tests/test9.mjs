@@ -270,7 +270,7 @@ const call = (method, route, body) => fetch(API + route, body === undefined
 
 let apiUp = false;
 try {
-  const deadline = Date.now() + 8000;
+  const deadline = Date.now() + 20000;
   while (!apiUp && Date.now() < deadline) {
     try { apiUp = (await fetch(API + '/TILT.html')).ok; } catch { /* not yet */ }
     if (!apiUp) await sleep(100);

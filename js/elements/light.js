@@ -54,6 +54,191 @@ const LIGHT_DEG = Math.PI / 180;
 // full of fixtures harmless. The strip is emissive only.
 const SPOT_BASE = { par: 2.2, led: 1.4 };
 
+// ---- the neon-flex strip assembly --------------------------------------
+// One S-curve route in, three pieces out - an aluminium U-channel, the
+// rounded neon flex seated inside it, and an optional soft halo. Every
+// piece is swept from the SAME resampled path with an EXPLICIT upright
+// frame (world-up transported into each binormal), never a Frenet frame:
+// the channel always opens skyward, the cross-section never twists or
+// pinches, and the neon sits a fixed height above the channel rim, so
+// gaps, buried sections and drifting halves are impossible by
+// construction. All dimensions in feet.
+export const STRIP_PROFILE = {
+    channel: { w: 0.15, h: 0.045, t: 0.016 },  // low-profile U-channel
+    neon: { w: 0.1, h: 0.066, r: 0.028 },       // rounded neon flex
+    glow: { r: 0.072 }                          // halo, just past the corners
+};
+
+// The channel's closed outline in the (side, up) plane: floor, two walls,
+// two lips folded inward - an extruded mounting profile, not a hose.
+export function channelOutline() {
+    const { w, h, t } = STRIP_PROFILE.channel;
+    const w2 = w / 2;
+    return [
+        [-w2, 0], [w2, 0], [w2, h], [w2 - t, h],
+        [w2 - t, t], [-(w2 - t), t], [-(w2 - t), h], [-w2, h]
+    ];
+}
+
+// The neon flex: a rounded rectangle seated on the channel floor - flat
+// bottom, generous corner radius, its top rising clear above the rim.
+export function neonOutline() {
+    const { w, h, r } = STRIP_PROFILE.neon;
+    const t0 = STRIP_PROFILE.channel.t;
+    const w2 = w / 2;
+    const u0 = t0, u1 = t0 + h;
+    const seg = 6;
+    const pts = [];
+    const arc = (cx, cy, a0, a1) => {
+        for (let i = 0; i <= seg; i++) {
+            const a = a0 + (a1 - a0) * (i / seg);
+            pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+        }
+    };
+    // Counter-clockwise: bottom-left arc, bottom-right, top-right,
+    // top-left. The straight edges fall out as the chords between
+    // consecutive arcs - bottom, right, top, left.
+    arc(-(w2 - r), u0 + r, Math.PI, Math.PI * 1.5);
+    arc(w2 - r, u0 + r, Math.PI * 1.5, Math.PI * 2);
+    arc(w2 - r, u1 - r, 0, Math.PI / 2);
+    arc(-(w2 - r), u1 - r, Math.PI / 2, Math.PI);
+    return pts;
+}
+
+// Resample the route and carry world-up through every binormal: T along
+// the path, U as upright as the slope allows, S = T x U across. Returns
+// the evenly spaced samples and their frames.
+export function stripFrames(pathPts) {
+    const pts = pathPts.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+    const N = Math.min(360, Math.max(144, pts.length * 16));
+    const samples = curve.getSpacedPoints(N);
+    const frames = [];
+    for (let i = 0; i < samples.length; i++) {
+        const prev = samples[Math.max(0, i - 1)];
+        const next = samples[Math.min(samples.length - 1, i + 1)];
+        const T = next.clone().sub(prev);
+        if (T.lengthSq() < 1e-12) T.set(1, 0, 0);
+        T.normalize();
+        // Up projected off the tangent - never flips while the path stays
+        // short of vertical.
+        const U = new THREE.Vector3(0, 1, 0)
+            .addScaledVector(T, -T.y);
+        if (U.lengthSq() < 1e-12) U.set(0, 0, 1);
+        U.normalize();
+        const S = new THREE.Vector3().crossVectors(T, U).normalize();
+        frames.push({ p: samples[i], T, S, U });
+    }
+    return { samples, frames };
+}
+
+// Sweep a closed 2D outline along the frames. `flat` shades each quad
+// with its own face normal (crisp extruded metal); smooth mode carries
+// the outline's own 2D outward normals (rounded flex). Caps close both
+// ends so there are no abrupt open tips.
+export function sweepOutline(outline, frames, opts = {}) {
+    const flat = opts.flat === true;
+    const caps = opts.caps !== false;
+    const m = outline.length;
+    // Outward normals per outline vertex (CCW polygon: edge normal =
+    // (dy, -dx)); duplicated corners would sharpen - none needed here.
+    const onrm = outline.map((p, k) => {
+        const q = outline[(k + 1) % m];
+        const dx = q[0] - p[0], dy = q[1] - p[1];
+        const r = Math.hypot(dx, dy) || 1;
+        return [dy / r, -dx / r];
+    });
+    const verts = [];
+    const nrms = [];
+    const push = (v, n) => {
+        verts.push(v.x, v.y, v.z);
+        nrms.push(n.x, n.y, n.z);
+    };
+    const at = (f, o) => new THREE.Vector3()
+        .copy(f.p)
+        .addScaledVector(f.S, o[0])
+        .addScaledVector(f.U, o[1]);
+    for (let i = 0; i < frames.length - 1; i++) {
+        const fa = frames[i], fb = frames[i + 1];
+        for (let k = 0; k < m; k++) {
+            const k2 = (k + 1) % m;
+            const a = at(fa, outline[k]);
+            const b = at(fa, outline[k2]);
+            const c = at(fb, outline[k2]);
+            const d = at(fb, outline[k]);
+            if (flat) {
+                const n = new THREE.Vector3().crossVectors(
+                    new THREE.Vector3().subVectors(d, a),
+                    new THREE.Vector3().subVectors(b, a)).normalize();
+                push(a, n); push(d, n); push(c, n);
+                push(a, n); push(c, n); push(b, n);
+            } else {
+                const na = new THREE.Vector3()
+                    .addScaledVector(fa.S, onrm[k][0])
+                    .addScaledVector(fa.U, onrm[k][1]).normalize();
+                const nb = new THREE.Vector3()
+                    .addScaledVector(fa.S, onrm[k2][0])
+                    .addScaledVector(fa.U, onrm[k2][1]).normalize();
+                const n2 = new THREE.Vector3()
+                    .addScaledVector(fb.S, onrm[k2][0])
+                    .addScaledVector(fb.U, onrm[k2][1]).normalize();
+                const n2a = new THREE.Vector3()
+                    .addScaledVector(fb.S, onrm[k][0])
+                    .addScaledVector(fb.U, onrm[k][1]).normalize();
+                push(a, na); push(d, n2a); push(c, n2);
+                push(a, na); push(c, n2); push(b, nb);
+            }
+        }
+    }
+    if (caps && frames.length > 1) {
+        const contour = outline.map(p => new THREE.Vector2(p[0], p[1]));
+        const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+        const capsSpec = [
+            { f: frames[0], flip: false },       // start: outward = -T
+            { f: frames[frames.length - 1], flip: true }  // end: outward = +T
+        ];
+        for (const { f, flip } of capsSpec) {
+            const n = flip ? f.T.clone() : f.T.clone().negate();
+            const ring = outline.map(o => at(f, o));
+            for (const tri of tris) {
+                const order = flip ? [tri[0], tri[2], tri[1]]
+                    : [tri[0], tri[1], tri[2]];
+                for (const idx of order) push(ring[idx], n);
+            }
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position',
+        new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrms, 3));
+    return geo;
+}
+
+// The whole assembly from one route: frames, channel, neon, halo.
+export function stripAssembly(pathPts) {
+    const { frames } = stripFrames(pathPts);
+    const glowCircle = (() => {
+        const r = STRIP_PROFILE.glow.r;
+        const cu = STRIP_PROFILE.channel.t + STRIP_PROFILE.neon.h / 2;
+        const out = [];
+        for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2;
+            out.push([Math.cos(a) * r, cu + Math.sin(a) * r]);
+        }
+        return out;
+    })();
+    return {
+        frames,
+        channel: sweepOutline(channelOutline(), frames,
+            { flat: true, caps: true }),
+        neon: sweepOutline(neonOutline(), frames,
+            { flat: false, caps: true }),
+        glow: sweepOutline(glowCircle, frames,
+            { flat: false, caps: false })
+    };
+}
+
+
 // The visible beam: not a solid cone, but light in haze. The shader fades
 // the surface out at the silhouette (fresnel) and toward the mouth, so the
 // cone has no hard edge - it reads as a glow around the real spotlight.
@@ -115,11 +300,22 @@ export function createLightModel(type = 'light-par', initial = {}) {
         color: 0x0c0c10, emissive: 0xfff4e2, emissiveIntensity: 1,
         roughness: 0.3, metalness: 0
     });
+    // The glow is a SEPARATE, optional shell around the physical neon -
+    // additive and faint, so bloom never hides the profile's real shape.
+    const matGlow = new THREE.MeshBasicMaterial({
+        color: 0xfff4e2, transparent: true, opacity: 0.14,
+        blending: THREE.AdditiveBlending, depthWrite: false
+    });
     const matBeam = createBeamMaterial();
 
     let spot = null;
     let beam = null;
     let themeNow = 'light';
+    // A strip on a stripline anchor rides its frame's own curve - the rail
+    // serpentine or the hem - handed over in the fixture's local space by
+    // the app on every re-place. null means a straight tube of `length`.
+    let pathPts = null;
+    let pathKey = '';
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
@@ -137,9 +333,11 @@ export function createLightModel(type = 'light-par', initial = {}) {
     function applyGlow() {
         const tint = tintColor();
         matLens.emissive.copy(tint);
+        matGlow.color.copy(tint);
         matBeam.uniforms.uColor.value.copy(tint);
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
             beam.visible = power01() > 0;
@@ -196,28 +394,47 @@ export function createLightModel(type = 'light-par', initial = {}) {
     function build() {
         clearRoot();
 
-        // Universal mount: flange + spigot at the anchor point. The app
-        // decides where that is (pole top, rail, floor plate); the fixture
-        // only knows its own local frame, +Y up, aiming along -Z.
-        const flange = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
-        flange.position.y = 0.02;
-        const spigot = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.05, 0.05, 0.16, 12), matHousing);
-        spigot.position.y = 0.12;
-        root.add(flange, spigot);
+        // A strip riding the frame's own curve IS its mounting assembly:
+        // the extruded channel replaces the floor flange and spigot
+        // entirely. Everything else keeps the universal anchor mount -
+        // flange + spigot at the anchor point (pole top, rail, floor
+        // plate); the fixture only knows its own local frame, +Y up,
+        // aiming along -Z.
+        const onRail = kind === 'strip' && !!pathPts && pathPts.length >= 2;
+        if (!onRail) {
+            const flange = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
+            flange.position.y = 0.02;
+            const spigot = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.05, 0.05, 0.16, 12), matHousing);
+            spigot.position.y = 0.12;
+            root.add(flange, spigot);
+        }
 
         if (kind === 'strip') {
-            // Linear tube hanging below the mount; emissive face on the
-            // underside. No pan/tilt - its orientation comes from the rail.
-            const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), matHousing);
-            stem.position.y = -0.07;
-            const len = state.length;
-            const tube = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.12), matHousing);
-            tube.position.y = -0.2;
-            const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
-            face.position.y = -0.262;
-            root.add(stem, tube, face);
+            if (onRail) {
+                // The full neon-flex assembly, continuous end to end from
+                // the one S-curve route: low-profile U-channel, rounded
+                // emissive flex seated inside and rising clear of the rim,
+                // faint halo shell - all swept on the same upright frames.
+                const asm = stripAssembly(pathPts);
+                const channel = new THREE.Mesh(asm.channel, matHousing);
+                const neon = new THREE.Mesh(asm.neon, matLens);
+                const glow = new THREE.Mesh(asm.glow, matGlow);
+                glow.renderOrder = 1;
+                root.add(channel, neon, glow);
+            } else {
+                // Linear tube hanging below the mount; emissive face on the
+                // underside. No pan/tilt - its orientation comes from the rail.
+                const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), matHousing);
+                stem.position.y = -0.07;
+                const len = state.length;
+                const tube = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.12), matHousing);
+                tube.position.y = -0.2;
+                const face = new THREE.Mesh(new THREE.BoxGeometry(len * 0.96, 0.035, 0.07), matLens);
+                face.position.y = -0.262;
+                root.add(stem, tube, face);
+            }
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
             root.add(panG);
@@ -283,7 +500,7 @@ export function createLightModel(type = 'light-par', initial = {}) {
         root.clear();
         spot = null;
         beam = null;
-        [matHousing, matYoke, matLens, matBeam].forEach(m => m.dispose());
+        [matHousing, matYoke, matLens, matBeam, matGlow].forEach(m => m.dispose());
     }
 
     const model = {
@@ -299,6 +516,20 @@ export function createLightModel(type = 'light-par', initial = {}) {
         setParams(partial) {
             Object.assign(state, partial);
             model.dirty = true;
+        },
+        // The frame's rail (or hem) polyline for this strip, in the
+        // fixture's own local space. Rebuilds at once when it changes so
+        // a Swing Pan drag redraws the tube in the same frame, not the
+        // next one.
+        setPath(pts) {
+            const next = Array.isArray(pts) && pts.length >= 2 ? pts : null;
+            const key = next
+                ? next.map(p => `${p.x},${p.y},${p.z}`).join(';') : '';
+            if (key === pathKey) return false;
+            pathKey = key;
+            pathPts = next;
+            build();
+            return true;
         },
         dispose
     };
