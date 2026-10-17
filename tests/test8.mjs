@@ -822,6 +822,19 @@ check('the ballroom is dressed like the real thing', (() => {
     && /sceneChandelier\(group, size, 0, 4, s, true\)/.test(scenes)
     && /typeof document === 'undefined'/.test(scenes);
 })());
+check('the white room is a modern banquet hall', (() => {
+  // Same white-and-red identity, richer shell: recessed downlight grid
+  // and cool cove in a flat ceiling, painted panel trim on the side
+  // walls, ivory drapery folds flanking the stage, centre steps up.
+  const scenes = read('js/scenes.js');
+  return /function sceneModernCeiling\(group, size\)/.test(scenes)
+    && /function sceneDrapery\(group, size\)/.test(scenes)
+    && /function sceneStageSteps\(group, size\)/.test(scenes)
+    && /new THREE\.InstancedMesh\(canGeo/.test(scenes)
+    && /sceneModernCeiling\(group, size\)/.test(scenes)
+    && /sceneDrapery\(group, size\)/.test(scenes)
+    && /sceneStageSteps\(group, size\)/.test(scenes);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)

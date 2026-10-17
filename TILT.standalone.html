@@ -786,12 +786,101 @@ function sceneSconce(group, size, x, y) {
     sceneLamp(group, x, y, size.wallZ - 1.4, 55, 26, 0xffdcae);
 }
 
+// ---- modern banquet hall (the white room) -----------------------------
+// Flat ceiling with a recessed downlight grid and a cool cove, painted
+// wall-panel trim, drapery folds flanking the stage, and shallow centre
+// steps up onto it. The white-and-red identity stays.
+function sceneModernCeiling(group, size) {
+    const ceilY = size.wallH - size.h;
+    const w = size.wallX * 2;
+    const back = size.wallZ;
+    const front = -(size.d / 2 + 14);
+    const depth = back - front;
+    const cz = (back + front) / 2;
+    sceneBox(group, w + 4, 0.25, depth + 2,
+        sceneMat(0xf6f5f2, { roughness: 0.95 }), 0, ceilY + 0.85, cz);
+    // Downlight grid: one instanced recessed can per cell.
+    const cols = Math.max(4, Math.round(w / 10));
+    const rows = Math.max(3, Math.round(depth / 12));
+    const canGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.08, 12);
+    const canMat = sceneMat(0xffffff,
+        { emissive: 0xfff8ec, emissiveIntensity: 3, roughness: 0.4 });
+    const cans = new THREE.InstancedMesh(canGeo, canMat, (cols + 1) * (rows + 1));
+    const m = new THREE.Matrix4();
+    let k = 0;
+    for (let i = 0; i <= cols; i++) {
+        for (let j = 0; j <= rows; j++) {
+            m.makeTranslation(-w / 2 + (w / cols) * i, ceilY + 0.72,
+                front + (depth / rows) * j);
+            cans.setMatrixAt(k++, m);
+        }
+    }
+    group.add(cans);
+    // Cool cove line around the ceiling edge.
+    const cove = sceneMat(0xf3f6ff,
+        { emissive: 0xdfe8ff, emissiveIntensity: 1.5, roughness: 0.6 });
+    sceneBox(group, w, 0.12, 0.12, cove, 0, ceilY - 0.45, back - 0.35);
+    for (const sx of [-1, 1]) {
+        sceneBox(group, 0.12, 0.12, depth, cove,
+            sx * (size.wallX - 0.35), ceilY - 0.45, cz);
+    }
+}
+
+// Drapery: soft vertical folds of ivory, flanking the stage on the back
+// wall - half-round columns of cloth, tight at the top, full at the hem.
+function sceneDrapery(group, size) {
+    const ivory = sceneMat(0xf7f3ea, { roughness: 0.95 });
+    const h = size.wallH * 0.72;
+    for (const sx of [-1, 1]) {
+        const cx = sx * size.w * 0.33;
+        for (let i = -3; i <= 3; i++) {
+            // Half-round of cloth bulging toward the audience (theta z<=0).
+            const fold = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.22, 0.34, h, 10, 1, false,
+                    Math.PI / 2, Math.PI), ivory);
+            fold.position.set(cx + i * 0.42, -size.h + h / 2, size.wallZ - 0.7);
+            fold.receiveShadow = true;
+            group.add(fold);
+        }
+    }
+}
+
+// Two shallow steps up onto the stage, centred, carpet-topped.
+function sceneStageSteps(group, size) {
+    const stepW = Math.min(10, size.w * 0.3);
+    const treadD = 1.1;
+    const stepH = size.h / 2;
+    const skirt = sceneMat(0xf2f0ea, { roughness: 0.9 });
+    const carpet = sceneMat(0xb01818, { roughness: 0.96 });
+    for (let i = 0; i < 2; i++) {
+        const h = stepH * (i === 0 ? 1 : 2);
+        const z = -size.d / 2 - treadD * (2 - i) - 0.05 * i;
+        sceneBox(group, stepW, h, treadD, skirt, 0, -size.h + h / 2, z);
+        sceneBox(group, stepW - 0.3, 0.05, treadD - 0.2, carpet,
+            0, -size.h + h + 0.02, z);
+    }
+}
+
 function buildWhiteStage(group, size) {
     sceneRoom(group, size, 0xe7e5e0, 0xf4f2ee, 0xf2f0ea, 0xb01818);
+    sceneModernCeiling(group, size);
+    sceneDrapery(group, size);
+    sceneStageSteps(group, size);
     const trim = sceneMat(0xffffff, { roughness: 0.6 });
+    const panelIn = sceneMat(0xeceae4, { roughness: 0.85 });
     const wx = size.wallX / 30;  // fittings track the wall they hang on
     for (const x of [-18, -6, 6, 18]) {
         sceneBox(group, 8, 11, 0.1, trim, x * wx, 7.5, size.wallZ - 0.2);
+    }
+    // Painted panel trim along the side walls: proud frame, inset field.
+    for (const sx of [-1, 1]) {
+        const n = Math.max(2, Math.round(size.wallZ / 10));
+        for (let i = 0; i < n; i++) {
+            const z = -size.d / 2 - 5 + i * ((size.wallZ + 10) / n);
+            sceneMoldingPanel(group, trim, panelIn,
+                sx * (size.wallX - 0.12), 6.2, z,
+                5, 5.2, sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        }
     }
     sceneSconce(group, size, -13 * wx, 9);
     sceneSconce(group, size, 13 * wx, 9);
