@@ -894,6 +894,24 @@ check('the white room is a modern banquet hall', (() => {
     && /ACESFilmicToneMapping/.test(read('js/viewer.js'))
     && /toneMapping = THREE\.NoToneMapping/.test(read('js/viewer.js'));
 })());
+check('rooms are textured and live in the key light shadow', (() => {
+  // Flat-card walls were the tell: now every room shells out of seeded
+  // mottle paint, linen weave for cloth, planks under the ballroom, and
+  // the rig sweeps cast/receive shadows over everything it builds. The
+  // key light's shadow box covers a whole ballroom, with bias so big
+  // flat walls don't acne.
+  const scenes = read('js/scenes.js');
+  const viewer = read('js/viewer.js');
+  return /function sceneMottleTexture\(color, amount, seed\)/.test(scenes)
+    && /function sceneWeaveTexture\(color, seed\)/.test(scenes)
+    && /sceneMap\(wall, sceneMottleTexture/.test(scenes)
+    && /floorKind === 'plank'/.test(scenes)
+    && /sceneWeaveTexture\(0xf7f3ea, 7\)/.test(scenes)
+    && /sceneWeaveTexture\(0xf2ead8, 9\)/.test(scenes)
+    && /o\.castShadow = r < 80/.test(scenes)
+    && /shadow\.camera\.left = -56/.test(viewer)
+    && /shadow\.normalBias = 0\.06/.test(viewer);
+})());
 check('the garden is a real place at night', (() => {
   // Manicured approach: stone slabs between hedge rows with flower beds
   // and lantern posts, a moon-and-stars sky above a distant tree-line

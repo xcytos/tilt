@@ -144,10 +144,16 @@ export class Viewer {
         this.mainLight.castShadow = true;
         this.mainLight.shadow.mapSize.width = 2048;
         this.mainLight.shadow.mapSize.height = 2048;
-        this.mainLight.shadow.camera.left = -20;
-        this.mainLight.shadow.camera.right = 20;
-        this.mainLight.shadow.camera.top = 20;
-        this.mainLight.shadow.camera.bottom = -20;
+        // Wide enough to cover a whole ballroom (walls at ±78 ft), tight
+        // near/far for depth precision, bias so big flat walls don't acne.
+        this.mainLight.shadow.camera.left = -56;
+        this.mainLight.shadow.camera.right = 56;
+        this.mainLight.shadow.camera.top = 56;
+        this.mainLight.shadow.camera.bottom = -56;
+        this.mainLight.shadow.camera.near = 2;
+        this.mainLight.shadow.camera.far = 160;
+        this.mainLight.shadow.normalBias = 0.06;
+        this.mainLight.shadow.bias = -0.0004;
         this.scene.add(this.mainLight);
 
         this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);

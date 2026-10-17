@@ -128,6 +128,81 @@ function sceneSky(top, mid, bottom) {
     return tex;
 }
 
+function cssHex(n) {
+    return '#' + (n >>> 0).toString(16).padStart(6, '0');
+}
+
+function shadeHex(n, f) {
+    const c = (v) => Math.min(255, Math.max(0, Math.round(v * f)));
+    return (c((n >> 16) & 255) << 16) | (c((n >> 8) & 255) << 8)
+        | c(n & 255);
+}
+
+// Deterministic noise for baked textures: same seed, same surface, so a
+// rebuild never shimmers.
+function texRng(seed) {
+    let s = seed >>> 0;
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+
+// Soft mottled plaster/paint: hundreds of faint seeded flecks over the
+// base so walls and floors stop reading as flat cards.
+function sceneMottleTexture(color, amount, seed) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    g.fillStyle = cssHex(color);
+    g.fillRect(0, 0, 128, 128);
+    const rng = texRng(seed);
+    for (let i = 0; i < 520; i++) {
+        g.globalAlpha = 0.025 + rng() * (amount * 0.7);
+        g.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
+        const s = 2 + rng() * 5;
+        g.fillRect(rng() * 128, rng() * 128, s, s);
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+}
+
+// Linen weave: a faint cross-hatch, for drapery and table cloths.
+function sceneWeaveTexture(color, seed) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    g.fillStyle = cssHex(color);
+    g.fillRect(0, 0, 128, 128);
+    const rng = texRng(seed);
+    g.strokeStyle = 'rgba(0,0,0,0.05)';
+    g.lineWidth = 1;
+    for (let i = 0; i <= 128; i += 6) {
+        g.globalAlpha = 0.5 + rng() * 0.5;
+        g.beginPath(); g.moveTo(i + 0.5, 0); g.lineTo(i + 0.5, 128); g.stroke();
+        g.beginPath(); g.moveTo(0, i + 0.5); g.lineTo(128, i + 0.5); g.stroke();
+    }
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+}
+
+// Bake a texture into a material: the map carries the colour, so the
+// base tint goes white instead of multiplying the surface dark.
+function sceneMap(mat, tex, rx, ry) {
+    if (!tex) return mat;
+    mat.map = tex;
+    mat.color.setHex(0xffffff);
+    if (rx) tex.repeat.set(rx, ry);
+    return mat;
+}
+
 function scenePlankTexture(base, line, repeat) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
@@ -158,12 +233,19 @@ function scenePlankTexture(base, line, repeat) {
 // Floor + three walls + a raised stage: the shell every indoor scene starts
 // from. The carpet's top face is y = 0, so frames stand on the red mat.
 // Every dimension comes from `size` - the room grows with its contents.
-function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) {
+function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor, floorKind) {
     const groundW = Math.max(170, size.wallX * 2 + 50);
     const groundD = Math.max(120, size.wallZ * 2 + 40);
-    sceneGround(group, groundW, groundD,
-        sceneMat(floorColor, { roughness: 0.9 }), -size.h);
+    const floorMat = sceneMat(floorColor, { roughness: 0.9 });
+    if (floorKind === 'plank') {
+        sceneMap(floorMat, scenePlankTexture(cssHex(floorColor),
+            cssHex(shadeHex(floorColor, 0.72)), 1), 10, 6);
+    } else {
+        sceneMap(floorMat, sceneMottleTexture(floorColor, 0.05, 22), 12, 8);
+    }
+    sceneGround(group, groundW, groundD, floorMat, -size.h);
     const wall = sceneMat(wallColor, { roughness: 0.95 });
+    sceneMap(wall, sceneMottleTexture(wallColor, 0.045, 11), 5, 2.5);
     const midY = size.wallH / 2 - size.h;
     sceneWall(group, size.wallX * 2 + 6, size.wallH, wall,
         0, midY, size.wallZ, Math.PI);
@@ -175,7 +257,9 @@ function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor) 
         sceneMat(skirtColor, { roughness: 0.85 }),
         0, -MAT_T - (size.h - MAT_T) / 2, 0);
     sceneBox(group, size.w - 1.4, MAT_T, size.d - 1.4,
-        sceneMat(carpetColor, { roughness: 0.96 }), 0, -MAT_T / 2, 0);
+        sceneMap(sceneMat(carpetColor, { roughness: 0.96 }),
+            sceneMottleTexture(carpetColor, 0.1, 33), 6, 2),
+        0, -MAT_T / 2, 0);
     return wall;
 }
 
@@ -236,7 +320,8 @@ function sceneModernCeiling(group, size) {
 // Drapery: soft vertical folds of ivory, flanking the stage on the back
 // wall - half-round columns of cloth, tight at the top, full at the hem.
 function sceneDrapery(group, size) {
-    const ivory = sceneMat(0xf7f3ea, { roughness: 0.95 });
+    const ivory = sceneMap(sceneMat(0xf7f3ea, { roughness: 0.95 }),
+        sceneWeaveTexture(0xf7f3ea, 7), 2, 5);
     const h = size.wallH * 0.72;
     for (const sx of [-1, 1]) {
         const cx = sx * size.w * 0.33;
@@ -320,7 +405,8 @@ function sceneChairArmy(group, size, sites) {
 // cloths, gold charger rim, a bloom centerpiece, eight seats a table.
 // Everything instanced; positions scale off the derived room size.
 function sceneDiningTables(group, size, aisle) {
-    const clothMat = sceneMat(0xf2ead8, { roughness: 0.95 });
+    const clothMat = sceneMap(sceneMat(0xf2ead8, { roughness: 0.95 }),
+        sceneWeaveTexture(0xf2ead8, 9), 3, 3);
     const topMat = sceneMat(0xf6f0e2, { roughness: 0.9 });
     const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
     const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
@@ -598,7 +684,7 @@ function sceneDanceFloor(group, size) {
 }
 
 function buildBallroom(group, size) {
-    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56, 'plank');
     sceneCofferedCeiling(group, size);
     sceneDanceFloor(group, size);
 
@@ -944,6 +1030,19 @@ export class SceneRig {
         this.size = make
             ? (size || Object.assign({}, DEFAULT_STAGE_SIZE)) : null;
         this.settings = make ? make(this.group, this.size) : null;
+        if (this.settings) {
+            // Everything in the room lives in the key light's shadow:
+            // cast unless you're a huge slab (the ground plane), receive
+            // always - that's what gives walls their depth.
+            this.group.traverse((o) => {
+                if (!o.isMesh && !o.isInstancedMesh) return;
+                o.receiveShadow = true;
+                if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+                const r = o.geometry.boundingSphere
+                    ? o.geometry.boundingSphere.radius : 0;
+                o.castShadow = r < 80;
+            });
+        }
         return this.settings;
     }
 
