@@ -142,6 +142,35 @@ function handleProjectDelete(res) {
     res.writeHead(204).end();
 }
 
+// Debug captures: the browser at /capture.html renders each room and
+// PUTs the PNGs here, where the agent can read them directly.
+const CAPTURE_DIR = path.join(ROOT, 'tests', '.tmp', 'captures');
+
+function handleCapturePut(req, res, pathname) {
+    const name = pathname.slice('/__captures/'.length);
+    if (!/^[A-Za-z0-9._-]{1,80}\.png$/.test(name)) {
+        res.writeHead(400).end('{"error":"bad name"}');
+        return;
+    }
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+        size += c.length;
+        if (size > 12 * 1024 * 1024) { req.destroy(); return; }
+        chunks.push(c);
+    });
+    req.on('end', () => {
+        try {
+            fs.mkdirSync(CAPTURE_DIR, { recursive: true });
+            fs.writeFileSync(path.join(CAPTURE_DIR, name), Buffer.concat(chunks));
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+               .end(JSON.stringify({ ok: true, bytes: size }));
+        } catch (err) {
+            res.writeHead(500).end(JSON.stringify({ error: err.message }));
+        }
+    });
+}
+
 // -------------------------------------------------------------------- server
 // One store for the process; the API is a thin closure over it.
 const store = openStore();
@@ -170,6 +199,11 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/__events') { handleSSE(req, res); return; }
+    if (pathname.startsWith('/__captures/')) {
+        if (req.method === 'PUT') { handleCapturePut(req, res, pathname); return; }
+        res.writeHead(405).end('{"error":"PUT only"}');
+        return;
+    }
     if (pathname === '/project.json') {
         if (req.method === 'POST') { handleProjectPost(req, res); return; }
         if (req.method === 'DELETE') { handleProjectDelete(res); return; }
