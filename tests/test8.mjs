@@ -835,6 +835,22 @@ check('the white room is a modern banquet hall', (() => {
     && /sceneDrapery\(group, size\)/.test(scenes)
     && /sceneStageSteps\(group, size\)/.test(scenes);
 })());
+check('the garden is a real place at night', (() => {
+  // Manicured approach: stone slabs between hedge rows with flower beds
+  // and lantern posts, a moon-and-stars sky above a distant tree-line
+  // silhouette, and a second festoon span.
+  const scenes = read('js/scenes.js');
+  return /function sceneHedge\(group, x, z0, z1\)/.test(scenes)
+    && /function sceneStonePath\(group\)/.test(scenes)
+    && /function scenePathLantern\(group, x, z\)/.test(scenes)
+    && /function sceneFlowerBeds\(group\)/.test(scenes)
+    && /function sceneMoonAndStars\(group\)/.test(scenes)
+    && /function sceneTreeLine\(group\)/.test(scenes)
+    && /sceneStonePath\(group\)/.test(scenes)
+    && /sceneMoonAndStars\(group\)/.test(scenes)
+    && /sceneTreeLine\(group\)/.test(scenes)
+    && /fog: false/.test(scenes);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)
