@@ -803,6 +803,25 @@ check('the stage grows with its contents', (() => {
     && /viewer\.refreshStageSize\(\)/.test(app)
     && /fitStageSoon\(\);/.test(app);
 })());
+check('the ballroom is dressed like the real thing', (() => {
+  // Grand-ballroom vocabulary, all procedural: coffered ceiling with
+  // gold-trimmed beams and cove light, three crystal chandeliers
+  // (instanced strands, one lamp), pilasters with capitals, chair-rail
+  // molding panels along the walls, and a Versailles parquet dance floor
+  // in front of the stage. Everything scales off the derived room size.
+  const scenes = read('js/scenes.js');
+  return /function sceneCofferedCeiling\(group, size\)/.test(scenes)
+    && /function sceneChandelier\(group, size, x, z, s, withLamp\)/.test(scenes)
+    && /function scenePilaster\(group, size, x, z, h\)/.test(scenes)
+    && /function sceneMoldingPanel\(/.test(scenes)
+    && /function sceneParquetTexture\(\)/.test(scenes)
+    && /function sceneDanceFloor\(group, size\)/.test(scenes)
+    && /new THREE\.InstancedMesh\(strandGeo/.test(scenes)
+    && /sceneCofferedCeiling\(group, size\)/.test(scenes)
+    && /sceneDanceFloor\(group, size\)/.test(scenes)
+    && /sceneChandelier\(group, size, 0, 4, s, true\)/.test(scenes)
+    && /typeof document === 'undefined'/.test(scenes);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)

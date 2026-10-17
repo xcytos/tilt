@@ -211,34 +211,208 @@ function buildWhiteStage(group, size) {
     };
 }
 
-function buildBallroom(group, size) {
-    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
-    const wx = size.wallX / 30;
-    for (const x of [-20, -8, 8, 20]) {
-        sceneBox(group, 1.6, 20, 0.5, sceneMat(0xf7f0e2), x * wx, 10, size.wallZ - 0.4);
-    }
-    for (const x of [-14, -5, 5, 14]) sceneSconce(group, size, x * wx, 8.5);
+// ---- ballroom dressing ------------------------------------------------
+// The vocabulary of the real thing (grand ballrooms: coffered ceilings,
+// crystal chandeliers, gilded moldings, marble columns, parquet dance
+// floors) - all procedural, all sized off the room.
 
-    // Chandelier: ring, chain, core and a ring of bulbs, with one lamp to
-    // carry it onto the floor.
+// A coffered ceiling: a slab with a grid of beams hanging below it, so the
+// slab reads as recessed panels. Gold trim strips line the beam bottoms.
+function sceneCofferedCeiling(group, size) {
+    const ceilY = size.wallH - size.h;
+    const back = size.wallZ;
+    const front = -(size.d / 2 + 18);   // reaches over the dance floor
+    const depth = back - front;
+    const cz = (back + front) / 2;
+    const w = size.wallX * 2;
+    const cream = sceneMat(0xf7f1e4, { roughness: 0.95 });
     const gold = sceneMat(0xd9b45c, { metalness: 0.9, roughness: 0.3 });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.18, 8, 40), gold);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.set(0, 15.5, 4);
-    group.add(ring);
-    const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 8, 6), gold);
-    chain.position.set(0, 19.6, 4);
+    sceneBox(group, w + 4, 0.3, depth + 2, cream, 0, ceilY + 0.95, cz);
+    const cols = Math.max(4, Math.round(w / 12));
+    const rows = Math.max(3, Math.round(depth / 14));
+    for (let i = 0; i <= cols; i++) {
+        const x = -w / 2 + (w / cols) * i;
+        sceneBox(group, 0.7, 0.9, depth, cream, x, ceilY + 0.35, cz);
+        sceneBox(group, 0.34, 0.07, depth, gold, x, ceilY - 0.12, cz);
+    }
+    for (let j = 0; j <= rows; j++) {
+        const z = front + (depth / rows) * j;
+        sceneBox(group, w, 0.9, 0.7, cream, 0, ceilY + 0.35, z);
+        sceneBox(group, w, 0.07, 0.34, gold, 0, ceilY - 0.12, z);
+    }
+    // Cove: a warm emissive line where the walls meet the ceiling.
+    const cove = sceneMat(0xfff2d8,
+        { emissive: 0xffdfae, emissiveIntensity: 1.6, roughness: 0.6 });
+    sceneBox(group, w, 0.14, 0.14, cove, 0, ceilY - 0.5, back - 0.35);
+    for (const sx of [-1, 1]) {
+        sceneBox(group, 0.14, 0.14, depth, cove,
+            sx * (size.wallX - 0.35), ceilY - 0.5, cz);
+    }
+}
+
+// Two-tier crystal chandelier: gold rings, chain to the ceiling, an
+// emissive core, a ring of bulbs and a hanging strand ring. The centre
+// piece also carries a lamp; the flankers are emissive-only so a big room
+// does not stack point lights.
+function sceneChandelier(group, size, x, z, s, withLamp) {
+    const gold = sceneMat(0xd9b45c, { metalness: 0.9, roughness: 0.3 });
+    const glass = sceneMat(0xfff4dd,
+        { emissive: 0xffe3ae, emissiveIntensity: 5, roughness: 0.3 });
+    const y = size.wallH * 0.6;
+    const ceilY = size.wallH - size.h;
+    const ring1 = new THREE.Mesh(
+        new THREE.TorusGeometry(3.2 * s, 0.18 * s, 8, 40), gold);
+    ring1.rotation.x = Math.PI / 2;
+    ring1.position.set(x, y, z);
+    group.add(ring1);
+    const ring2 = new THREE.Mesh(
+        new THREE.TorusGeometry(2.0 * s, 0.13 * s, 8, 32), gold);
+    ring2.rotation.x = Math.PI / 2;
+    ring2.position.set(x, y - 1.2 * s, z);
+    group.add(ring2);
+    const chain = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.06, ceilY - y - 0.2, 6), gold);
+    chain.position.set(x, y + (ceilY - y - 0.2) / 2, z);
     group.add(chain);
-    const core = new THREE.Mesh(
-        new THREE.SphereGeometry(1.1, 16, 12),
-        sceneMat(0xfff4dd, { emissive: 0xffe3ae, emissiveIntensity: 6, roughness: 0.3 }));
-    core.position.set(0, 15, 4);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(1.05 * s, 16, 12), glass);
+    core.position.set(x, y - 0.4 * s, z);
     group.add(core);
     for (let i = 0; i < 10; i++) {
         const a = (i / 10) * Math.PI * 2;
-        sceneBulb(group, Math.cos(a) * 3.2, 15.3, 4 + Math.sin(a) * 3.2, 0xffe3ae);
+        sceneBulb(group, x + Math.cos(a) * 3.2 * s, y - 0.2 * s,
+            z + Math.sin(a) * 3.2 * s, 0xffe3ae);
     }
-    sceneLamp(group, 0, 15, 4, 420, 90, 0xffe3b8);
+    // Crystal strands: instanced drops ringing the lower tier.
+    const strandGeo = new THREE.CylinderGeometry(0.025 * s, 0.05 * s, 0.9 * s, 5);
+    const strandMat = sceneMat(0xfff8ea,
+        { emissive: 0xffedc8, emissiveIntensity: 1.4, roughness: 0.25 });
+    const strands = new THREE.InstancedMesh(strandGeo, strandMat, 16);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2 + 0.2;
+        m.makeTranslation(x + Math.cos(a) * 2.5 * s, y - 1.75 * s,
+            z + Math.sin(a) * 2.5 * s);
+        strands.setMatrixAt(i, m);
+    }
+    group.add(strands);
+    if (withLamp) sceneLamp(group, x, y - 0.5 * s, z, 420 * s, 90, 0xffe3b8);
+}
+
+// A pilaster: square shaft, base and gold capital - the marble-column
+// language of the grand ballrooms, kept planar so it hugs the wall.
+function scenePilaster(group, size, x, z, h) {
+    const cream = sceneMat(0xf3ecdc, { roughness: 0.7 });
+    const gold = sceneMat(0xd9b45c, { metalness: 0.85, roughness: 0.35 });
+    sceneBox(group, 1.6, h, 0.5, cream, x, -size.h + h / 2, z);
+    sceneBox(group, 2.0, 0.5, 0.7, gold, x, -size.h + h - 0.2, z);
+    sceneBox(group, 2.0, 0.4, 0.7, cream, x, -size.h + 0.18, z);
+}
+
+// Molding panels: a proud cream frame with a slightly recessed inner
+// field. Two meshes per panel - the frame reads as applied plaster trim.
+function sceneMoldingPanel(group, mat, inner, cx, cy, cz, fw, fh, ry) {
+    const g = new THREE.Group();
+    g.position.set(cx, cy, cz);
+    g.rotation.y = ry;
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.1), mat);
+    const field = new THREE.Mesh(
+        new THREE.BoxGeometry(fw - 0.55, fh - 0.55, 0.06), inner);
+    field.position.z = 0.02;
+    g.add(frame, field);
+    group.add(g);
+}
+
+// Parquet: the Versailles basket-weave, two by two, on a small canvas.
+// Without a DOM (the node harnesses) there is no canvas - callers fall
+// back to a plain colour.
+function sceneParquetTexture() {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const g = canvas.getContext('2d');
+    const woods = ['#b5894f', '#a67a42'];
+    const grain = ['#8a6435', '#7d592e'];
+    for (let ty = 0; ty < 2; ty++) {
+        for (let tx = 0; tx < 2; tx++) {
+            const ox = tx * 64, oy = ty * 64;
+            g.fillStyle = woods[(tx + ty) % 2];
+            g.fillRect(ox, oy, 64, 64);
+            g.strokeStyle = grain[(tx + ty) % 2];
+            g.lineWidth = 2;
+            const horiz = (tx + ty) % 2 === 0;
+            for (let i = 1; i < 4; i++) {
+                g.beginPath();
+                if (horiz) {
+                    g.moveTo(ox + 4, oy + i * 16);
+                    g.lineTo(ox + 60, oy + i * 16);
+                } else {
+                    g.moveTo(ox + i * 16, oy + 4);
+                    g.lineTo(ox + i * 16, oy + 60);
+                }
+                g.stroke();
+            }
+        }
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+}
+
+// The dance floor, in front of the stage where the camera looks past the
+// set: parquet field on a dark inlay border.
+function sceneDanceFloor(group, size) {
+    const z = -(size.d / 2 + 9);
+    const border = sceneMat(0x5a4028, { roughness: 0.75 });
+    sceneBox(group, 22, 0.06, 15, border, 0, -size.h + 0.03, z);
+    const parquet = sceneMat(0xffffff, { roughness: 0.72 });
+    const tex = sceneParquetTexture();
+    if (tex) {
+        parquet.map = tex;
+        parquet.map.repeat.set(5, 3.5);
+        parquet.userData.ownMap = true;
+    } else {
+        parquet.color.setHex(0xb5894f);
+    }
+    sceneBox(group, 20, 0.06, 13, parquet, 0, -size.h + 0.05, z);
+}
+
+function buildBallroom(group, size) {
+    sceneRoom(group, size, 0xcbb694, 0xefe6d6, 0xf3ead9, 0xb98a56);
+    sceneCofferedCeiling(group, size);
+    sceneDanceFloor(group, size);
+
+    // Pilasters march along the back wall; sconces ride between them.
+    const wx = size.wallX / 30;
+    const backH = size.wallH - 3;
+    for (const x of [-20, -8, 8, 20]) {
+        scenePilaster(group, size, x * wx, size.wallZ - 0.35, backH);
+    }
+    for (const x of [-14, -5, 5, 14]) sceneSconce(group, size, x * wx, 8.5);
+
+    // Chair-rail band and molding panels along the side walls.
+    const rail = sceneMat(0xe8dcc2, { roughness: 0.7 });
+    const panelIn = sceneMat(0xe6dcc6, { roughness: 0.85 });
+    for (const sx of [-1, 1]) {
+        sceneBox(group, 0.18, 0.35, size.wallZ + 20, rail,
+            sx * (size.wallX - 0.1), 3.2, size.wallZ / 2 - 4);
+        const n = Math.max(2, Math.round(size.wallZ / 9));
+        for (let i = 0; i < n; i++) {
+            const z = -size.d / 2 - 6 + i * ((size.wallZ + 12) / n);
+            sceneMoldingPanel(group, rail, panelIn,
+                sx * (size.wallX - 0.12), 6.6, z,
+                5.5, 5.6, sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        }
+    }
+
+    // Three chandeliers: the grand centre plus two flankers, scaled to
+    // the room; only the centre carries a lamp.
+    const s = Math.max(0.7, Math.min(1.35, size.w / 70));
+    sceneChandelier(group, size, 0, 4, s, true);
+    if (size.w >= 56) {
+        sceneChandelier(group, size, -size.w * 0.28, 4, s * 0.62, false);
+        sceneChandelier(group, size, size.w * 0.28, 4, s * 0.62, false);
+    }
     sceneUplights(group, size);
 
     return {
