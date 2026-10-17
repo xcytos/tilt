@@ -319,19 +319,33 @@ function sceneChairArmy(group, size, sites) {
 // chair turned so the seated guest faces the program. Floor-length
 // cloths, gold charger rim, a bloom centerpiece, eight seats a table.
 // Everything instanced; positions scale off the derived room size.
-function sceneDiningTables(group, size) {
+function sceneDiningTables(group, size, aisle) {
     const clothMat = sceneMat(0xf2ead8, { roughness: 0.95 });
     const topMat = sceneMat(0xf6f0e2, { roughness: 0.9 });
     const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
     const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
-    // Two rows per side, in the pockets flanking the dance floor; x pulls
-    // in with the room so the chairs never crowd the parquet edge.
     const sites = [];
-    const x = Math.min(size.wallX - 8, size.w * 0.35);
     const rows = [-size.d / 2 - 4.5, -size.d / 2 - 13.5];
-    for (const sx of [-1, 1]) {
-        for (const z of rows) {
-            sites.push({ x: sx * x, z });
+    if (aisle) {
+        // Ceremony layout: two blocks of tables either side of a central
+        // open aisle running straight to the stage steps.
+        const inner = Math.max(9, size.w * 0.15);
+        const outer = inner + 11;
+        for (const sx of [-1, 1]) {
+            for (const x of [inner, outer]) {
+                for (const z of rows) {
+                    sites.push({ x: sx * x, z });
+                }
+            }
+        }
+    } else {
+        // Gala pockets: one column a side, flanking the dance floor; x
+        // pulls in with the room so chairs never crowd the parquet edge.
+        const x = Math.min(size.wallX - 8, size.w * 0.35);
+        for (const sx of [-1, 1]) {
+            for (const z of rows) {
+                sites.push({ x: sx * x, z });
+            }
         }
     }
     const n = sites.length;
@@ -406,7 +420,7 @@ function buildWhiteStage(group, size) {
     }
     sceneSconce(group, size, -13 * wx, 9);
     sceneSconce(group, size, 13 * wx, 9);
-    sceneDiningTables(group, size);
+    sceneDiningTables(group, size, true);
     sceneUplights(group, size);
     return {
         background: new THREE.Color(0xe9e4db),

@@ -871,8 +871,8 @@ check('the ballroom is dressed like the real thing', (() => {
     && /sceneCofferedCeiling\(group, size\)/.test(scenes)
     && /sceneDanceFloor\(group, size\)/.test(scenes)
     && /sceneChandelier\(group, size, 0, 4, s, true\)/.test(scenes)
-    && /function sceneDiningTables\(group, size\)/.test(scenes)
-    && (scenes.match(/sceneDiningTables\(group, size\)/g) || []).length >= 3
+    && /function sceneDiningTables\(group, size, aisle\)/.test(scenes)
+    && (scenes.match(/sceneDiningTables\(group, size/g) || []).length >= 3
     && /function sceneChairArmy\(group, size, sites\)/.test(scenes)
     && /typeof document === 'undefined'/.test(scenes);
 })());
@@ -888,7 +888,8 @@ check('the white room is a modern banquet hall', (() => {
     && /sceneModernCeiling\(group, size\)/.test(scenes)
     && /sceneDrapery\(group, size\)/.test(scenes)
     && /sceneStageSteps\(group, size\)/.test(scenes)
-    && /function sceneDiningTables\(group, size\)/.test(scenes)
+    && /function sceneDiningTables\(group, size, aisle\)/.test(scenes)
+    && /sceneDiningTables\(group, size, true\)/.test(scenes)
     && /ambient: \{ color: 0xf2ede2, intensity: 0\.42 \}/.test(scenes)
     && /ACESFilmicToneMapping/.test(read('js/viewer.js'))
     && /toneMapping = THREE\.NoToneMapping/.test(read('js/viewer.js'));
