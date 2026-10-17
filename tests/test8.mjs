@@ -824,6 +824,9 @@ check('the ballroom is dressed like the real thing', (() => {
     && /sceneCofferedCeiling\(group, size\)/.test(scenes)
     && /sceneDanceFloor\(group, size\)/.test(scenes)
     && /sceneChandelier\(group, size, 0, 4, s, true\)/.test(scenes)
+    && /function sceneDiningTables\(group, size\)/.test(scenes)
+    && /sceneDiningTables\(group, size\)/.test(scenes)
+    && /function sceneChairArmy\(group, size, sites\)/.test(scenes)
     && /typeof document === 'undefined'/.test(scenes);
 })());
 check('the white room is a modern banquet hall', (() => {

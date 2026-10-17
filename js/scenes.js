@@ -272,26 +272,12 @@ function sceneStageSteps(group, size) {
 // stage room really has. One chair drawn from three parts (seat, back,
 // four legs), every part instanced: a whole wall of stacks is three draw
 // calls. Deterministic jitter, no Math.random.
-function sceneChairStacks(group, size) {
+// One instanced chair army from a list of sites: { x, z, ry, lift }.
+// Seats, backs and legs are three draw calls no matter how many chairs.
+function sceneChairArmy(group, size, sites) {
     const seatMat = sceneMat(0x6e5f4a, { roughness: 0.9 });
     const frameMat = sceneMat(0x8f8574, { metalness: 0.6, roughness: 0.4 });
-    const sites = [];
-    const perSide = size.wallZ >= 20 ? 3 : 2;
-    for (const sx of [-1, 1]) {
-        for (let i = 0; i < perSide; i++) {
-            const z = -size.d / 2 - 4
-                + i * ((size.wallZ + size.d) / (perSide + 0.6));
-            sites.push({
-                x: sx * (size.wallX - 2.4),
-                z,
-                // Backs to the wall: left stacks face +x, right face -x.
-                ry: sx > 0 ? -Math.PI / 2 : Math.PI / 2
-            });
-        }
-    }
-    const per = 5;              // chairs nested in one stack
-    const rise = 0.52;          // seat lift per nested chair
-    const count = sites.length * per;
+    const count = sites.length;
     const seats = new THREE.InstancedMesh(
         new THREE.BoxGeometry(1.6, 0.09, 1.5), seatMat, count);
     const backs = new THREE.InstancedMesh(
@@ -306,28 +292,114 @@ function sceneChairStacks(group, size) {
     let si = 0, li = 0;
     for (const site of sites) {
         const c = Math.cos(site.ry), s = Math.sin(site.ry);
-        for (let k = 0; k < per; k++) {
-            const y = -size.h + 0.46 + k * rise;
-            const jitter = (((k * 37 + si * 13) % 5) - 2) * 0.014;
-            q.setFromAxisAngle(axis, site.ry + jitter);
-            const place = (lx, ly, lz) => {
-                v.set(site.x + lx * c + lz * s, y + ly,
-                    site.z - lx * s + lz * c);
-                m.compose(v, q, one);
-            };
-            place(0, 0, 0);
-            seats.setMatrixAt(si, m);
-            place(0, 0.82, -0.7);
-            backs.setMatrixAt(si, m);
-            for (const [lx, lz] of [[-0.7, -0.6], [0.7, -0.6],
-                [-0.7, 0.6], [0.7, 0.6]]) {
-                place(lx, -0.23, lz);
-                legs.setMatrixAt(li++, m);
-            }
-            si++;
+        const y = -size.h + 0.46 + (site.lift || 0);
+        const jitter = (((si * 13) % 5) - 2) * 0.014;
+        q.setFromAxisAngle(axis, site.ry + jitter);
+        const place = (lx, ly, lz) => {
+            v.set(site.x + lx * c + lz * s, y + ly,
+                site.z - lx * s + lz * c);
+            m.compose(v, q, one);
+        };
+        place(0, 0, 0);
+        seats.setMatrixAt(si, m);
+        place(0, 0.82, -0.7);
+        backs.setMatrixAt(si, m);
+        for (const [lx, lz] of [[-0.7, -0.6], [0.7, -0.6],
+            [-0.7, 0.6], [0.7, 0.6]]) {
+            place(lx, -0.23, lz);
+            legs.setMatrixAt(li++, m);
         }
+        si++;
     }
     group.add(seats, backs, legs);
+}
+
+// Stacked banquet chairs along the side walls - the setup-day look every
+// stage room really has. Five chairs nested per stack, backs to the wall.
+function sceneChairStacks(group, size) {
+    const sites = [];
+    const perSide = size.wallZ >= 20 ? 3 : 2;
+    const per = 5;              // chairs nested in one stack
+    const rise = 0.52;          // seat lift per nested chair
+    for (const sx of [-1, 1]) {
+        for (let i = 0; i < perSide; i++) {
+            const z = -size.d / 2 - 4
+                + i * ((size.wallZ + size.d) / (perSide + 0.6));
+            // Backs to the wall: left stacks face +x, right face -x.
+            const ry = sx > 0 ? -Math.PI / 2 : Math.PI / 2;
+            for (let k = 0; k < per; k++) {
+                sites.push({
+                    x: sx * (size.wallX - 2.4),
+                    z, ry,
+                    lift: k * rise
+                });
+            }
+        }
+    }
+    sceneChairArmy(group, size, sites);
+}
+
+// Round banquet tables set for service on the open floor - floor-length
+// cloths, gold charger rim, a bloom centerpiece, eight chairs each.
+// Flanking the dance floor (never under the stage), scaled to room depth.
+function sceneDiningTables(group, size) {
+    const clothMat = sceneMat(0xf2ead8, { roughness: 0.95 });
+    const topMat = sceneMat(0xf6f0e2, { roughness: 0.9 });
+    const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
+    const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
+    const sites = [];
+    const perSide = Math.min(4, Math.max(2, Math.round((size.d + 10) / 10)));
+    for (const sx of [-1, 1]) {
+        for (let i = 0; i < perSide; i++) {
+            // x clears the stage edge (wallX - 4 keeps chairs off it).
+            sites.push({
+                x: sx * (size.wallX - 4),
+                z: -size.d / 2 - 13 + i * 10.5
+            });
+        }
+    }
+    const n = sites.length;
+    const cloths = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.45, 2.68, 2.5, 24), clothMat, n);
+    const tops = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.5, 2.5, 0.12, 24), topMat, n);
+    const rims = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(2.53, 2.53, 0.08, 24), goldMat, n);
+    const blooms = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(0.38, 10, 8), bloomMat, n);
+    const vases = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(0.14, 0.2, 0.75, 10), goldMat, n);
+    const m = new THREE.Matrix4();
+    const q0 = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    const chairSites = [];
+    const perTable = 8;
+    const chairR = 3.7;
+    let ci = 0;
+    for (const t of sites) {
+        const set = (mesh, y, scale) => {
+            m.compose(
+                new THREE.Vector3(t.x, -size.h + y, t.z), q0,
+                scale ? new THREE.Vector3(scale, 1, scale) : one);
+            mesh.setMatrixAt(ci, m);
+        };
+        set(cloths, 1.25);
+        set(tops, 2.56);
+        set(rims, 2.42);
+        set(vases, 3.0);
+        set(blooms, 3.55);
+        for (let k = 0; k < perTable; k++) {
+            const a = (k / perTable) * Math.PI * 2;
+            chairSites.push({
+                x: t.x + Math.cos(a) * chairR,
+                z: t.z + Math.sin(a) * chairR,
+                // Front (+z local) points at the table centre.
+                ry: Math.atan2(-Math.cos(a), -Math.sin(a))
+            });
+        }
+    }
+    group.add(cloths, tops, rims, vases, blooms);
+    sceneChairArmy(group, size, chairSites);
 }
 
 function buildWhiteStage(group, size) {
@@ -570,6 +642,7 @@ function buildBallroom(group, size) {
         sceneChandelier(group, size, size.w * 0.28, 4, s * 0.62, false);
     }
     sceneChairStacks(group, size);
+    sceneDiningTables(group, size);
     sceneUplights(group, size);
 
     return {
