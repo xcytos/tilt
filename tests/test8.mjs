@@ -851,6 +851,20 @@ check('the garden is a real place at night', (() => {
     && /sceneTreeLine\(group\)/.test(scenes)
     && /fog: false/.test(scenes);
 })());
+check('the terrace is a rooftop above a city', (() => {
+  // Glass balustrade along the view edge, pergola with hanging bulbs,
+  // planters, lounge silhouettes, and an instanced skyline band beyond
+  // the fog line.
+  const scenes = read('js/scenes.js');
+  return /function sceneBalustrade\(group\)/.test(scenes)
+    && /function scenePergola\(group\)/.test(scenes)
+    && /function scenePlanter\(group, x, z\)/.test(scenes)
+    && /function sceneSkyline\(group\)/.test(scenes)
+    && /function sceneLounge\(group\)/.test(scenes)
+    && /sceneBalustrade\(group\)/.test(scenes)
+    && /sceneSkyline\(group\)/.test(scenes)
+    && /transparent: true, opacity: 0\.22/.test(scenes);
+})());
 check('the panel adds, retargets and removes lights through the rig callbacks',
   /onElementAdd: guard\(/.test(app) && /onElementRemove: guard\(/.test(app)
   && /onElementPatch: guard\(/.test(app)

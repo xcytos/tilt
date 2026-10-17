@@ -662,6 +662,92 @@ function buildGardenNight(group, size) {
     };
 }
 
+// ---- rooftop terrace dressing -----------------------------------------
+// A glass balustrade along the view edge, a pergola with hanging bulbs,
+// planters at the posts, lounge silhouettes on the deck, and a skyline
+// band on the horizon so the roof has a city beyond it.
+
+function sceneBalustrade(group) {
+    const dark = sceneMat(0x514c44, { roughness: 0.6, metalness: 0.3 });
+    const glass = sceneMat(0xbfd4e0,
+        { roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.22 });
+    const z = 26;
+    sceneBox(group, 90, 0.18, 0.28, dark, 0, 3.1, z);         // top rail
+    sceneBox(group, 90, 0.12, 0.2, dark, 0, 0.9, z);          // bottom rail
+    for (let i = -11; i <= 11; i++) {
+        sceneBox(group, 0.14, 3, 0.16, dark, i * 4, 1.5, z);   // posts
+    }
+    for (let i = -11; i < 11; i++) {
+        sceneBox(group, 3.8, 1.9, 0.06, glass, i * 4 + 2, 1.9, z); // panes
+    }
+}
+
+// Pergola: posts and a slatted roof over the lounge end, warm bulbs
+// strung under the beams.
+function scenePergola(group) {
+    const wood = sceneMat(0x6f5a42, { roughness: 0.85 });
+    const xs = [-18, -6, 6, 18];
+    for (const x of xs) {
+        sceneBox(group, 0.5, 10, 0.5, wood, x, 5, 8);
+        sceneBox(group, 0.5, 10, 0.5, wood, x, 5, 18);
+    }
+    for (const x of xs) {
+        sceneBox(group, 0.45, 0.4, 11, wood, x, 10.15, 13);   // rafters
+    }
+    sceneBox(group, 38, 0.45, 0.5, wood, 0, 10.5, 8);         // header beams
+    sceneBox(group, 38, 0.45, 0.5, wood, 0, 10.5, 18);
+    for (const z of [10.5, 15.5]) {
+        for (let i = 0; i <= 8; i++) {
+            const t = i / 8;
+            sceneBulb(group, -17 + 34 * t,
+                9.6 - 1.1 * Math.sin(Math.PI * t), z, 0xffc98a);
+        }
+    }
+}
+
+function scenePlanter(group, x, z) {
+    const box = sceneMat(0x4a463f, { roughness: 0.9 });
+    const leaf = sceneMat(0x3d5c33, { roughness: 1, flatShading: true });
+    sceneBox(group, 2.4, 1.1, 2.4, box, x, 0.55, z);
+    const shrub = new THREE.Mesh(new THREE.IcosahedronGeometry(1.15, 1), leaf);
+    shrub.position.set(x, 1.7, z);
+    group.add(shrub);
+}
+
+// The city: a band of varied block silhouettes at the fog line.
+function sceneSkyline(group) {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mat = sceneMat(0x3a3350, { roughness: 1 });
+    const n = 22;
+    const band = new THREE.InstancedMesh(geo, mat, n);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const s = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+        const x = -150 + (i / (n - 1)) * 300 + ((i * 47) % 17) - 8;
+        const h = 12 + ((i * 73) % 30);
+        v.set(x, h / 2, 125 + ((i * 31) % 20));
+        s.set(10 + ((i * 19) % 14), h, 10);
+        m.compose(v, q, s);
+        band.setMatrixAt(i, m);
+    }
+    group.add(band);
+}
+
+// Lounge silhouettes: low sofas and a table, dark against the sunset.
+function sceneLounge(group) {
+    const soft = sceneMat(0x5c5348, { roughness: 0.95 });
+    for (const sx of [-1, 1]) {
+        sceneBox(group, 7, 1.1, 2.6, soft, sx * 11, 0.55, 12);
+        sceneBox(group, 7, 1.5, 0.5, soft, sx * 11, 1.35, 13.2);
+        sceneBox(group, 7, 1.5, 0.5, soft, sx * 11, 1.35, 10.8);
+    }
+    const table = sceneMat(0x3f3a34, { roughness: 0.6, metalness: 0.2 });
+    sceneBox(group, 4, 0.18, 2, table, 0, 0.9, 12);
+    sceneBox(group, 0.3, 0.85, 0.3, table, 0, 0.42, 12);
+}
+
 function buildTerrace(group, size) {
     const planks = scenePlankTexture('#8a6a49', '#6b4f34', 16);
     const deck = sceneMat(0xffffff, { roughness: 0.8 });
@@ -669,7 +755,14 @@ function buildTerrace(group, size) {
     deck.userData.ownMap = true;
     sceneGround(group, 260, 200, deck, 0);
 
-    sceneBox(group, 90, 3, 1, sceneMat(0xd9d2c7, { roughness: 0.9 }), 0, 1.5, 26);
+    sceneBalustrade(group);
+    scenePergola(group);
+    sceneLounge(group);
+    sceneSkyline(group);
+    for (const x of [-20, 20]) {
+        scenePlanter(group, x, 22);
+        scenePlanter(group, x * 0.6, 7);
+    }
     for (const x of [-24, 24]) sceneBox(group, 6, 2.4, 3, sceneMat(0x6f6a60), x, 1.2, 20);
     sceneUplights(group, size);
 
