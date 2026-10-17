@@ -150,11 +150,11 @@ function clipNear(a, b, c) {
 }
 
 // Depth-only pass from the key light: an orthographic map the size of
-// the viewer's shadow box (±56, near 2, far 160). Static scenes mean
+// the viewer's shadow box (±80, near 2, far 200). Static scenes mean
 // this runs once per room, not per view.
 function rasterDepth(scene, light, S) {
     scene.updateMatrixWorld(true);
-    const cam = new THREE.OrthographicCamera(-56, 56, 56, -56, 2, 160);
+    const cam = new THREE.OrthographicCamera(-80, 80, 80, -80, 2, 200);
     cam.position.copy(light.position);
     cam.lookAt(light.target.position);
     cam.updateMatrixWorld(true);

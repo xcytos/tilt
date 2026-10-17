@@ -895,8 +895,8 @@ check('rooms are textured and live in the key light shadow', (() => {
     && /sceneWeaveTexture\(0xf7f3ea, 7\)/.test(scenes)
     && /sceneWeaveTexture\(0xf2ead8, 9\)/.test(scenes)
     && /o\.castShadow = r < 80/.test(scenes)
-    && /shadow\.camera\.left = -56/.test(viewer)
-    && /shadow\.normalBias = 0\.06/.test(viewer);
+    && /shadow\.camera\.left = -80/.test(viewer)
+    && /shadow\.normalBias = 0\.1\b/.test(viewer);
 })());
 check('the garden is a real place at night', (() => {
   // Manicured approach: stone slabs between hedge rows with flower beds

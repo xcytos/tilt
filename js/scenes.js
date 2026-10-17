@@ -63,7 +63,13 @@ export function computeStageSize(fp) {
 
 function sceneMat(color, extra) {
     return new THREE.MeshStandardMaterial(
-        Object.assign({ color, roughness: 0.9, metalness: 0 }, extra || {}));
+        Object.assign({
+            color, roughness: 0.9, metalness: 0,
+            // The viewer's RoomEnvironment runs at full strength and eats
+            // key-light shadow contrast on floors and walls - the studio
+            // models already dial theirs down; rooms get the same.
+            envMapIntensity: 0.3
+        }, extra || {}));
 }
 
 function sceneBox(group, w, h, d, mat, x, y, z) {

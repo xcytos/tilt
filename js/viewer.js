@@ -144,15 +144,16 @@ export class Viewer {
         this.mainLight.castShadow = true;
         this.mainLight.shadow.mapSize.width = 2048;
         this.mainLight.shadow.mapSize.height = 2048;
-        // Wide enough to cover a whole ballroom (walls at ±78 ft), tight
-        // near/far for depth precision, bias so big flat walls don't acne.
-        this.mainLight.shadow.camera.left = -56;
-        this.mainLight.shadow.camera.right = 56;
-        this.mainLight.shadow.camera.top = 56;
-        this.mainLight.shadow.camera.bottom = -56;
+        // Wide enough to cover the biggest room the stage-size formula
+        // builds (walls at +-80 ft), tight near/far for depth precision,
+        // bias so big flat walls don't acne at the coarser texels.
+        this.mainLight.shadow.camera.left = -80;
+        this.mainLight.shadow.camera.right = 80;
+        this.mainLight.shadow.camera.top = 80;
+        this.mainLight.shadow.camera.bottom = -80;
         this.mainLight.shadow.camera.near = 2;
-        this.mainLight.shadow.camera.far = 160;
-        this.mainLight.shadow.normalBias = 0.06;
+        this.mainLight.shadow.camera.far = 200;
+        this.mainLight.shadow.normalBias = 0.1;
         this.mainLight.shadow.bias = -0.0004;
         this.scene.add(this.mainLight);
 
@@ -223,6 +224,16 @@ export class Viewer {
     // and frames once, after layoutGroups has positioned them.
     addModel(model) {
         this.scene.add(model.object3D);
+        // Every mounted model lives in the key light's shadow the same way
+        // the room does: cast and receive, unless the mesh opts out. Light
+        // fixtures, flower panels and greenery never set the flags in
+        // their own builders, so they used to float shadowless on stage.
+        model.object3D.traverse((o) => {
+            if (!(o.isMesh || o.isInstancedMesh)) return;
+            if (o.userData && o.userData.noShadow) return;
+            o.castShadow = true;
+            o.receiveShadow = true;
+        });
         this.models.push(model);
         if (model.setTheme) model.setTheme(this.isDark);
         return model;
