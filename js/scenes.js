@@ -339,23 +339,24 @@ function sceneChairStacks(group, size) {
     sceneChairArmy(group, size, sites);
 }
 
-// Round banquet tables set for service on the open floor - floor-length
-// cloths, gold charger rim, a bloom centerpiece, eight chairs each.
-// Flanking the dance floor (never under the stage), scaled to room depth.
+// Round banquet tables set for service in front of the stage - the gala
+// layout: dance floor nearest the stage, guest tables beyond it, every
+// chair turned so the seated guest faces the program. Floor-length
+// cloths, gold charger rim, a bloom centerpiece, eight seats a table.
+// Everything instanced; positions scale off the derived room size.
 function sceneDiningTables(group, size) {
     const clothMat = sceneMat(0xf2ead8, { roughness: 0.95 });
     const topMat = sceneMat(0xf6f0e2, { roughness: 0.9 });
     const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
     const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
+    // Two rows per side, in the pockets flanking the dance floor; x pulls
+    // in with the room so the chairs never crowd the parquet edge.
     const sites = [];
-    const perSide = Math.min(4, Math.max(2, Math.round((size.d + 10) / 10)));
+    const x = Math.min(size.wallX - 8, size.w * 0.35);
+    const rows = [-size.d / 2 - 4.5, -size.d / 2 - 13.5];
     for (const sx of [-1, 1]) {
-        for (let i = 0; i < perSide; i++) {
-            // x clears the stage edge (wallX - 4 keeps chairs off it).
-            sites.push({
-                x: sx * (size.wallX - 4),
-                z: -size.d / 2 - 13 + i * 10.5
-            });
+        for (const z of rows) {
+            sites.push({ x: sx * x, z });
         }
     }
     const n = sites.length;
@@ -390,11 +391,13 @@ function sceneDiningTables(group, size) {
         set(blooms, 3.55);
         for (let k = 0; k < perTable; k++) {
             const a = (k / perTable) * Math.PI * 2;
+            const cx = t.x + Math.cos(a) * chairR;
+            const cz = t.z + Math.sin(a) * chairR;
             chairSites.push({
-                x: t.x + Math.cos(a) * chairR,
-                z: t.z + Math.sin(a) * chairR,
-                // Front (+z local) points at the table centre.
-                ry: Math.atan2(-Math.cos(a), -Math.sin(a))
+                x: cx,
+                z: cz,
+                // Every chair faces the stage (front of room is -z).
+                ry: Math.atan2(-cx, -cz)
             });
         }
     }
