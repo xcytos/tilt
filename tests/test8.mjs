@@ -147,51 +147,34 @@ check('a hostile placement is cleaned, not trusted', (() => {
     && bad.places.o2tilt[1] === null && !('a"; drop' in bad.places);
 })());
 
-console.log('\nproject file: flower arrangements + mounted panels');
+console.log('\nproject file: mounted flower panels');
 {
   const fresh = proj.parseProject('{}');
-  check('a fresh project starts with an empty library and no panels',
-    Array.isArray(fresh.arrangements) && fresh.arrangements.length === 0
-    && Array.isArray(fresh.flowerPanels) && fresh.flowerPanels.length === 0);
+  check('a fresh project starts with no flower panels',
+    Array.isArray(fresh.flowerPanels) && fresh.flowerPanels.length === 0
+    && !('arrangements' in fresh)); // the arrangement library lives in the Studio
 
   const good = proj.parseProject(proj.projectToJSON({
-    arrangements: [
-      { id: 'spring-wall', name: '  Spring Wall  ', genre: 'flowers', settings: { width: 8, height: 6, flowerType: 'rose', designMode: 'flowers' } },
-      { id: 'air-fill', name: 'Air', genre: 'balloons', settings: { width: 4, height: 4, designMode: 'greenery' } },
-      { id: 'no-settings', name: 'Bad', settings: null },
-      { id: 'spring-wall', name: 'Dup', settings: { width: 2, height: 2 } },
-      { id: 'BAD ID!', name: 'X', settings: { width: 2, height: 2 } }
-    ],
     flowerPanels: [
-      { id: 'panel-1', name: 'Front', arrangementId: 'spring-wall', settings: { width: 8, height: 6, flowerType: 'dahlia' }, x: 5, z: -3, ry: 45 },
+      { id: 'panel-1', name: 'Front', arrangementId: 'arr-abc', settings: { width: 8, height: 6, flowerType: 'dahlia' }, x: 5, z: -3, ry: 45 },
       { id: 'BAD ID', name: 'X', settings: { width: 2, height: 2 } },
       { id: 'panel-2', name: 'NoSettings', settings: 42 }
     ]
   }));
-  check('keeps valid arrangements, drops ones without settings',
-    good.arrangements.length === 2 && good.arrangements[0].id === 'spring-wall');
-  check('arrangement names are trimmed', good.arrangements[0].name === 'Spring Wall');
-  check('genre is tagged (balloons kept as balloons)', good.arrangements[1].genre === 'balloons');
-  check('duplicate ids are dropped, bad ids rejected',
-    good.arrangements.filter(a => a.id === 'spring-wall').length === 1);
-  check('settings are normalized into a full object',
-    good.arrangements[0].settings.width === 8 && typeof good.arrangements[0].settings.colors === 'object');
-
   check('keeps valid panels, drops bad-id / no-settings ones',
     good.flowerPanels.length === 1 && good.flowerPanels[0].id === 'panel-1');
-  check('panel placement is kept and linked to its arrangement',
+  check('panel placement is kept and linked to its Studio arrangement by id',
     good.flowerPanels[0].x === 5 && good.flowerPanels[0].z === -3 && good.flowerPanels[0].ry === 45
-    && good.flowerPanels[0].arrangementId === 'spring-wall');
-  check('panel settings are normalized (flowerType survives)', (() => {
+    && good.flowerPanels[0].arrangementId === 'arr-abc');
+  check('panel settings fallback is normalized (flowerType survives)', (() => {
     const f = good.flowerPanels[0].settings;
     return f.flowerType === 'dahlia' && typeof f.border === 'object' && typeof f.greenery === 'object';
   })());
 
   const many = proj.parseProject(proj.projectToJSON({
-    arrangements: Array.from({ length: 40 }, (_, i) => ({ id: 'a' + i, settings: { width: 2, height: 2 } })),
     flowerPanels: Array.from({ length: 20 }, (_, i) => ({ id: 'p' + i, settings: { width: 2, height: 2 } }))
   }));
-  check('the library and panel list are capped', many.arrangements.length <= 32 && many.flowerPanels.length <= 12);
+  check('the panel list is capped', many.flowerPanels.length <= 12);
 }
 
 console.log('\nproject file: applying saved values to a model');
@@ -890,6 +873,9 @@ check('the white room is a modern banquet hall', (() => {
     && /sceneStageSteps\(group, size\)/.test(scenes)
     && /function sceneDiningTables\(group, size, aisle\)/.test(scenes)
     && /sceneDiningTables\(group, size, true\)/.test(scenes)
+    // every table takes its own instance slot - the ci++ guard against
+    // all tables collapsing onto the stage centre
+    && /blooms, 3\.55\);\s*\n\s*ci\+\+/.test(scenes)
     && /ambient: \{ color: 0xf2ede2, intensity: 0\.42 \}/.test(scenes)
     && /ACESFilmicToneMapping/.test(read('js/viewer.js'))
     && /toneMapping = THREE\.NoToneMapping/.test(read('js/viewer.js'));

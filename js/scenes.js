@@ -113,6 +113,7 @@ function sceneBulb(group, x, y, z, color) {
 // Vertical gradient, stretched across the screen by scene.background. Used
 // for the skies; the flat scenes use a plain colour instead.
 function sceneSky(top, mid, bottom) {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 256;
@@ -204,6 +205,7 @@ function sceneMap(mat, tex, rx, ry) {
 }
 
 function scenePlankTexture(base, line, repeat) {
+    if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
     const g = canvas.getContext('2d');
@@ -464,6 +466,7 @@ function sceneDiningTables(group, size, aisle) {
         set(rims, 2.42);
         set(vases, 3.0);
         set(blooms, 3.55);
+        ci++;                      // next table, next instance slot
         for (let k = 0; k < perTable; k++) {
             const a = (k / perTable) * Math.PI * 2;
             const cx = t.x + Math.cos(a) * chairR;
@@ -482,9 +485,10 @@ function sceneDiningTables(group, size, aisle) {
 
 function buildWhiteStage(group, size) {
     // A banquet hall, not a lightbox: warm greige shell so the white
-    // trims and the ivory drapery actually read, layered lamps instead
-    // of one white blast, and the tone-mapped viewer holds the tops.
-    sceneRoom(group, size, 0xdcd8d0, 0xe6e1d8, 0xeae5dc, 0xb01818);
+    // trims and the ivory drapery actually read, a floor a clear step
+    // darker than the walls so tables and chairs sit ON something, and
+    // layered lamps instead of one white blast.
+    sceneRoom(group, size, 0xc7bfb2, 0xe6e1d8, 0xeae5dc, 0xb01818);
     sceneModernCeiling(group, size);
     sceneDrapery(group, size);
     sceneStageSteps(group, size);
