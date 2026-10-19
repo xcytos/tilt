@@ -25,21 +25,27 @@
   function has(type) { return !!G.get(type); }
   function get(type) { return G.get(type); }
 
-  function ensureGeometry(type) {
+  // Cached per species+leaves so a vine's leafy and bare forms coexist and switching is
+  // instant. Only species with supportsLeaves key on the flag.
+  function ensureGeometry(type, leaves) {
     const s = G.get(type);
     if (!s) throw new Error('Unknown greenery type: "' + type + '"');
-    let built = geoCache.get(type);
+    const keyed = !!s.supportsLeaves;
+    const leaf = leaves !== false;
+    const key = keyed ? type + '@' + (leaf ? 1 : 0) : type;
+    let built = geoCache.get(key);
     if (built) return built;
-    built = G.buildGeometries(s);
-    geoCache.set(type, built);
+    built = G.buildGeometries(s, keyed ? leaf : true);
+    geoCache.set(key, built);
     return built;
   }
 
-  function estimateTriangles(type, count) {
-    return G.trianglesOf(ensureGeometry(type)) * Math.max(0, count | 0);
+  function estimateTriangles(type, count, leaves) {
+    return G.trianglesOf(ensureGeometry(type, leaves)) * Math.max(0, count | 0);
   }
 
-  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation }.
+  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color,
+  // colorVariation, showLeaves }.
   // Throws for an unknown type — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -49,7 +55,7 @@
     if (!items.length) return { meshes: [], triangles: 0, instances: 0 };
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
-    const built = ensureGeometry(type);
+    const built = ensureGeometry(type, opts && opts.showLeaves);
     const geo = built.geometry;
     const mat = getMaterial();
     const im = new T.InstancedMesh(geo, mat, items.length);

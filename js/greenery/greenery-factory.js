@@ -6,6 +6,9 @@ import { GreeneryCore } from './greenery-core.js';
 import './monstera.js';
 import './eucalyptus.js';
 import './boston-fern.js';
+import './grass.js';
+import './ivy-vine.js';
+import './leaf-vine.js';
 
 /* Flower Panel Studio — greenery factory (public API).
    Loads after greenery-core + model files. Builds cached, instanced greenery meshes.
@@ -38,23 +41,28 @@ export const GreeneryEngine = (function () {
 
   // Build (or reuse) the species' geometries at a quality detail level. Cached per
   // species+detail so several species and quality levels coexist without thrashing.
-  function ensureGeometry(type, detail) {
+  // Vines that support a leaves toggle also key on it, so a bare stem and a leafy
+  // stem are both cached and switching back is instant.
+  function ensureGeometry(type, detail, leaves) {
     const s = G.get(type);
     if (!s) throw new Error('Unknown greenery type: "' + type + '"');
     const d = detail != null ? detail : 1;
-    const key = type + '@' + d;
+    const keyed = !!s.supportsLeaves;
+    const leaf = leaves !== false;
+    const key = keyed ? type + '@' + d + '@' + (leaf ? 1 : 0) : type + '@' + d;
     let built = geoCache.get(key);
     if (built) return built;
-    built = G.buildGeometries(s, d);
+    built = G.buildGeometries(s, d, keyed ? leaf : true);
     geoCache.set(key, built);
     return built;
   }
 
-  function estimateTriangles(type, count, detail) {
-    return G.trianglesOf(ensureGeometry(type, detail)) * Math.max(0, count | 0);
+  function estimateTriangles(type, count, detail, leaves) {
+    return G.trianglesOf(ensureGeometry(type, detail, leaves)) * Math.max(0, count | 0);
   }
 
-  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation, detail }.
+  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color,
+  // colorVariation, detail, showLeaves }.
   // Throws for an unknown type — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -64,7 +72,7 @@ export const GreeneryEngine = (function () {
     if (!items.length) return { meshes: [], triangles: 0, instances: 0 };
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
-    const built = ensureGeometry(type, (opts && opts.detail));
+    const built = ensureGeometry(type, (opts && opts.detail), (opts && opts.showLeaves));
     const geo = built.geometry;
     const mat = getMaterial();
     const im = new T.InstancedMesh(geo, mat, items.length);

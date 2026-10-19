@@ -126,7 +126,8 @@ export const FlowerScene = (function () {
           type, items: byType[type],
           color: meta ? meta.color : '#4a7c3f',
           colorVariation: item.colorVariation != null ? item.colorVariation : 0.3,
-          detail
+          detail,
+          showLeaves: item.showLeaves !== false
         });
         for (let i = 0; i < res.meshes.length; i++) addMesh(greeneryGroup, res.meshes[i]);
         greeneryMeshes = greeneryMeshes.concat(res.meshes);
@@ -172,7 +173,7 @@ export const FlowerScene = (function () {
         return { x: xy[0], y: xy[1], seed: 100000 + j + lh * 977, colorIndex: cIdx[j] || 0, spin: rotMax ? (r() * 2 - 1) * rotMax : 0 };
       });
       const S = (layer.flowerSize / 12) * scale;
-      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail });
+      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail, leaves: s.flowerLeaves });
       borderFlowerMeshes[layer.id] = result.meshes;
       for (let i = 0; i < result.meshes.length; i++) addMesh(group, result.meshes[i]);
       return { count: flowers.length, triangles: result.triangles };
@@ -224,7 +225,7 @@ export const FlowerScene = (function () {
 
       let result = { meshes: [], triangles: 0, petalsPerFlower: 0 };
       if (showFlowers) {
-        result = engine.build({ type: s.flowerType, flowers, colors: palette, S, detail });
+        result = engine.build({ type: s.flowerType, flowers, colors: palette, S, detail, leaves: s.flowerLeaves });
         activeFlowerMeshes = result.meshes;
         for (let i = 0; i < activeFlowerMeshes.length; i++) addMesh(group, activeFlowerMeshes[i]);
       }

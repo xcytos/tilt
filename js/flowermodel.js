@@ -49,7 +49,10 @@ export const FlowerModel = (function () {
   const GREENERY_META = {
     monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 13, footprintSqIn: 131, bounds: [-0.360, -0.133, 0.360, 0.867], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.182, -0.002, 0.209, 0.998], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 10, footprintSqIn: 70,  bounds: [-0.44, -0.02, 0.44, 0.98],     color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 7, footprintSqIn: 62, bounds: [-0.16, -0.02, 0.16, 0.98],     color: '#3f7d38', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6, footprintSqIn: 46,  bounds: [-0.13, -0.02, 0.13, 0.98],     color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -208,7 +211,9 @@ export const FlowerModel = (function () {
       density: clamp(num(r.density, 70), 10, 100),
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
-      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1)
+      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
+      // Vines (species with supportsLeaves) can drop their foliage for a bare stem.
+      showLeaves: r.showLeaves === undefined ? true : !!r.showLeaves
     };
   }
   function normalizeGreenery(raw) {
@@ -269,7 +274,11 @@ export const FlowerModel = (function () {
     // Composition style only matters in mixed mode (flowers + greenery together).
     const composition = designMode === 'mixed' ? cleanEnum(settings.composition, COMPOSITIONS, 'greenery-base') : null;
     const greenery = normalizeGreenery(settings.greenery);
-    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery };
+    // Optional greenery ring behind each flower head (calyx/sepals peeking out). Off by
+    // default so the existing flower-only look is preserved; the Studio exposes it as a
+    // "Show leaves" checkbox.
+    const flowerLeaves = settings.flowerLeaves === undefined ? false : !!settings.flowerLeaves;
+    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery, flowerLeaves };
   }
   // Look up a border layer by id (or accept the layer object itself).
   function findBorderLayer(s, which) {

@@ -25,25 +25,26 @@
   function get(type) { return C.get(type); }
   function petalsPerFlower(type) { const s = C.get(type); return s ? C.petalsPerFlower(s) : 0; }
 
-  // Build (or reuse) the species' geometries. Cached per species so several species
-  // (main panel + flower borders) can be built at once without thrashing.
-  function ensureGeometry(type) {
+  // Build (or reuse) the species' geometries, with or without the optional leaves ring.
+  // Cached per species+leaves so several species and toggles coexist without thrashing.
+  function ensureGeometry(type, leaves) {
     const s = C.get(type);
     if (!s) throw new Error('Unknown flower type: "' + type + '"');
-    let built = geoCache.get(type);
+    const key = type + '@' + (leaves ? 1 : 0);
+    let built = geoCache.get(key);
     if (built) return built;
-    built = C.buildGeometries(s);
-    geoCache.set(type, built);
+    built = C.buildGeometries(s, !!leaves);
+    geoCache.set(key, built);
     return built;
   }
 
   // Estimated triangles to render `flowerCount` flowers of `type`.
-  function estimateTriangles(type, flowerCount) {
-    const built = ensureGeometry(type);
+  function estimateTriangles(type, flowerCount, leaves) {
+    const built = ensureGeometry(type, leaves);
     return C.trianglesOf(built) * Math.max(0, flowerCount | 0);
   }
 
-  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S }
+  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S, leaves }
   // Throws for an unknown species — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -52,7 +53,7 @@
     const flowers = (opts && opts.flowers) || [];
     const colors = (opts && opts.colors) || [];
     const S = (opts && opts.S) || 1;
-    const built = ensureGeometry(type);
+    const built = ensureGeometry(type, opts && opts.leaves);
     const pm = getPetalMaterial();
     const rings = C.buildRings({ flowers, colors, S, petalMaterial: pm, layers: built.layers });
     const centre = built.center

@@ -146,13 +146,27 @@
             box-shadow: 0 14px 34px rgba(0,0,0,0.24);
         }
         .dark #overflow { background: #18181b; border-color: rgba(255,255,255,0.14); }
-        #diag {
-            position: fixed; top: calc(52px + env(safe-area-inset-top)); right: 0.5rem;
-            z-index: 120; max-width: min(520px, 72vw); margin: 0; padding: 0.45rem 0.55rem;
-            border-radius: 8px; background: rgba(127,29,29,0.94); color: #fff;
+        #overflow { max-height: calc(100vh - 72px - env(safe-area-inset-top)); overflow-y: auto; }
+        /* Red badge on the ⋮ button while the self-check has failures - the
+           diagnostic itself lives inside the menu (see .menu-diag), so the
+           canvas stays clear. */
+        #btn-overflow { position: relative; }
+        #err-badge {
+            position: absolute; top: 5px; right: 5px;
+            min-width: 16px; height: 16px; padding: 0 4px;
+            border-radius: 999px; background: #dc2626; color: #fff;
+            font: 700 10px/16px system-ui, sans-serif; text-align: center;
+            box-shadow: 0 0 0 2px #fff;
+            pointer-events: none;
+        }
+        #err-badge[hidden] { display: none; }
+        .dark #err-badge { box-shadow: 0 0 0 2px #18181b; }
+        .menu-diag {
+            margin: 0.3rem 0.4rem 0.4rem; padding: 0.45rem 0.55rem;
+            max-height: 42vh; overflow-y: auto; border-radius: 8px;
+            background: rgba(127,29,29,0.94); color: #fff;
             font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-            white-space: pre-wrap; word-break: break-word; pointer-events: none;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            white-space: pre-wrap; word-break: break-word;
         }
         .menu-item {
             display: block; width: 100%; min-height: 42px; padding: 0.55rem 0.7rem;
@@ -508,25 +522,47 @@
                 }
                 return { bad: bad, lines: lines };
             }
-            // Only ever on screen when a check is failing: this is a fault
-            // report, not part of the interface.
+            // The fault report lives behind the ⋮ menu now: no red box sits
+            // on the canvas, the button wears a red issue-count badge while
+            // anything fails, and editor.js renders the text inside the menu
+            // from window.__tiltDiagText(). This still refreshes on every
+            // probe so the badge cannot go stale.
+            var lastReport = '';
+            function badge(n) {
+                var more = document.getElementById('btn-overflow');
+                if (!more) return;
+                var b = document.getElementById('err-badge');
+                if (n > 0) {
+                    if (!b) {
+                        b = document.createElement('span');
+                        b.id = 'err-badge';
+                        more.appendChild(b);
+                    }
+                    b.hidden = false;
+                    b.textContent = n > 9 ? '9+' : String(n);
+                    more.classList.add('has-errors');
+                    more.setAttribute('aria-label',
+                        'Project menu, ' + n + ' issue' + (n === 1 ? '' : 's'));
+                } else {
+                    if (b) b.hidden = true;
+                    more.classList.remove('has-errors');
+                    more.setAttribute('aria-label', 'Project menu');
+                }
+            }
             function show() {
                 var r = probe();
-                var box = document.getElementById('diag');
-                if (!r.bad.length) {
-                    if (box) box.remove();
-                    return;
-                }
-                if (!box) {
-                    box = document.createElement('pre');
-                    box.id = 'diag';
-                    document.body.appendChild(box);
-                }
-                box.textContent = 'TILT self-check\n'
-                    + r.bad.map(function (s) { return '! ' + s; }).join('\n')
-                    + '\n\n' + r.lines.join('\n');
+                window.__tiltDiagBad = r.bad.length;
+                badge(r.bad.length);
+                lastReport = r.bad.length
+                    ? 'TILT self-check\n'
+                        + r.bad.map(function (s) { return '! ' + s; }).join('\n')
+                        + '\n\n' + r.lines.join('\n')
+                    : 'TILT self-check: all clear\n\n' + r.lines.join('\n');
             }
             window.__tiltDiag = show;
+            window.__tiltDiagText = function () {
+                return lastReport || 'TILT self-check: not run yet';
+            };
             setTimeout(show, 8000);
             setInterval(show, 2000);
         })();
@@ -598,6 +634,9 @@ import './gerbera.js';
 import './monstera.js';
 import './eucalyptus.js';
 import './boston-fern.js';
+import './grass.js';
+import './ivy-vine.js';
+import './leaf-vine.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
@@ -2439,7 +2478,10 @@ const FlowerModel = (function () {
   const GREENERY_META = {
     monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 13, footprintSqIn: 131, bounds: [-0.360, -0.133, 0.360, 0.867], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.182, -0.002, 0.209, 0.998], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 10, footprintSqIn: 70,  bounds: [-0.44, -0.02, 0.44, 0.98],     color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 7, footprintSqIn: 62, bounds: [-0.16, -0.02, 0.16, 0.98],     color: '#3f7d38', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6, footprintSqIn: 46,  bounds: [-0.13, -0.02, 0.13, 0.98],     color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -2598,7 +2640,9 @@ const FlowerModel = (function () {
       density: clamp(num(r.density, 70), 10, 100),
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
-      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1)
+      colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
+      // Vines (species with supportsLeaves) can drop their foliage for a bare stem.
+      showLeaves: r.showLeaves === undefined ? true : !!r.showLeaves
     };
   }
   function normalizeGreenery(raw) {
@@ -2659,7 +2703,11 @@ const FlowerModel = (function () {
     // Composition style only matters in mixed mode (flowers + greenery together).
     const composition = designMode === 'mixed' ? cleanEnum(settings.composition, COMPOSITIONS, 'greenery-base') : null;
     const greenery = normalizeGreenery(settings.greenery);
-    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery };
+    // Optional greenery ring behind each flower head (calyx/sepals peeking out). Off by
+    // default so the existing flower-only look is preserved; the Studio exposes it as a
+    // "Show leaves" checkbox.
+    const flowerLeaves = settings.flowerLeaves === undefined ? false : !!settings.flowerLeaves;
+    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery, flowerLeaves };
   }
   // Look up a border layer by id (or accept the layer object itself).
   function findBorderLayer(s, which) {
@@ -3419,6 +3467,9 @@ const FlowerCore = (function () {
     const ruffle   = opts.ruffle   || 0;                          // wavy edges (marigold)
     const ruffleFreq = opts.ruffleFreq || 5;
     const tipPinch = opts.tipPinch || 0;                          // pull tip to a point
+    // Realism: a progressive twist about the petal's own length axis (radians over the
+    // full length), so broad petals turn organically instead of fanning flat. Default 0.
+    const twist = opts.twist || 0;
 
     const pos = new Array((ls + 1) * (ws + 1) * 3);
     let p = 0;
@@ -3442,9 +3493,15 @@ const FlowerCore = (function () {
         if (edgeAmt) z += edgeAmt * Math.pow(vv, edgePow);        // thin rolled rim
         if (ruffle) z += ruffle * Math.sin(u * ruffleFreq * Math.PI) * (1 - Math.abs(v))
                        + ruffle * 0.6 * Math.sin(v * 4 + u * 7) * Math.abs(v);
+        let y = v * hw;
+        if (twist) {
+          const th = twist * u, cs = Math.cos(th), sn = Math.sin(th);
+          const y2 = y * cs - z * sn, z2 = y * sn + z * cs;
+          y = y2; z = z2;
+        }
         const x = u * length - (tipPull ? tipPull * length * vv : 0);
         pos[p++] = x;
-        pos[p++] = v * hw;
+        pos[p++] = y;
         pos[p++] = z;
       }
     }
@@ -3521,7 +3578,11 @@ const FlowerCore = (function () {
       const im = new T.InstancedMesh(geo, petalMaterial, total);
       im.instanceMatrix.setUsage(T.StaticDrawUsage);
       im.frustumCulled = false;
-      const layerColors = colors.map(c => shadedColor(c, layer));
+      // A layer with fixedColor (the optional leaves ring) ignores the flower palette and
+      // tints itself green; every other layer shades its colour from the palette.
+      const layerColors = layer.fixedColor != null
+        ? [new T.Color(layer.fixedColor)]
+        : colors.map(c => shadedColor(c, layer));
       const radius = (layer.radius || 0) * S;
       const z = (layer.z || 0) * S;
       const baseTilt = layer.tilt || 0;
@@ -3595,9 +3656,25 @@ const FlowerCore = (function () {
     return { meshes: [im], triangles: (geo.userData.triangles || 0) * flowers.length, material: mat };
   }
 
+  // Optional green ring behind the head (calyx / sepals peeking out) shown when the
+  // "Show leaves" checkbox is on. Species may override it with their own `leaves`; the
+  // default suits any flower so the toggle works for every type.
+  const DEFAULT_LEAVES = {
+    count: 5, radius: 0.15, tilt: 0.5, z: -0.01, angleOffset: 0.3,
+    jitter: 0.06, tiltJitter: 0.10, sizeVar: 0.12, zJitter: 0.008, rollJitter: 0.15,
+    color: 0x4a7c3a,
+    petal: {
+      length: 0.26, width: 0.10, profile: 'narrow',
+      ridge: 0.01, ridgePow: 0.6, edgeCurl: 0.03, curl: 0.05,
+      tipRound: 0.30, tipStart: 0.50,
+      lengthSegs: 5, widthSegs: 6
+    }
+  };
+
   // Pre-build a species' geometries (petal rings + centre) once; reused across rebuilds.
   // `detail` (default 1) scales every tessellation down for the quality level.
-  function buildGeometries(species, detail) {
+  // `leaves` appends the optional green leaves ring (see DEFAULT_LEAVES).
+  function buildGeometries(species, detail, leaves) {
     const d = detail != null ? detail : 1;
     const domeW = Math.max(4, Math.round(12 * d)), domeH = Math.max(3, Math.round(7 * d));
     const layers = (species.layers || []).map(l => {
@@ -3605,6 +3682,13 @@ const FlowerCore = (function () {
       layer._geometry = makePetalGeometry(Object.assign({}, l.petal || {}, { detail: d }));
       return layer;
     });
+    if (leaves) {
+      const L = Object.assign({}, DEFAULT_LEAVES, species.leaves || {});
+      const leafLayer = Object.assign({}, L);
+      leafLayer._geometry = makePetalGeometry(Object.assign({}, L.petal || {}, { detail: d }));
+      leafLayer.fixedColor = L.color != null ? L.color : 0x4a7c3a;
+      layers.push(leafLayer);
+    }
     let center = null;
     if (species.center) {
       center = Object.assign({}, species.center);
@@ -3687,6 +3771,7 @@ const FlowerCore = (function () {
                  ridge: 0.028, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.05, edgePow: 1.7, curl: 0.10, curlPow: 1.9,
                  tipRound: 0.30, tipStart: 0.50, edgeWave: 0.03, edgeWaveFreq: 3,
+                 twist: 0.30,
                  lengthSegs: 8, widthSegs: 10 } },
       // 2) Second whorl: broad and softly rolled, still opening outward.
       { count: 8, radius: 0.11, tilt: 0.28, z: 0.022, angleOffset: Math.PI / 8,
@@ -3695,6 +3780,7 @@ const FlowerCore = (function () {
                  ridge: 0.026, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.045, edgePow: 1.6, curl: 0.07, curlPow: 1.8,
                  tipRound: 0.28, tipStart: 0.50, edgeWave: 0.025, edgeWaveFreq: 3,
+                 twist: 0.24,
                  lengthSegs: 8, widthSegs: 10 } },
       // 3) Mid-outer: broader and beginning to cup around the centre.
       { count: 8, radius: 0.085, tilt: 0.50, z: 0.042, angleOffset: 0.35,
@@ -3703,6 +3789,7 @@ const FlowerCore = (function () {
                  ridge: 0.024, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.04, edgePow: 1.5, curl: 0.05,
                  tipRound: 0.26, tipStart: 0.50,
+                 twist: 0.18,
                  lengthSegs: 7, widthSegs: 9 } },
       // 4) Mid: cupping upward around the bud.
       { count: 8, radius: 0.062, tilt: 0.72, z: 0.062, angleOffset: 0.6,
@@ -3871,25 +3958,26 @@ const FlowerEngine = (function () {
 
   // Build (or reuse) the species' geometries at a quality detail level. Cached per
   // species+detail so several species and quality levels can be built without thrashing.
-  function ensureGeometry(type, detail) {
+  function ensureGeometry(type, detail, leaves) {
     const s = C.get(type);
     if (!s) throw new Error('Unknown flower type: "' + type + '"');
     const d = detail != null ? detail : 1;
-    const key = type + '@' + d;
+    const key = type + '@' + d + '@' + (leaves ? 1 : 0);
     let built = geoCache.get(key);
     if (built) return built;
-    built = C.buildGeometries(s, d);
+    built = C.buildGeometries(s, d, !!leaves);
     geoCache.set(key, built);
     return built;
   }
 
   // Estimated triangles to render `flowerCount` flowers of `type`.
-  function estimateTriangles(type, flowerCount, detail) {
-    const built = ensureGeometry(type, detail);
+  function estimateTriangles(type, flowerCount, detail, leaves) {
+    const built = ensureGeometry(type, detail, leaves);
     return C.trianglesOf(built) * Math.max(0, flowerCount | 0);
   }
 
-  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S, detail }
+  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color],
+  // S, detail, leaves }
   // Throws for an unknown species — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -3899,7 +3987,7 @@ const FlowerEngine = (function () {
     const colors = (opts && opts.colors) || [];
     const S = (opts && opts.S) || 1;
     const detail = (opts && opts.detail) != null ? opts.detail : 1;
-    const built = ensureGeometry(type, detail);
+    const built = ensureGeometry(type, detail, !!(opts && opts.leaves));
     const pm = getPetalMaterial();
     const rings = C.buildRings({ flowers, colors, S, petalMaterial: pm, layers: built.layers });
     const centre = built.center
@@ -3979,6 +4067,11 @@ const GreeneryCore = (function () {
   // synchronous model.build() so every species' blades/tubes scale down together without
   // editing each species.
   let _detail = 1;
+  // Leaves toggle for species that support it (vines): buildGeometries sets this around
+  // model.build(); species call wantsLeaves() to decide whether to emit their foliage.
+  let _leaves = true;
+  function wantsLeaves() { return _leaves; }
+  function setLeaves(v) { _leaves = v !== false; }
 
   function makeBlade(opts) {
     opts = opts || {};
@@ -3993,6 +4086,10 @@ const GreeneryCore = (function () {
     const holes = opts.holes || [];                 // [{u, v, ru, rv}]
     const cup = opts.cup != null ? opts.cup : 0.05; // edges lift in Z
     const bend = opts.bend != null ? opts.bend : 0.05; // tip lifts in Z
+    // Realism: a raised central midrib vein (+Z along the spine) and a tip that curls
+    // gently toward the viewer. Both default to 0 so existing species are unchanged.
+    const midrib = opts.midrib || 0;
+    const tipCurl = opts.tipCurl || 0;
     const pos = [], uv = [], idx = [];
     const gi = (i, j) => i * (W + 1) + j;
     for (let i = 0; i <= L; i++) {
@@ -4005,7 +4102,9 @@ const GreeneryCore = (function () {
       for (let j = 0; j <= W; j++) {
         const v = -1 + 2 * j / W;
         const x = v * w;
-        const z = cup * (v * v) * w + bend * (u * u) * length;
+        const z = cup * (v * v) * w + bend * (u * u) * length
+          + midrib * (1 - v * v) * w
+          + tipCurl * u * u * u * length;
         pos.push(x, y, z); uv.push((v + 1) / 2, u);
       }
     }
@@ -4124,7 +4223,7 @@ const GreeneryCore = (function () {
   }
 
   // Helpers passed to each model's build().
-  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32 };
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves };
 
   // ---- registry --------------------------------------------------------------
   const _registry = [];
@@ -4157,11 +4256,12 @@ const GreeneryCore = (function () {
   }
 
   // Build (once) the model's single merged geometry. Cached by the factory.
-  function buildGeometries(model, detail) {
+  function buildGeometries(model, detail, leaves) {
     _detail = detail != null ? detail : 1;
+    _leaves = leaves !== false;
     let geometry;
     try { geometry = normalizeLongAxis(model.build(HELPERS)); }
-    finally { _detail = 1; }
+    finally { _detail = 1; _leaves = true; }
     withWhiteColor(geometry);
     geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
     return { geometry };
@@ -4286,7 +4386,9 @@ const GreeneryCore = (function () {
       const leaf = G.makeBlade({
         length: 0.20, halfWidth: 0.072,
         profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
-        cup: 0.015, bend: 0.025, lengthSegs: 6, widthSegs: 7
+        cup: 0.015, bend: 0.025,
+        midrib: 0.09, tipCurl: 0.03, // raised central vein + softly curling tip
+        lengthSegs: 6, widthSegs: 7
       });
       const parts = [stem];
       const nodes = 7;
@@ -4334,7 +4436,9 @@ const GreeneryCore = (function () {
     const leaflet = G.makeBlade({
       length: 0.19, halfWidth: 0.052,
       profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.16 + 0.72 * u)), 0.5),
-      cup: 0.006, bend: 0.02, lengthSegs: 4, widthSegs: 5
+      cup: 0.006, bend: 0.02,
+      midrib: 0.07, // faint central rachis vein for depth
+      lengthSegs: 4, widthSegs: 5
     });
     const parts = [rachis];
     const pairs = 13;
@@ -4382,6 +4486,172 @@ const GreeneryCore = (function () {
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
+// ---- js/greenery/grass.js ----
+/* Grass tuft — a dense clump of slim, tapering blades fanning out from a compact base,
+   each arching gently toward the viewer. Filler layer: low, soft, fills gaps between
+   statement foliage. Geometry is normalised so the longest axis = 1 (see greenery-core);
+   attachment is the base of the clump (origin). */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  G.register({
+    type: 'grass',
+    label: 'Grass tuft',
+    build(G) {
+      const rand = G.mulberry32(0x9e3779b9);
+      const parts = [];
+      const N = 44;
+      for (let i = 0; i < N; i++) {
+        const angle = (rand() - 0.5) * Math.PI * 1.05;   // fan the tuft ±~95°
+        const height = 0.5 + rand() * 0.5;               // blades 0.5..1.0 tall
+        // Taper to a fine point: full near the base, pinched at the tip.
+        const blade = G.makeBlade({
+          length: height,
+          halfWidth: 0.010 + rand() * 0.012,
+          profile: u => Math.sin(Math.PI * Math.min(1, 0.06 + 0.88 * u)) * (1 - 0.82 * u * u),
+          cup: 0.003,
+          bend: 0.10 + rand() * 0.22,                    // arch the tip toward the viewer
+          midrib: 0.15,                                  // faint central vein
+          lengthSegs: 8, widthSegs: 3
+        });
+        // Fan outward from a tight base; slight scale variety keeps the clump organic.
+        const r = 0.045 * rand();
+        G.applyMatrix(blade, G.trs(
+          Math.cos(angle) * r, 0, Math.sin(angle) * r * 0.5,
+          angle * (0.55 + rand() * 0.4), 0.72 + rand() * 0.4));
+        parts.push(blade);
+      }
+      return G.mergeGeometries(parts);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/ivy-vine.js ----
+/* Ivy / wisteria vine — a long, sinuous trailing stem carrying alternating pointed-ovate
+   leaves and a few bare tendrils. Trailing layer: drapes down/across the panel. The
+   leaves are optional (G.wantsLeaves()) so a bare wiry vine can be placed too.
+   Geometry is normalised so the longest axis = 1; attachment is the base (start) of the
+   vine, which runs up +Y. */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  G.register({
+    type: 'ivy-vine',
+    label: 'Ivy / wisteria vine',
+    supportsLeaves: true,
+    build(G) {
+      const showLeaves = G.wantsLeaves();
+      const rand = G.mulberry32(0x51ed270b);
+      // Sinuous main stem: a gentle S-drift in X with a little depth in Z.
+      const pts = [];
+      const N = 26;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        pts.push({
+          x: Math.sin(t * 3.1) * 0.10,
+          y: t,
+          z: Math.sin(t * 2.2 + 1.1) * 0.05
+        });
+      }
+      const stem = G.makeTube(pts, t => 0.020 * (1 - t * 0.55) + 0.006, 6);
+      const parts = [stem];
+      // A few bare tendrils curl off the stem between the leaves.
+      for (let k = 0; k < 4; k++) {
+        const t = 0.18 + k * 0.22;
+        const p = pts[Math.min(N, Math.round(t * N))];
+        const side = k % 2 ? 1 : -1;
+        const tend = [];
+        for (let j = 0; j <= 6; j++) {
+          const u = j / 6;
+          tend.push({ x: p.x + side * u * 0.10, y: p.y + u * 0.04, z: p.z + Math.sin(u * 3.4) * 0.03 });
+        }
+        parts.push(G.makeTube(tend, u => 0.008 * (1 - u * 0.7) + 0.002, 4));
+      }
+      if (showLeaves) {
+        // Pointed-ovate ivy leaf: broad near the base, tapering to a soft point.
+        const leaf = G.makeBlade({
+          length: 0.24, halfWidth: 0.115,
+          profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.10 + 0.80 * u)), 0.62),
+          cup: 0.02, bend: 0.03,
+          midrib: 0.10, tipCurl: 0.05,
+          lengthSegs: 7, widthSegs: 8
+        });
+        const pairs = 9;
+        for (let i = 1; i <= pairs; i++) {
+          const t = i / (pairs + 0.5);
+          const p = pts[Math.min(N, Math.round(t * N))];
+          const sc = 0.85 - t * 0.4;                    // leaves shrink toward the tip
+          for (const side of [1, -1]) {
+            const c = G.cloneGeom(leaf);
+            // Fan each leaf outward and slightly forward so pairs spread along the stem.
+            G.applyMatrix(c, G.trs(p.x + side * 0.02, p.y, p.z, -side * (1.05 - t * 0.25), sc * (0.9 + rand() * 0.25)));
+            parts.push(c);
+          }
+        }
+      }
+      return G.mergeGeometries(parts);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/leaf-vine.js ----
+/* Leaf vine — a fine, wiry trailing stem densely lined with small paired oval leaflets.
+   Trailing/filler layer: a delicate green lace that softens edges and fills gaps. Leaves
+   are optional (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is
+   normalised so the longest axis = 1; attachment is the base (start) of the vine. */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  G.register({
+    type: 'leaf-vine',
+    label: 'Leaf vine',
+    supportsLeaves: true,
+    build(G) {
+      const showLeaves = G.wantsLeaves();
+      const rand = G.mulberry32(0x2545f491);
+      // Fine wiry stem with a tighter S-drift than the ivy.
+      const pts = [];
+      const N = 24;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        pts.push({
+          x: Math.sin(t * 4.3) * 0.07,
+          y: t,
+          z: Math.sin(t * 3.0 + 0.6) * 0.04
+        });
+      }
+      const stem = G.makeTube(pts, t => 0.010 * (1 - t * 0.5) + 0.004, 4);
+      const parts = [stem];
+      if (showLeaves) {
+        // Small oval leaflet: rounded, lightly cupped, faint midrib.
+        const leaflet = G.makeBlade({
+          length: 0.13, halfWidth: 0.055,
+          profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
+          cup: 0.01, bend: 0.015,
+          midrib: 0.08,
+          lengthSegs: 5, widthSegs: 6
+        });
+        const pairs = 16;
+        for (let i = 1; i <= pairs; i++) {
+          const t = i / (pairs + 0.5);
+          const p = pts[Math.min(N, Math.round(t * N))];
+          const sc = 0.9 - t * 0.45;
+          for (const side of [1, -1]) {
+            const c = G.cloneGeom(leaflet);
+            G.applyMatrix(c, G.trs(p.x + side * 0.012, p.y, p.z, -side * (1.15 - t * 0.3), sc * (0.85 + rand() * 0.3)));
+            parts.push(c);
+          }
+        }
+        // One terminal leaflet closes the tip.
+        const tipLeaf = G.cloneGeom(leaflet);
+        G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y, pts[N].z, 0.12, 0.45));
+        parts.push(tipLeaf);
+      }
+      return G.mergeGeometries(parts);
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
 // ---- js/greenery/greenery-factory.js ----
 // Species self-register into GreeneryCore at module-evaluation time. The bundle
 // concatenates them via ORDER (these imports are stripped); the native-ESM dev
@@ -4418,23 +4688,28 @@ const GreeneryEngine = (function () {
 
   // Build (or reuse) the species' geometries at a quality detail level. Cached per
   // species+detail so several species and quality levels coexist without thrashing.
-  function ensureGeometry(type, detail) {
+  // Vines that support a leaves toggle also key on it, so a bare stem and a leafy
+  // stem are both cached and switching back is instant.
+  function ensureGeometry(type, detail, leaves) {
     const s = G.get(type);
     if (!s) throw new Error('Unknown greenery type: "' + type + '"');
     const d = detail != null ? detail : 1;
-    const key = type + '@' + d;
+    const keyed = !!s.supportsLeaves;
+    const leaf = leaves !== false;
+    const key = keyed ? type + '@' + d + '@' + (leaf ? 1 : 0) : type + '@' + d;
     let built = geoCache.get(key);
     if (built) return built;
-    built = G.buildGeometries(s, d);
+    built = G.buildGeometries(s, d, keyed ? leaf : true);
     geoCache.set(key, built);
     return built;
   }
 
-  function estimateTriangles(type, count, detail) {
-    return G.trianglesOf(ensureGeometry(type, detail)) * Math.max(0, count | 0);
+  function estimateTriangles(type, count, detail, leaves) {
+    return G.trianglesOf(ensureGeometry(type, detail, leaves)) * Math.max(0, count | 0);
   }
 
-  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color, colorVariation, detail }.
+  // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color,
+  // colorVariation, detail, showLeaves }.
   // Throws for an unknown type — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -4444,7 +4719,7 @@ const GreeneryEngine = (function () {
     if (!items.length) return { meshes: [], triangles: 0, instances: 0 };
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
-    const built = ensureGeometry(type, (opts && opts.detail));
+    const built = ensureGeometry(type, (opts && opts.detail), (opts && opts.showLeaves));
     const geo = built.geometry;
     const mat = getMaterial();
     const im = new T.InstancedMesh(geo, mat, items.length);
@@ -4614,7 +4889,8 @@ const FlowerScene = (function () {
           type, items: byType[type],
           color: meta ? meta.color : '#4a7c3f',
           colorVariation: item.colorVariation != null ? item.colorVariation : 0.3,
-          detail
+          detail,
+          showLeaves: item.showLeaves !== false
         });
         for (let i = 0; i < res.meshes.length; i++) addMesh(greeneryGroup, res.meshes[i]);
         greeneryMeshes = greeneryMeshes.concat(res.meshes);
@@ -4660,7 +4936,7 @@ const FlowerScene = (function () {
         return { x: xy[0], y: xy[1], seed: 100000 + j + lh * 977, colorIndex: cIdx[j] || 0, spin: rotMax ? (r() * 2 - 1) * rotMax : 0 };
       });
       const S = (layer.flowerSize / 12) * scale;
-      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail });
+      const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail, leaves: s.flowerLeaves });
       borderFlowerMeshes[layer.id] = result.meshes;
       for (let i = 0; i < result.meshes.length; i++) addMesh(group, result.meshes[i]);
       return { count: flowers.length, triangles: result.triangles };
@@ -4712,7 +4988,7 @@ const FlowerScene = (function () {
 
       let result = { meshes: [], triangles: 0, petalsPerFlower: 0 };
       if (showFlowers) {
-        result = engine.build({ type: s.flowerType, flowers, colors: palette, S, detail });
+        result = engine.build({ type: s.flowerType, flowers, colors: palette, S, detail, leaves: s.flowerLeaves });
         activeFlowerMeshes = result.meshes;
         for (let i = 0; i < activeFlowerMeshes.length; i++) addMesh(group, activeFlowerMeshes[i]);
       }
@@ -9881,6 +10157,7 @@ function createEditor(opts) {
     let flashTimer = 0;
     let menuOpen = false;
     let sheetHost = null;
+    let diagEl = null;
 
     nameEl.textContent = currentName;
     statusEl.textContent = STATUS_TEXT[state];
@@ -9920,7 +10197,13 @@ function createEditor(opts) {
             { sep: true },
             { act: 'theme', label: isDark ? 'Dark mode: On' : 'Dark mode: Off' },
             { act: 'reset', label: 'Reset to defaults', danger: true },
-            { act: 'home', label: 'All projects' }
+            { act: 'home', label: 'All projects' },
+            { sep: true },
+            // The self-check report (formerly the floating red box). It is a
+            // view, not an action - clicking toggles the text inside the menu
+            // instead of closing it, and the entry turns red while the ⋮
+            // badge reports failures.
+            { act: 'diag', label: 'Diagnostics' }
         ];
 
     function closeMenu() {
@@ -9928,12 +10211,29 @@ function createEditor(opts) {
         menuOpen = false;
         menuEl.hidden = true;
         menuEl.textContent = '';
+        diagEl = null;
         more.setAttribute('aria-expanded', 'false');
+    }
+
+    // Toggle the self-check text inside the menu. The report is produced by
+    // the shell's inline probe (window.__tiltDiag / __tiltDiagText) so the
+    // menu never keeps its own copy of what is failing.
+    function toggleDiag() {
+        if (diagEl) { diagEl.remove(); diagEl = null; return; }
+        try { window.__tiltDiag && window.__tiltDiag(); } catch (e) { /* stale shell */ }
+        const text = typeof window.__tiltDiagText === 'function'
+            ? window.__tiltDiagText() : '';
+        if (!text) return;
+        diagEl = document.createElement('pre');
+        diagEl.className = 'menu-diag';
+        diagEl.textContent = text;
+        menuEl.appendChild(diagEl);
     }
 
     function openMenu() {
         if (menuOpen) return closeMenu();
         menuEl.textContent = '';
+        diagEl = null;
         for (const item of MENU) {
             if (!item) continue;
             if (item.sep) {
@@ -9944,9 +10244,14 @@ function createEditor(opts) {
             }
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'menu-item' + (item.danger ? ' is-danger' : '');
+            const diagBad = item.act === 'diag' ? (window.__tiltDiagBad || 0) : 0;
+            btn.className = 'menu-item' + (item.danger || diagBad ? ' is-danger' : '');
             btn.textContent = item.label;
-            btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
+            if (item.act === 'diag') {
+                btn.addEventListener('click', e => { e.stopPropagation(); toggleDiag(); });
+            } else {
+                btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
+            }
             menuEl.appendChild(btn);
         }
         // The popup is fixed to the screen, so pin it to the bar's real

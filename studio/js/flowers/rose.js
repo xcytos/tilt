@@ -18,6 +18,7 @@
                  ridge: 0.028, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.05, edgePow: 1.7, curl: 0.10, curlPow: 1.9,
                  tipRound: 0.30, tipStart: 0.50, edgeWave: 0.03, edgeWaveFreq: 3,
+                 twist: 0.30,
                  lengthSegs: 8, widthSegs: 10 } },
       // 2) Second whorl: broad and softly rolled, still opening outward.
       { count: 8, radius: 0.11, tilt: 0.28, z: 0.022, angleOffset: Math.PI / 8,
@@ -26,6 +27,7 @@
                  ridge: 0.026, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.045, edgePow: 1.6, curl: 0.07, curlPow: 1.8,
                  tipRound: 0.28, tipStart: 0.50, edgeWave: 0.025, edgeWaveFreq: 3,
+                 twist: 0.24,
                  lengthSegs: 8, widthSegs: 10 } },
       // 3) Mid-outer: broader and beginning to cup around the centre.
       { count: 8, radius: 0.085, tilt: 0.50, z: 0.042, angleOffset: 0.35,
@@ -34,6 +36,7 @@
                  ridge: 0.024, ridgePow: 0.6, ridgeFade: 1.3,
                  edgeCurl: 0.04, edgePow: 1.5, curl: 0.05,
                  tipRound: 0.26, tipStart: 0.50,
+                 twist: 0.18,
                  lengthSegs: 7, widthSegs: 9 } },
       // 4) Mid: cupping upward around the bud.
       { count: 8, radius: 0.062, tilt: 0.72, z: 0.062, angleOffset: 0.6,

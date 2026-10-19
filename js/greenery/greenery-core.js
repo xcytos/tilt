@@ -37,6 +37,11 @@ export const GreeneryCore = (function () {
   // synchronous model.build() so every species' blades/tubes scale down together without
   // editing each species.
   let _detail = 1;
+  // Leaves toggle for species that support it (vines): buildGeometries sets this around
+  // model.build(); species call wantsLeaves() to decide whether to emit their foliage.
+  let _leaves = true;
+  function wantsLeaves() { return _leaves; }
+  function setLeaves(v) { _leaves = v !== false; }
 
   function makeBlade(opts) {
     opts = opts || {};
@@ -51,6 +56,10 @@ export const GreeneryCore = (function () {
     const holes = opts.holes || [];                 // [{u, v, ru, rv}]
     const cup = opts.cup != null ? opts.cup : 0.05; // edges lift in Z
     const bend = opts.bend != null ? opts.bend : 0.05; // tip lifts in Z
+    // Realism: a raised central midrib vein (+Z along the spine) and a tip that curls
+    // gently toward the viewer. Both default to 0 so existing species are unchanged.
+    const midrib = opts.midrib || 0;
+    const tipCurl = opts.tipCurl || 0;
     const pos = [], uv = [], idx = [];
     const gi = (i, j) => i * (W + 1) + j;
     for (let i = 0; i <= L; i++) {
@@ -63,7 +72,9 @@ export const GreeneryCore = (function () {
       for (let j = 0; j <= W; j++) {
         const v = -1 + 2 * j / W;
         const x = v * w;
-        const z = cup * (v * v) * w + bend * (u * u) * length;
+        const z = cup * (v * v) * w + bend * (u * u) * length
+          + midrib * (1 - v * v) * w
+          + tipCurl * u * u * u * length;
         pos.push(x, y, z); uv.push((v + 1) / 2, u);
       }
     }
@@ -182,7 +193,7 @@ export const GreeneryCore = (function () {
   }
 
   // Helpers passed to each model's build().
-  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32 };
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves };
 
   // ---- registry --------------------------------------------------------------
   const _registry = [];
@@ -215,11 +226,12 @@ export const GreeneryCore = (function () {
   }
 
   // Build (once) the model's single merged geometry. Cached by the factory.
-  function buildGeometries(model, detail) {
+  function buildGeometries(model, detail, leaves) {
     _detail = detail != null ? detail : 1;
+    _leaves = leaves !== false;
     let geometry;
     try { geometry = normalizeLongAxis(model.build(HELPERS)); }
-    finally { _detail = 1; }
+    finally { _detail = 1; _leaves = true; }
     withWhiteColor(geometry);
     geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
     return { geometry };

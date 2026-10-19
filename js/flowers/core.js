@@ -74,6 +74,9 @@ export const FlowerCore = (function () {
     const ruffle   = opts.ruffle   || 0;                          // wavy edges (marigold)
     const ruffleFreq = opts.ruffleFreq || 5;
     const tipPinch = opts.tipPinch || 0;                          // pull tip to a point
+    // Realism: a progressive twist about the petal's own length axis (radians over the
+    // full length), so broad petals turn organically instead of fanning flat. Default 0.
+    const twist = opts.twist || 0;
 
     const pos = new Array((ls + 1) * (ws + 1) * 3);
     let p = 0;
@@ -97,9 +100,15 @@ export const FlowerCore = (function () {
         if (edgeAmt) z += edgeAmt * Math.pow(vv, edgePow);        // thin rolled rim
         if (ruffle) z += ruffle * Math.sin(u * ruffleFreq * Math.PI) * (1 - Math.abs(v))
                        + ruffle * 0.6 * Math.sin(v * 4 + u * 7) * Math.abs(v);
+        let y = v * hw;
+        if (twist) {
+          const th = twist * u, cs = Math.cos(th), sn = Math.sin(th);
+          const y2 = y * cs - z * sn, z2 = y * sn + z * cs;
+          y = y2; z = z2;
+        }
         const x = u * length - (tipPull ? tipPull * length * vv : 0);
         pos[p++] = x;
-        pos[p++] = v * hw;
+        pos[p++] = y;
         pos[p++] = z;
       }
     }
@@ -176,7 +185,11 @@ export const FlowerCore = (function () {
       const im = new T.InstancedMesh(geo, petalMaterial, total);
       im.instanceMatrix.setUsage(T.StaticDrawUsage);
       im.frustumCulled = false;
-      const layerColors = colors.map(c => shadedColor(c, layer));
+      // A layer with fixedColor (the optional leaves ring) ignores the flower palette and
+      // tints itself green; every other layer shades its colour from the palette.
+      const layerColors = layer.fixedColor != null
+        ? [new T.Color(layer.fixedColor)]
+        : colors.map(c => shadedColor(c, layer));
       const radius = (layer.radius || 0) * S;
       const z = (layer.z || 0) * S;
       const baseTilt = layer.tilt || 0;
@@ -250,9 +263,25 @@ export const FlowerCore = (function () {
     return { meshes: [im], triangles: (geo.userData.triangles || 0) * flowers.length, material: mat };
   }
 
+  // Optional green ring behind the head (calyx / sepals peeking out) shown when the
+  // "Show leaves" checkbox is on. Species may override it with their own `leaves`; the
+  // default suits any flower so the toggle works for every type.
+  const DEFAULT_LEAVES = {
+    count: 5, radius: 0.15, tilt: 0.5, z: -0.01, angleOffset: 0.3,
+    jitter: 0.06, tiltJitter: 0.10, sizeVar: 0.12, zJitter: 0.008, rollJitter: 0.15,
+    color: 0x4a7c3a,
+    petal: {
+      length: 0.26, width: 0.10, profile: 'narrow',
+      ridge: 0.01, ridgePow: 0.6, edgeCurl: 0.03, curl: 0.05,
+      tipRound: 0.30, tipStart: 0.50,
+      lengthSegs: 5, widthSegs: 6
+    }
+  };
+
   // Pre-build a species' geometries (petal rings + centre) once; reused across rebuilds.
   // `detail` (default 1) scales every tessellation down for the quality level.
-  function buildGeometries(species, detail) {
+  // `leaves` appends the optional green leaves ring (see DEFAULT_LEAVES).
+  function buildGeometries(species, detail, leaves) {
     const d = detail != null ? detail : 1;
     const domeW = Math.max(4, Math.round(12 * d)), domeH = Math.max(3, Math.round(7 * d));
     const layers = (species.layers || []).map(l => {
@@ -260,6 +289,13 @@ export const FlowerCore = (function () {
       layer._geometry = makePetalGeometry(Object.assign({}, l.petal || {}, { detail: d }));
       return layer;
     });
+    if (leaves) {
+      const L = Object.assign({}, DEFAULT_LEAVES, species.leaves || {});
+      const leafLayer = Object.assign({}, L);
+      leafLayer._geometry = makePetalGeometry(Object.assign({}, L.petal || {}, { detail: d }));
+      leafLayer.fixedColor = L.color != null ? L.color : 0x4a7c3a;
+      layers.push(leafLayer);
+    }
     let center = null;
     if (species.center) {
       center = Object.assign({}, species.center);

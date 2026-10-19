@@ -22,7 +22,9 @@ import { GreeneryCore } from './greenery-core.js';
     const leaflet = G.makeBlade({
       length: 0.19, halfWidth: 0.052,
       profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.16 + 0.72 * u)), 0.5),
-      cup: 0.006, bend: 0.02, lengthSegs: 4, widthSegs: 5
+      cup: 0.006, bend: 0.02,
+      midrib: 0.07, // faint central rachis vein for depth
+      lengthSegs: 4, widthSegs: 5
     });
     const parts = [rachis];
     const pairs = 13;

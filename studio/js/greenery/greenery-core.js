@@ -31,6 +31,12 @@
   // A flat, slightly cupped blade in the XY plane: base at (0,0,0), tip at (0,length,0),
   // width across X, cup/lift in Z. `profile(u)` shapes the half-width along the length.
   // `lobes` cut split-like notches (monstera); `holes` punch elliptical fenestrations.
+  // Leaves toggle for species that support it (vines): buildGeometries sets this around
+  // model.build(); species call wantsLeaves() to decide whether to emit their foliage.
+  let _leaves = true;
+  function wantsLeaves() { return _leaves; }
+  function setLeaves(v) { _leaves = v !== false; }
+
   function makeBlade(opts) {
     opts = opts || {};
     const L = opts.lengthSegs || 10, W = opts.widthSegs || 10;
@@ -43,6 +49,10 @@
     const holes = opts.holes || [];                 // [{u, v, ru, rv}]
     const cup = opts.cup != null ? opts.cup : 0.05; // edges lift in Z
     const bend = opts.bend != null ? opts.bend : 0.05; // tip lifts in Z
+    // Realism: a raised central midrib vein (+Z along the spine) and a tip that curls
+    // gently toward the viewer. Both default to 0 so existing species are unchanged.
+    const midrib = opts.midrib || 0;
+    const tipCurl = opts.tipCurl || 0;
     const pos = [], uv = [], idx = [];
     const gi = (i, j) => i * (W + 1) + j;
     for (let i = 0; i <= L; i++) {
@@ -55,7 +65,9 @@
       for (let j = 0; j <= W; j++) {
         const v = -1 + 2 * j / W;
         const x = v * w;
-        const z = cup * (v * v) * w + bend * (u * u) * length;
+        const z = cup * (v * v) * w + bend * (u * u) * length
+          + midrib * (1 - v * v) * w
+          + tipCurl * u * u * u * length;
         pos.push(x, y, z); uv.push((v + 1) / 2, u);
       }
     }
@@ -174,7 +186,7 @@
   }
 
   // Helpers passed to each model's build().
-  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32 };
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves };
 
   // ---- registry --------------------------------------------------------------
   const _registry = [];
@@ -207,8 +219,12 @@
   }
 
   // Build (once) the model's single merged geometry. Cached by the factory.
-  function buildGeometries(model) {
-    const geometry = normalizeLongAxis(model.build(HELPERS));
+  // `leaves !== false` (default) builds with foliage; vines check wantsLeaves().
+  function buildGeometries(model, leaves) {
+    _leaves = leaves !== false;
+    let geometry;
+    try { geometry = normalizeLongAxis(model.build(HELPERS)); }
+    finally { _leaves = true; }
     withWhiteColor(geometry);
     geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
     return { geometry };
@@ -218,6 +234,7 @@
 
   root.GreeneryCore = {
     register, get, list, buildGeometries, disposeGeometries, trianglesOf,
-    makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, withWhiteColor
+    makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, withWhiteColor,
+    wantsLeaves, setLeaves
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

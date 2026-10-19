@@ -23,7 +23,9 @@ import { GreeneryCore } from './greenery-core.js';
       const leaf = G.makeBlade({
         length: 0.20, halfWidth: 0.072,
         profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
-        cup: 0.015, bend: 0.025, lengthSegs: 6, widthSegs: 7
+        cup: 0.015, bend: 0.025,
+        midrib: 0.09, tipCurl: 0.03, // raised central vein + softly curling tip
+        lengthSegs: 6, widthSegs: 7
       });
       const parts = [stem];
       const nodes = 7;

@@ -40,25 +40,26 @@ export const FlowerEngine = (function () {
 
   // Build (or reuse) the species' geometries at a quality detail level. Cached per
   // species+detail so several species and quality levels can be built without thrashing.
-  function ensureGeometry(type, detail) {
+  function ensureGeometry(type, detail, leaves) {
     const s = C.get(type);
     if (!s) throw new Error('Unknown flower type: "' + type + '"');
     const d = detail != null ? detail : 1;
-    const key = type + '@' + d;
+    const key = type + '@' + d + '@' + (leaves ? 1 : 0);
     let built = geoCache.get(key);
     if (built) return built;
-    built = C.buildGeometries(s, d);
+    built = C.buildGeometries(s, d, !!leaves);
     geoCache.set(key, built);
     return built;
   }
 
   // Estimated triangles to render `flowerCount` flowers of `type`.
-  function estimateTriangles(type, flowerCount, detail) {
-    const built = ensureGeometry(type, detail);
+  function estimateTriangles(type, flowerCount, detail, leaves) {
+    const built = ensureGeometry(type, detail, leaves);
     return C.trianglesOf(built) * Math.max(0, flowerCount | 0);
   }
 
-  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color], S, detail }
+  // Build instanced meshes. opts: { type, flowers:[{x,y,seed,colorIndex}], colors:[THREE.Color],
+  // S, detail, leaves }
   // Throws for an unknown species — never silently falls back.
   function build(opts) {
     const type = opts && opts.type;
@@ -68,7 +69,7 @@ export const FlowerEngine = (function () {
     const colors = (opts && opts.colors) || [];
     const S = (opts && opts.S) || 1;
     const detail = (opts && opts.detail) != null ? opts.detail : 1;
-    const built = ensureGeometry(type, detail);
+    const built = ensureGeometry(type, detail, !!(opts && opts.leaves));
     const pm = getPetalMaterial();
     const rings = C.buildRings({ flowers, colors, S, petalMaterial: pm, layers: built.layers });
     const centre = built.center
