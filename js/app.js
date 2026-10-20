@@ -1038,16 +1038,16 @@ function studioArrangements() {
     } catch { return []; }
 }
 
-// Mount one Studio arrangement into the scene, near the origin and nudged
-// apart so several stack visibly. Persists as a flowerPanels[] snapshot.
+// Mount one Studio arrangement into the scene at the origin (x=0). It
+// persists as a flowerPanels[] snapshot; use the shelf's Depth/Turn controls
+// to position it.
 function mountArrangement(arr) {
     if (!arr || !arr.settings) return null;
-    const n = flowerPanels.length;
     const fp = mountFlowerPanel({
         arrangementId: arr.id,
         name: (arr.settings && arr.settings.name) || '',
         settings: arr.settings,
-        x: (n % 5) * 6 - 12,
+        x: 0,
         z: 10,
         ry: 0
     });

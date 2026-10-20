@@ -47,12 +47,12 @@ export const FlowerModel = (function () {
   // uses it to keep the FULL rotated+scaled footprint inside the usable panel (not just
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
-    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 13, footprintSqIn: 131, bounds: [-0.360, -0.133, 0.360, 0.867], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.182, -0.002, 0.209, 0.998], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, -0.356, 0.269, 0.644], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.268, -0.003, 0.336, 0.997], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 10, footprintSqIn: 70,  bounds: [-0.44, -0.02, 0.44, 0.98],     color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 7, footprintSqIn: 62, bounds: [-0.16, -0.02, 0.16, 0.98],     color: '#3f7d38', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6, footprintSqIn: 46,  bounds: [-0.13, -0.02, 0.13, 0.98],     color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 6, footprintSqIn: 53, bounds: [-0.089, -0.978, 0.167, 0.022],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.128, -0.002, 0.152, 0.998], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -212,6 +212,8 @@ export const FlowerModel = (function () {
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
       colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
+      // Optional per-item colour override (e.g. wisteria racemes); null = species default.
+      color: /^#[0-9a-f]{6}$/i.test(r.color || '') ? r.color : null,
       // Vines (species with supportsLeaves) can drop their foliage for a bare stem.
       showLeaves: r.showLeaves === undefined ? true : !!r.showLeaves
     };
@@ -773,6 +775,7 @@ export const FlowerModel = (function () {
         out.push({
           key, type: item.type, layer: item.layer, x, y, z,
           rot, scale: sc,
+          color: item.color || null,
           variant: rand(),
           seed: (gSeed + i * 2654435761 + key * 40503) >>> 0
         });

@@ -6,37 +6,44 @@ import { GreeneryCore } from './greenery-core.js';
 (function () {
   'use strict';
   const G = GreeneryCore;
-  // One canonical frond pointing +Y: a slim arching rachis carrying many overlapping,
-  // forward-angled leaflets so it reads as feathery foliage rather than a spiky ray.
+  // One canonical frond pointing +Y: an arching rachis that lifts then droops at the
+  // tip, densely carrying serrated scallop-margin pinnae that shrink toward the point,
+  // matching the reference's long feathery fronds.
   function makeFrond(G) {
     const pts = [];
     const N = 10;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      // Arch the rachis laterally (panel plane) and lift slightly in Z for depth.
-      pts.push({ x: 0.11 * Math.sin(t * 1.9), y: t, z: Math.sin(t * 1.6) * 0.05 });
+      // Arch laterally (panel plane); lift the middle in Z then droop the tip below
+      // the crown plane so fronds fountain out and hang like the reference.
+      pts.push({
+        x: 0.11 * Math.sin(t * 1.9),
+        y: t,
+        z: 0.12 * Math.sin(t * Math.PI * 0.85) - 0.10 * t * t * t
+      });
     }
     const rachis = G.makeTube(pts, t => 0.015 * (1 - t * 0.65) + 0.005, 5);
-    // Leaflets are visible blades, not hairs: broad enough and angled forward so
-    // neighbouring pairs overlap and fill out the frond.
+    // Pinna with scalloped margins (lobes = 4 shallow notches sampled cleanly at
+    // lengthSegs 8) and a forward lean so neighbouring pairs overlap into a feather.
     const leaflet = G.makeBlade({
       length: 0.19, halfWidth: 0.052,
       profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.16 + 0.72 * u)), 0.5),
       cup: 0.006, bend: 0.02,
       midrib: 0.07, // faint central rachis vein for depth
-      lengthSegs: 4, widthSegs: 5
+      lobes: { count: 4, depth: 0.12 }, // scalloped pinna margin (reference)
+      lengthSegs: 8, widthSegs: 3
     });
     const parts = [rachis];
-    const pairs = 13;
+    const pairs = 21; // dense pinnae (reference: many per frond)
     for (let i = 1; i <= pairs; i++) {
       const t = i / (pairs + 0.5);
       const p = pts[Math.min(N, Math.round(t * N))];
-      const sc = 1 - t * 0.45;                      // leaflets shorten toward the tip
+      const sc = 1 - t * 0.5;                        // pinnae shorten gradually to the tip
       for (const side of [1, -1]) {
         const c = G.cloneGeom(leaflet);
-        // -side puts +X on the right; ~0.95 rad leans leaflets forward (outward + up),
-        // which overlaps them into a soft feather instead of a spiky starburst.
-        G.applyMatrix(c, G.trs(p.x, p.y, p.z, -side * 0.95, sc));
+        // -side puts +X on the right; ~1.0 rad (~57°) leans leaflets forward (outward +
+        // up), which overlaps them into a soft feather instead of a spiky starburst.
+        G.applyMatrix(c, G.trs(p.x, p.y, p.z, -side * 1.0, sc));
         parts.push(c);
       }
     }

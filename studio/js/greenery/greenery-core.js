@@ -36,6 +36,9 @@
   let _leaves = true;
   function wantsLeaves() { return _leaves; }
   function setLeaves(v) { _leaves = v !== false; }
+  // The Studio always builds at full detail (no quality control), so Shape-based
+  // species keep their full outline point counts here.
+  function detail() { return 1; }
 
   function makeBlade(opts) {
     opts = opts || {};
@@ -186,7 +189,7 @@
   }
 
   // Helpers passed to each model's build().
-  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves };
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves, detail };
 
   // ---- registry --------------------------------------------------------------
   const _registry = [];
@@ -220,20 +223,61 @@
 
   // Build (once) the model's single merged geometry. Cached by the factory.
   // `leaves !== false` (default) builds with foliage; vines check wantsLeaves().
+  function triCount(g) {
+    return g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+  }
+  // Build (once) the model's geometry. A species returns either a single merged
+  // geometry (the usual case) or { layers: [{ geometry, fixed? }] } for multi-colour
+  // species (ivy-wisteria: item-tinted racemes + a fixed-green foliage band).
+  // Layers are normalized against ONE union bbox so they share the placement scale.
   function buildGeometries(model, leaves) {
     _leaves = leaves !== false;
-    let geometry;
-    try { geometry = normalizeLongAxis(model.build(HELPERS)); }
+    let out;
+    try { out = model.build(HELPERS); }
     finally { _leaves = true; }
+    const isMulti = out && !out.isBufferGeometry && Array.isArray(out.layers);
+    if (isMulti) {
+      const layers = out.layers.filter(l => l && l.geometry);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const l of layers) {
+        l.geometry.computeBoundingBox();
+        const b = l.geometry.boundingBox;
+        if (b.min.x < minX) minX = b.min.x;
+        if (b.min.y < minY) minY = b.min.y;
+        if (b.max.x > maxX) maxX = b.max.x;
+        if (b.max.y > maxY) maxY = b.max.y;
+      }
+      const span = Math.max(maxX - minX, maxY - minY);
+      const s = span > 1e-6 ? 1 / span : 1;
+      for (const l of layers) {
+        if (Math.abs(s - 1) > 1e-3) applyMatrix(l.geometry, new T.Matrix4().makeScale(s, s, s));
+        withWhiteColor(l.geometry);
+        l.geometry.userData.triangles = triCount(l.geometry);
+      }
+      return { layers };
+    }
+    const geometry = normalizeLongAxis(out);
     withWhiteColor(geometry);
-    geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
+    geometry.userData.triangles = triCount(geometry);
     return { geometry };
   }
-  function disposeGeometries(built) { if (built && built.geometry) built.geometry.dispose(); }
-  function trianglesOf(built) { return built && built.geometry ? (built.geometry.userData.triangles || 0) : 0; }
+  function disposeGeometries(built) {
+    if (!built) return;
+    if (built.layers) { for (const l of built.layers) if (l.geometry) l.geometry.dispose(); return; }
+    if (built.geometry) built.geometry.dispose();
+  }
+  function trianglesOf(built) {
+    if (!built) return 0;
+    if (built.layers) {
+      let t = 0;
+      for (const l of built.layers) t += (l.geometry && l.geometry.userData.triangles) || 0;
+      return t;
+    }
+    return built.geometry ? (built.geometry.userData.triangles || 0) : 0;
+  }
 
   root.GreeneryCore = {
-    register, get, list, buildGeometries, disposeGeometries, trianglesOf,
+    register, get, list, buildGeometries, disposeGeometries, trianglesOf, detail,
     makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, withWhiteColor,
     wantsLeaves, setLeaves
   };

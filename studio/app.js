@@ -359,6 +359,8 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
   const layerOpts=model.GREENERY_LAYERS.map(l=>`<option value="${l}">${l.charAt(0).toUpperCase()+l.slice(1)}</option>`).join('');
   const typeOpts=(greenEngine&&greenEngine.list?greenEngine.list():[]).map(o=>`<option value="${o.type}">${o.label}</option>`).join('');
   const supports=t=>{const sp=greenEngine&&greenEngine.get?greenEngine.get(t):null;return !!(sp&&sp.supportsLeaves)};
+  const supportsColor=t=>{const sp=greenEngine&&greenEngine.get?greenEngine.get(t):null;return !!(sp&&sp.supportsColor)};
+  const defaultColor=t=>{const m=model.GREENERY_META[t];return(m&&m.color)||'#ee9ec4'};
   root.innerHTML=greeneryItems.map((it,i)=>`
    <div class="greenery-item" data-i="${i}">
     <div class="greenery-item-head">
@@ -371,6 +373,7 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
     <div class="field"><label>Size <strong class="gi-size-v">${Number(it.sizeScale).toFixed(1)}×</strong></label><input class="gi-size" type="range" min="0.4" max="2.5" step="0.1" value="${it.sizeScale}"></div>
     <div class="field"><label>Layer</label><select class="gi-layer">${layerOpts}</select></div>
     <div class="field"><label>Colour variation <strong class="gi-colorvar-v">${Number(it.colorVariation).toFixed(2)}</strong></label><input class="gi-colorvar" type="range" min="0" max="1" step="0.05" value="${it.colorVariation}"></div>
+    <div class="field gi-color-wrap"${supportsColor(it.type)?'':' hidden'}><label>Blossom colour</label><input class="gi-color" type="color" value="${it.color||defaultColor(it.type)}"></div>
     <div class="field gi-leaves-wrap"${supports(it.type)?'':' hidden'}><label class="check-label"><input class="gi-leaves" type="checkbox" ${it.showLeaves!==false?'checked':''}> Show leaves <small>vines only</small></label></div>
     </div>`).join('');
   root.querySelectorAll('.greenery-item').forEach(row=>{
@@ -379,7 +382,7 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
     row.querySelector('.gi-layer').value=it.layer;
     const bind=(sel,valSel,fmt,apply)=>{const el=row.querySelector(sel);if(!el)return;el.addEventListener('input',e=>{const v=Number(e.target.value);apply(v);const vl=row.querySelector(valSel);if(vl)vl.textContent=fmt(v);scheduleBuild(false)})};
     row.querySelector('.gi-enabled').addEventListener('change',e=>{it.enabled=e.target.checked;scheduleBuild(false)});
-    row.querySelector('.gi-type').addEventListener('change',e=>{it.type=e.target.value;const w=row.querySelector('.gi-leaves-wrap');if(w)w.hidden=!supports(it.type);scheduleBuild(false)});
+    row.querySelector('.gi-type').addEventListener('change',e=>{it.type=e.target.value;const w=row.querySelector('.gi-leaves-wrap');if(w)w.hidden=!supports(it.type);const cw=row.querySelector('.gi-color-wrap');if(cw)cw.hidden=!supportsColor(it.type);if(!supportsColor(it.type))it.color=null;const ci=row.querySelector('.gi-color');if(ci&&cw&&!cw.hidden)ci.value=it.color||defaultColor(it.type);scheduleBuild(false)});
     row.querySelector('.gi-remove').addEventListener('click',()=>{if(greeneryItems.length<=1)return;greeneryItems.splice(i,1);renderGreeneryItems();updateGreeneryMaxWarning();scheduleBuild(false)});
     row.querySelector('.gi-view').addEventListener('click',()=>openGreeneryView(row.querySelector('.gi-type').value||it.type));
     bind('.gi-proportion','.gi-proportion-v',v=>v+'%',v=>it.proportion=v);
@@ -388,6 +391,8 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
     bind('.gi-colorvar','.gi-colorvar-v',v=>v.toFixed(2),v=>it.colorVariation=v);
     const leaves=row.querySelector('.gi-leaves');
     if(leaves)leaves.addEventListener('change',e=>{it.showLeaves=e.target.checked;scheduleBuild(false)});
+    const col=row.querySelector('.gi-color');
+    if(col)col.addEventListener('input',e=>{it.color=e.target.value;scheduleBuild(false)});
   });
  }
  function updateGreeneryMaxWarning(){const w=$('greeneryMaxWarning'),add=$('greeneryAdd');if(add)add.disabled=greeneryItems.length>=model.GREENERY_MAX_ITEMS;if(w)w.hidden=greeneryItems.length<model.GREENERY_MAX_ITEMS}

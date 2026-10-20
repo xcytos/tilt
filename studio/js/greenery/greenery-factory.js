@@ -56,28 +56,40 @@
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
     const built = ensureGeometry(type, opts && opts.showLeaves);
-    const geo = built.geometry;
     const mat = getMaterial();
-    const im = new T.InstancedMesh(geo, mat, items.length);
-    im.instanceMatrix.setUsage(T.StaticDrawUsage);
-    im.frustumCulled = false;
-    const base = new T.Color(baseHex).convertSRGBToLinear();
+    // One InstancedMesh per geometry layer: a single-geometry species (usual) yields
+    // one mesh; a multi-colour species (ivy-wisteria) yields one per layer. A layer
+    // with `fixed` pins its own colour (foliage band = green); other layers take the
+    // per-item colour (it.color) falling back to the call's base colour.
+    const specs = (built.layers || [{ geometry: built.geometry }])
+      .filter(l => l && l.geometry)
+      .map(l => ({ geo: l.geometry, fixed: l.fixed || null }));
+    const meshes = [];
+    let triangles = 0;
     const m = new T.Matrix4(), q = new T.Quaternion();
     const ax = new T.Vector3(0, 0, 1), pos = new T.Vector3(), scl = new T.Vector3(), c = new T.Color();
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      pos.set(it.x || 0, it.y || 0, it.z || 0);
-      q.setFromAxisAngle(ax, it.rot || 0);
-      const sc = it.scale || 1; scl.set(sc, sc, sc);
-      m.compose(pos, q, scl);
-      im.setMatrixAt(i, m);
-      const variant = it.variant != null ? it.variant : 0.5;
-      c.copy(base).offsetHSL(0, 0, (variant - 0.5) * colorVariation * 0.6);
-      im.setColorAt(i, c);
+    for (const spec of specs) {
+      const im = new T.InstancedMesh(spec.geo, mat, items.length);
+      im.instanceMatrix.setUsage(T.StaticDrawUsage);
+      im.frustumCulled = false;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        pos.set(it.x || 0, it.y || 0, it.z || 0);
+        q.setFromAxisAngle(ax, it.rot || 0);
+        const sc = it.scale || 1; scl.set(sc, sc, sc);
+        m.compose(pos, q, scl);
+        im.setMatrixAt(i, m);
+        const variant = it.variant != null ? it.variant : 0.5;
+        c.set(spec.fixed || it.color || baseHex).convertSRGBToLinear()
+          .offsetHSL(0, 0, (variant - 0.5) * colorVariation * 0.6);
+        im.setColorAt(i, c);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      meshes.push(im);
+      triangles += (spec.geo.userData.triangles || 0) * items.length;
     }
-    im.instanceMatrix.needsUpdate = true;
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
-    return { meshes: [im], triangles: (geo.userData.triangles || 0) * items.length, instances: items.length };
+    return { meshes, triangles, instances: items.length };
   }
 
   // Release per-build meshes: frees instance GPU buffers, keeps shared material + cached geometry.

@@ -2476,12 +2476,12 @@ const FlowerModel = (function () {
   // uses it to keep the FULL rotated+scaled footprint inside the usable panel (not just
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
-    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 13, footprintSqIn: 131, bounds: [-0.360, -0.133, 0.360, 0.867], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.182, -0.002, 0.209, 0.998], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, -0.356, 0.269, 0.644], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.268, -0.003, 0.336, 0.997], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 10, footprintSqIn: 70,  bounds: [-0.44, -0.02, 0.44, 0.98],     color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 7, footprintSqIn: 62, bounds: [-0.16, -0.02, 0.16, 0.98],     color: '#3f7d38', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6, footprintSqIn: 46,  bounds: [-0.13, -0.02, 0.13, 0.98],     color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 6, footprintSqIn: 53, bounds: [-0.089, -0.978, 0.167, 0.022],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.128, -0.002, 0.152, 0.998], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -2641,6 +2641,8 @@ const FlowerModel = (function () {
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
       colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
+      // Optional per-item colour override (e.g. wisteria racemes); null = species default.
+      color: /^#[0-9a-f]{6}$/i.test(r.color || '') ? r.color : null,
       // Vines (species with supportsLeaves) can drop their foliage for a bare stem.
       showLeaves: r.showLeaves === undefined ? true : !!r.showLeaves
     };
@@ -3202,6 +3204,7 @@ const FlowerModel = (function () {
         out.push({
           key, type: item.type, layer: item.layer, x, y, z,
           rot, scale: sc,
+          color: item.color || null,
           variant: rand(),
           seed: (gSeed + i * 2654435761 + key * 40503) >>> 0
         });
@@ -4072,6 +4075,10 @@ const GreeneryCore = (function () {
   let _leaves = true;
   function wantsLeaves() { return _leaves; }
   function setLeaves(v) { _leaves = v !== false; }
+  // Current quality detail factor (1 = full). Exposed to species so Shape-based
+  // geometry (monstera outline, heart leaves) can scale point counts with quality
+  // the way makeBlade/makeTube scale their segment counts.
+  function detail() { return _detail; }
 
   function makeBlade(opts) {
     opts = opts || {};
@@ -4223,7 +4230,7 @@ const GreeneryCore = (function () {
   }
 
   // Helpers passed to each model's build().
-  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves };
+  const HELPERS = { makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, wantsLeaves, detail };
 
   // ---- registry --------------------------------------------------------------
   const _registry = [];
@@ -4255,52 +4262,93 @@ const GreeneryCore = (function () {
     return g;
   }
 
-  // Build (once) the model's single merged geometry. Cached by the factory.
+  function triCount(g) {
+    return g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+  }
+  // Build (once) the model's geometry. A species returns either a single merged
+  // geometry (the usual case) or { layers: [{ geometry, fixed? }] } for multi-colour
+  // species (ivy-wisteria: item-tinted racemes + a fixed-green foliage band).
+  // Layers are normalized against ONE union bbox so they share the placement scale.
   function buildGeometries(model, detail, leaves) {
     _detail = detail != null ? detail : 1;
     _leaves = leaves !== false;
-    let geometry;
-    try { geometry = normalizeLongAxis(model.build(HELPERS)); }
+    let out;
+    try { out = model.build(HELPERS); }
     finally { _detail = 1; _leaves = true; }
+    const isMulti = out && !out.isBufferGeometry && Array.isArray(out.layers);
+    if (isMulti) {
+      const layers = out.layers.filter(l => l && l.geometry);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const l of layers) {
+        l.geometry.computeBoundingBox();
+        const b = l.geometry.boundingBox;
+        if (b.min.x < minX) minX = b.min.x;
+        if (b.min.y < minY) minY = b.min.y;
+        if (b.max.x > maxX) maxX = b.max.x;
+        if (b.max.y > maxY) maxY = b.max.y;
+      }
+      const span = Math.max(maxX - minX, maxY - minY);
+      const s = span > 1e-6 ? 1 / span : 1;
+      for (const l of layers) {
+        if (Math.abs(s - 1) > 1e-3) applyMatrix(l.geometry, new T.Matrix4().makeScale(s, s, s));
+        withWhiteColor(l.geometry);
+        l.geometry.userData.triangles = triCount(l.geometry);
+      }
+      return { layers };
+    }
+    const geometry = normalizeLongAxis(out);
     withWhiteColor(geometry);
-    geometry.userData.triangles = geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3;
+    geometry.userData.triangles = triCount(geometry);
     return { geometry };
   }
-  function disposeGeometries(built) { if (built && built.geometry) built.geometry.dispose(); }
-  function trianglesOf(built) { return built && built.geometry ? (built.geometry.userData.triangles || 0) : 0; }
+  function disposeGeometries(built) {
+    if (!built) return;
+    if (built.layers) { for (const l of built.layers) if (l.geometry) l.geometry.dispose(); return; }
+    if (built.geometry) built.geometry.dispose();
+  }
+  function trianglesOf(built) {
+    if (!built) return 0;
+    if (built.layers) {
+      let t = 0;
+      for (const l of built.layers) t += (l.geometry && l.geometry.userData.triangles) || 0;
+      return t;
+    }
+    return built.geometry ? (built.geometry.userData.triangles || 0) : 0;
+  }
 
   return {
-    register, get, list, buildGeometries, disposeGeometries, trianglesOf,
+    register, get, list, buildGeometries, disposeGeometries, trianglesOf, detail,
     makeBlade, makeTube, mergeGeometries, applyMatrix, cloneGeom, trs, mulberry32, withWhiteColor
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/monstera.js ----
-/* Monstera leaf — a broad cordate/ovate blade with deep characteristic edge splits
-   (sinuses) and smooth oval fenestrations, on a short petiole. Structural-layer
-   statement foliage. Geometry is normalised so the longest axis = 1 (see greenery-core).
+/* Monstera leaf — a broad cordate blade with a heart-shaped base (basal lobes + petiole
+   notch), six deep angled edge splits (sinuses), seven oval fenestrations, a raised
+   midrib with radiating lateral veins, and a long thin wire petiole, matching the
+   reference leaf photo. Structural-layer statement foliage. Geometry is normalised so
+   the longest axis = 1 (see greenery-core); attachment is the base of the wire.
 
-   The blade is built from a THREE.Shape (outer outline + hole paths) so that:
-     - the silhouette is smooth and recognisably monstera (not a jagged grid blob),
-     - fenestrations are true, smooth openings (not blocky per-quad cutouts),
-     - the outline is wound CCW so face normals point +Z (front faces the camera),
-       which removes the inverted-winding / back-face darkening seen previously.
-   A gentle cup + tip lift is applied by displacing Z after triangulation. */
+   Built as a dense makeBlade grid (not a flat Shape) so the cup, cordate base bend and
+   vein relief are true per-vertex curvature and holes are punched per-quad — a Shape
+   only has outline vertices, so its interior cannot hold veins or smooth cupping. */
 (function () {
   'use strict';
   const G = GreeneryCore;
-  const T = THREE;
 
-  // Smooth ovate envelope: 0 at base and tip, broad plateau across the middle. The high
-  // exponent keeps the upper half broad so it reads as a leaf plate, not a fir-tree cone.
-  const env = u => Math.sin(Math.PI * Math.pow(Math.max(0, Math.min(1, u)), 0.85));
-  // Split (sinus) pulse: 1 at a split centre, smoothly 0 one half-spacing away.
-  function makePulse(centers, half) {
+  // Ovate envelope: ~35% wide at the base (so the cordate lobes have span) and a
+  // smooth point at the tip.
+  const env = u => Math.sin(Math.PI * Math.pow(0.09 + 0.91 * Math.min(1, Math.max(0, u)), 0.9));
+  // Asymmetric sinus pulse: a wide approach before each split centre and a quick cut
+  // after it, so every cut edge reads as slanted toward the tip, not perpendicular.
+  function makePulse(centers, half, skew) {
+    const k = skew != null ? skew : 0.6;
     return function (u) {
       let p = 0;
       for (let i = 0; i < centers.length; i++) {
-        const d = Math.abs(u - centers[i]);
-        if (d < half) p = Math.max(p, 0.5 + 0.5 * Math.cos(Math.PI * d / half));
+        const d = u - centers[i];
+        const h = d < 0 ? half * 2 * k : half * 2 * (1 - k);
+        if (h > 0 && d >= -h && d <= h) p = Math.max(p, 0.5 + 0.5 * Math.cos(Math.PI * d / h));
       }
       return p;
     };
@@ -4310,62 +4358,81 @@ const GreeneryCore = (function () {
     type: 'monstera',
     label: 'Monstera leaf',
     build(G) {
-      const L = 1;                       // length; normalizeLongAxis keeps it at 1
-      const halfW = 0.42;                // broad blade (near-square silhouette like monstera)
-      // Fewer, broader lobes: 5 sinuses per side, cut ~52% in so a wide central webbing
-      // keeps every lobe attached. Narrow sinuses -> broad rounded fingers, not barbs.
-      const splits = [0.16, 0.30, 0.44, 0.58, 0.72];
-      const splitDepth = 0.52;
-      const splitHalf = 0.05;
-      const pulse = makePulse(splits, splitHalf);
-      const hw = u => halfW * env(u) * (1 - splitDepth * pulse(u));
-
-      // Outer outline, wound CCW (up the right edge, then down the left) so the
-      // triangulated front face points +Z (toward the camera).
-      const N = 220;
-      const pts = [];
-      for (let i = 0; i <= N; i++) { const u = i / N; pts.push(new T.Vector2(hw(u), u * L)); }
-      for (let i = N - 1; i >= 1; i--) { const u = i / N; pts.push(new T.Vector2(-hw(u), u * L)); }
-      const shape = new T.Shape(pts);
-
-      // Smooth oval fenestrations along the midrib, placed between the splits so they
-      // stay inside the solid central webbing (never crossing an edge sinus). Real openings.
+      const L = 1;                       // blade length (pre-normalisation)
+      const halfW = 0.42;                // near-square blade like the reference
+      // Six sinuses per side, cut ~62% in; the cut fades near base/tip so the cordate
+      // lobes and the pointed tip stay solid.
+      const splits = [0.17, 0.31, 0.45, 0.59, 0.73, 0.86];
+      const pulse = makePulse(splits, 0.055, 0.6);
+      const profile = u => {
+        const depthScale = Math.min(1, u / 0.22) * Math.min(1, (1 - u) / 0.15);
+        return env(u) * (1 - 0.62 * depthScale * pulse(u));
+      };
+      // Seven oval fenestrations along the midrib, between the splits (v in -1..1
+      // across the blade, so they follow the narrowing blade instead of leaving it).
       const holes = [
-        { x: 0.060, y: 0.23, rx: 0.032, ry: 0.056 },
-        { x: -0.062, y: 0.37, rx: 0.034, ry: 0.060 },
-        { x: 0.058, y: 0.51, rx: 0.032, ry: 0.054 },
-        { x: -0.054, y: 0.65, rx: 0.028, ry: 0.046 }
+        { u: 0.23, v: 0.30, ru: 0.055, rv: 0.16 },
+        { u: 0.27, v: -0.27, ru: 0.043, rv: 0.13 },
+        { u: 0.37, v: -0.32, ru: 0.058, rv: 0.17 },
+        { u: 0.43, v: 0.27, ru: 0.047, rv: 0.14 },
+        { u: 0.51, v: 0.30, ru: 0.052, rv: 0.15 },
+        { u: 0.61, v: 0.25, ru: 0.041, rv: 0.12 },
+        { u: 0.65, v: -0.28, ru: 0.045, rv: 0.14 }
       ];
-      for (let i = 0; i < holes.length; i++) {
-        const h = holes[i], path = new T.Path();
-        path.absellipse(h.x, h.y, h.rx, h.ry, 0, Math.PI * 2, false, 0);
-        shape.holes.push(path);
-      }
-
-      // Triangulate outline + holes, then give the blade a gentle cup (edges lift)
-      // and a tip lift so it reads as a leaf rather than a flat cutout.
-      const geo = new T.ShapeGeometry(shape, 26);
+      const geo = G.makeBlade({
+        length: L, halfWidth: halfW, profile,
+        holes,
+        cup: 0.035, bend: 0.02,
+        midrib: 0.10,                    // raised central vein
+        tipCurl: 0.03,
+        lengthSegs: 44, widthSegs: 40
+      });
+      // Cordate base + lateral vein relief, applied per-vertex after tessellation.
+      const veinYs = [0.24, 0.38, 0.52, 0.66, 0.79];
+      const baseHalf = halfW * env(0);   // width at u=0 for the lobe falloff
       const pos = geo.attributes.position;
       for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i), y = pos.getY(i);
-        pos.setZ(i, 0.055 * (x / halfW) * (x / halfW) + 0.075 * (y / L) * (y / L));
+        const x = pos.getX(i), y0 = pos.getY(i);
+        const u = Math.min(1, Math.max(0, y0 / L));
+        // Heart base: the basal corners sweep below the petiole notch while the centre
+        // line stays at the attachment point.
+        const mask = Math.max(0, 1 - u / 0.16);
+        const y = y0 - 0.11 * (x / baseHalf) * (x / baseHalf) * mask * mask;
+        // Lateral veins: thin ridges from the midrib angling up toward each margin,
+        // fading before the edge (reference: pale radiating veins).
+        const ax = Math.abs(x);
+        let v = 0;
+        for (let k = 0; k < veinYs.length; k++) {
+          const perp = Math.abs(y0 - (veinYs[k] + 0.5 * ax)) * 0.894;
+          if (perp < 0.02 && ax < 0.36) {
+            const s = (1 - perp / 0.02) * Math.max(0, 1 - ax / 0.36);
+            if (s > v) v = s;
+          }
+        }
+        pos.setXYZ(i, x, y, pos.getZ(i) + v * 0.020);
       }
       pos.needsUpdate = true;
       geo.computeVertexNormals();
 
-      // Short petiole below the blade (attachment at the stem base / origin).
-      const stem = G.makeTube(
-        [{ x: 0, y: -0.15, z: -0.03 }, { x: 0, y: -0.05, z: -0.012 }, { x: 0, y: 0, z: 0 }],
-        0.018, 7);
+      // Long thin wire petiole below the blade (attachment at the wire's base), gently
+      // bowed like the reference's wire stems.
+      const stem = G.makeTube([
+        { x: 0.02, y: -0.55, z: -0.05 },
+        { x: -0.015, y: -0.36, z: -0.02 },
+        { x: 0.005, y: -0.16, z: -0.005 },
+        { x: 0, y: 0, z: 0 }
+      ], 0.011, 6);
       return G.mergeGeometries([stem, geo]);
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/eucalyptus.js ----
-/* Eucalyptus spray — a visible central stem carrying pairs of rounded oval leaves.
-   Volume-layer soft filler foliage; attachment at the base of the stem.
-   Geometry is normalised so the longest axis = 1 (see greenery-core). */
+/* Eucalyptus spray — several upright stems fanning from one base, each densely
+    carrying opposite pairs of near-circular silver-dollar coin leaves held nearly
+    horizontal, like the reference photo of a vase full of stalks.
+    Volume-layer soft filler foliage; attachment at the base of the spray.
+    Geometry is normalised so the longest axis = 1 (see greenery-core). */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -4373,41 +4440,51 @@ const GreeneryCore = (function () {
     type: 'eucalyptus',
     label: 'Eucalyptus spray',
     build(G) {
-      // Main stem: gentle sine drift, tapering radius, base at origin to tip near +Y.
-      const pts = [];
-      const N = 12;
-      for (let i = 0; i <= N; i++) {
-        const t = i / N;
-        pts.push({ x: Math.sin(t * 1.7) * 0.05, y: t * 0.94, z: Math.sin(t * 1.2) * 0.03 });
-      }
-      const stem = G.makeTube(pts, t => 0.015 * (1 - t * 0.5) + 0.005, 6);
-      // Distinct oval leaflet. Kept narrow (not the old fat pow(sin,0.5) blob) with a smooth
-      // elliptic profile so opposite pairs stay separate instead of merging into one mass.
+      const rand = G.mulberry32(0x2ea1e77c);
+      const parts = [];
+      // Coin leaf: nearly circular (0.15 long x 0.15 wide) with a broad rounded
+      // profile so each leaf reads as a silver-dollar disc, not an oval.
       const leaf = G.makeBlade({
-        length: 0.20, halfWidth: 0.072,
-        profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
-        cup: 0.015, bend: 0.025,
-        midrib: 0.09, tipCurl: 0.03, // raised central vein + softly curling tip
+        length: 0.15, halfWidth: 0.075,
+        profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.07 + 0.86 * u)), 0.4),
+        cup: 0.012, bend: 0.02,
+        midrib: 0.07, tipCurl: 0.02,
         lengthSegs: 6, widthSegs: 7
       });
-      const parts = [stem];
-      const nodes = 7;
-      for (let i = 1; i <= nodes; i++) {
-        const t = i / (nodes + 1);
-        const y = pts[Math.round(t * N)].y, x = pts[Math.round(t * N)].x, z = pts[Math.round(t * N)].z;
-        const sc = 1 - t * 0.4;                    // leaves shrink gently toward the tip
-        for (const side of [1, -1]) {
-          const c = G.cloneGeom(leaf);
-          // Fan each leaf outward (~68°) and slightly forward so the pair spreads sideways
-          // along the stem rather than stacking into a blob.
-          G.applyMatrix(c, G.trs(x + side * 0.02, y, z, -side * (1.18 - t * 0.2), sc));
-          parts.push(c);
+      const stems = 6;
+      for (let s = 0; s < stems; s++) {
+        const lean = ((s / (stems - 1)) - 0.5) * 0.9;   // fan the spray ±~26°
+        const hs = 0.78 + 0.22 * ((s * 53) % 7) / 7;     // per-stem height variety
+        // Upright stem with a slight zigzag drift and gentle depth.
+        const pts = [];
+        const N = 12;
+        for (let i = 0; i <= N; i++) {
+          const t = i / N;
+          pts.push({
+            x: Math.sin(t * 1.6 + s) * 0.03 + lean * t * 0.5,
+            y: t * 0.96 * hs,
+            z: Math.sin(t * 1.3 + s * 0.7) * 0.025
+          });
         }
+        parts.push(G.makeTube(pts, t => 0.012 * (1 - t * 0.5) + 0.004, 6));
+        const nodes = 10;
+        for (let i = 1; i <= nodes; i++) {
+          const t = i / (nodes + 1);
+          const p = pts[Math.round(t * N)];
+          const sc = (1 - t * 0.35) * hs;                // leaves shrink toward the tip
+          for (const side of [1, -1]) {
+            const c = G.cloneGeom(leaf);
+            // Coin leaves stand nearly horizontal (±90°) with a small upward tilt.
+            G.applyMatrix(c, G.trs(p.x + side * 0.018, p.y, p.z,
+              -side * (1.5 - t * 0.15), sc * (0.9 + rand() * 0.2)));
+            parts.push(c);
+          }
+        }
+        // Terminal leaf closes the tip of each stem.
+        const tip = G.cloneGeom(leaf);
+        G.applyMatrix(tip, G.trs(pts[N].x, pts[N].y, pts[N].z, (rand() - 0.5) * 0.4, 0.5 * hs));
+        parts.push(tip);
       }
-      // Terminal leaf closes the tip of the spray.
-      const tip = G.cloneGeom(leaf);
-      G.applyMatrix(tip, G.trs(pts[N].x, pts[N].y, pts[N].z, 0.15, 0.55));
-      parts.push(tip);
       return G.mergeGeometries(parts);
     }
   });
@@ -4420,37 +4497,44 @@ const GreeneryCore = (function () {
 (function () {
   'use strict';
   const G = GreeneryCore;
-  // One canonical frond pointing +Y: a slim arching rachis carrying many overlapping,
-  // forward-angled leaflets so it reads as feathery foliage rather than a spiky ray.
+  // One canonical frond pointing +Y: an arching rachis that lifts then droops at the
+  // tip, densely carrying serrated scallop-margin pinnae that shrink toward the point,
+  // matching the reference's long feathery fronds.
   function makeFrond(G) {
     const pts = [];
     const N = 10;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      // Arch the rachis laterally (panel plane) and lift slightly in Z for depth.
-      pts.push({ x: 0.11 * Math.sin(t * 1.9), y: t, z: Math.sin(t * 1.6) * 0.05 });
+      // Arch laterally (panel plane); lift the middle in Z then droop the tip below
+      // the crown plane so fronds fountain out and hang like the reference.
+      pts.push({
+        x: 0.11 * Math.sin(t * 1.9),
+        y: t,
+        z: 0.12 * Math.sin(t * Math.PI * 0.85) - 0.10 * t * t * t
+      });
     }
     const rachis = G.makeTube(pts, t => 0.015 * (1 - t * 0.65) + 0.005, 5);
-    // Leaflets are visible blades, not hairs: broad enough and angled forward so
-    // neighbouring pairs overlap and fill out the frond.
+    // Pinna with scalloped margins (lobes = 4 shallow notches sampled cleanly at
+    // lengthSegs 8) and a forward lean so neighbouring pairs overlap into a feather.
     const leaflet = G.makeBlade({
       length: 0.19, halfWidth: 0.052,
       profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.16 + 0.72 * u)), 0.5),
       cup: 0.006, bend: 0.02,
       midrib: 0.07, // faint central rachis vein for depth
-      lengthSegs: 4, widthSegs: 5
+      lobes: { count: 4, depth: 0.12 }, // scalloped pinna margin (reference)
+      lengthSegs: 8, widthSegs: 3
     });
     const parts = [rachis];
-    const pairs = 13;
+    const pairs = 21; // dense pinnae (reference: many per frond)
     for (let i = 1; i <= pairs; i++) {
       const t = i / (pairs + 0.5);
       const p = pts[Math.min(N, Math.round(t * N))];
-      const sc = 1 - t * 0.45;                      // leaflets shorten toward the tip
+      const sc = 1 - t * 0.5;                        // pinnae shorten gradually to the tip
       for (const side of [1, -1]) {
         const c = G.cloneGeom(leaflet);
-        // -side puts +X on the right; ~0.95 rad leans leaflets forward (outward + up),
-        // which overlaps them into a soft feather instead of a spiky starburst.
-        G.applyMatrix(c, G.trs(p.x, p.y, p.z, -side * 0.95, sc));
+        // -side puts +X on the right; ~1.0 rad (~57°) leans leaflets forward (outward +
+        // up), which overlaps them into a soft feather instead of a spiky starburst.
+        G.applyMatrix(c, G.trs(p.x, p.y, p.z, -side * 1.0, sc));
         parts.push(c);
       }
     }
@@ -4487,10 +4571,11 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/grass.js ----
-/* Grass tuft — a dense clump of slim, tapering blades fanning out from a compact base,
-   each arching gently toward the viewer. Filler layer: low, soft, fills gaps between
-   statement foliage. Geometry is normalised so the longest axis = 1 (see greenery-core);
-   attachment is the base of the clump (origin). */
+/* Grass tuft — artificial-turf style: a dense carpet of fine, mostly-vertical
+    blades with near-uniform height and only a slight lean, like the reference turf
+    close-up. Filler layer: low, soft, fills gaps between statement foliage.
+    Geometry is normalised so the longest axis = 1 (see greenery-core);
+    attachment is the base of the clump (origin). */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -4500,25 +4585,25 @@ const GreeneryCore = (function () {
     build(G) {
       const rand = G.mulberry32(0x9e3779b9);
       const parts = [];
-      const N = 44;
+      const N = 100;                                    // turf density (reference: dense carpet)
       for (let i = 0; i < N; i++) {
-        const angle = (rand() - 0.5) * Math.PI * 1.05;   // fan the tuft ±~95°
-        const height = 0.5 + rand() * 0.5;               // blades 0.5..1.0 tall
+        const angle = rand() * Math.PI * 2;             // spread blades across the tuft disc
+        const height = 0.65 + rand() * 0.35;            // near-uniform turf height
         // Taper to a fine point: full near the base, pinched at the tip.
         const blade = G.makeBlade({
           length: height,
-          halfWidth: 0.010 + rand() * 0.012,
+          halfWidth: 0.008 + rand() * 0.010,            // fine blades
           profile: u => Math.sin(Math.PI * Math.min(1, 0.06 + 0.88 * u)) * (1 - 0.82 * u * u),
           cup: 0.003,
-          bend: 0.10 + rand() * 0.22,                    // arch the tip toward the viewer
-          midrib: 0.15,                                  // faint central vein
+          bend: 0.02 + rand() * 0.07,                   // gentle tip curve - turf stands up
+          midrib: 0.12,
           lengthSegs: 8, widthSegs: 3
         });
-        // Fan outward from a tight base; slight scale variety keeps the clump organic.
-        const r = 0.045 * rand();
+        // Tight carpet base; blades stand mostly vertical with a small random lean.
+        const r = 0.05 * Math.sqrt(rand());
         G.applyMatrix(blade, G.trs(
-          Math.cos(angle) * r, 0, Math.sin(angle) * r * 0.5,
-          angle * (0.55 + rand() * 0.4), 0.72 + rand() * 0.4));
+          Math.cos(angle) * r, 0, Math.sin(angle) * r * 0.6,
+          (rand() - 0.5) * 0.5, 0.8 + rand() * 0.3));
         parts.push(blade);
       }
       return G.mergeGeometries(parts);
@@ -4527,81 +4612,177 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/ivy-vine.js ----
-/* Ivy / wisteria vine — a long, sinuous trailing stem carrying alternating pointed-ovate
-   leaves and a few bare tendrils. Trailing layer: drapes down/across the panel. The
-   leaves are optional (G.wantsLeaves()) so a bare wiry vine can be placed too.
-   Geometry is normalised so the longest axis = 1; attachment is the base (start) of the
-   vine, which runs up +Y. */
+/* Wisteria garland — hangs downward from its attachment point (stem base at the top): a
+   slim main stem carrying 4-5 drooping racemes densely packed with small 4-petal
+   blossoms, plus a band of green leaflets at the top (G.wantsLeaves()). Two colour
+   layers: the blossoms take the item colour (pink by default, supportsColor), while the
+   stems and leaflets stay green via a fixed layer colour. Trailing layer: drapes down
+   the panel. Geometry normalises the longest axis to 1 about the origin. */
 (function () {
   'use strict';
   const G = GreeneryCore;
+  const T = THREE;
+
   G.register({
     type: 'ivy-vine',
     label: 'Ivy / wisteria vine',
     supportsLeaves: true,
+    supportsColor: true,
     build(G) {
       const showLeaves = G.wantsLeaves();
       const rand = G.mulberry32(0x51ed270b);
-      // Sinuous main stem: a gentle S-drift in X with a little depth in Z.
+      const stems = [];             // fixed-green layer: main stem, racemes, leaflets
+      const blossoms = [];          // item-coloured layer: 4-petal flowers
+
+      // Main stem hangs downward (y: 0 -> -1) with a gentle S-drift in x and z.
       const pts = [];
       const N = 26;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        pts.push({
-          x: Math.sin(t * 3.1) * 0.10,
-          y: t,
-          z: Math.sin(t * 2.2 + 1.1) * 0.05
-        });
+        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
       }
-      const stem = G.makeTube(pts, t => 0.020 * (1 - t * 0.55) + 0.006, 6);
-      const parts = [stem];
-      // A few bare tendrils curl off the stem between the leaves.
+      stems.push(G.makeTube(pts, t => 0.016 * (1 - t * 0.6) + 0.005, 6));
+
+      // One small 4-petal blossom: petals radiate in the local XY plane, face +Z.
+      const petal = G.makeBlade({
+        length: 0.030, halfWidth: 0.017,
+        profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.20 + 0.68 * u)), 0.55),
+        cup: 0.005, bend: 0.012,
+        lengthSegs: 4, widthSegs: 4
+      });
+      const flowerParts = [];
       for (let k = 0; k < 4; k++) {
-        const t = 0.18 + k * 0.22;
-        const p = pts[Math.min(N, Math.round(t * N))];
-        const side = k % 2 ? 1 : -1;
-        const tend = [];
-        for (let j = 0; j <= 6; j++) {
-          const u = j / 6;
-          tend.push({ x: p.x + side * u * 0.10, y: p.y + u * 0.04, z: p.z + Math.sin(u * 3.4) * 0.03 });
-        }
-        parts.push(G.makeTube(tend, u => 0.008 * (1 - u * 0.7) + 0.002, 4));
+        const p = G.cloneGeom(petal);
+        G.applyMatrix(p, G.trs(0, 0, 0, k * Math.PI / 2, 1));
+        flowerParts.push(p);
       }
+      const flower = G.mergeGeometries(flowerParts);
+
+      const face = new T.Vector3(0, 0, 1);
+      function addBlossom(x, y, z, az, sc) {
+        // Face outward from the raceme with a slight downward tilt (wisteria nods).
+        const dir = new T.Vector3(Math.sin(az) * 0.42, -0.16, 0.88).normalize();
+        const q = new T.Quaternion().setFromUnitVectors(face, dir);
+        const m = new T.Matrix4().compose(
+          new T.Vector3(x, y, z), q, new T.Vector3(sc, sc, sc));
+        blossoms.push(G.applyMatrix(G.cloneGeom(flower), m));
+      }
+
+      // Five racemes droop from the main stem; each is a tapering axis carrying a dense
+      // golden-angle spiral of blossoms that shrink toward the tip.
+      const racemes = 5;
+      for (let i = 0; i < racemes; i++) {
+        const t0 = 0.08 + i * 0.19;
+        const p0 = pts[Math.min(N, Math.round(t0 * N))];
+        const side = i % 2 ? 1 : -1;
+        const len = 0.30 + rand() * 0.06;
+        const M = 6;
+        const rp = [];
+        for (let j = 0; j <= M; j++) {
+          const u = j / M;
+          rp.push({
+            x: p0.x + side * (0.02 + u * 0.10) + Math.sin(u * 2.4) * 0.02,
+            y: p0.y - u * len,
+            z: p0.z + Math.sin(u * 3.1 + i) * 0.03
+          });
+        }
+        stems.push(G.makeTube(rp, u => 0.010 * (1 - u * 0.7) + 0.003, 4));
+        const K = 13;
+        for (let j = 1; j <= K; j++) {
+          const u = j / (K + 0.3);
+          const seg = Math.min(M - 1, Math.floor(u * M)), f = u * M - seg;
+          const a = rp[seg], b = rp[seg + 1];
+          const fx = a.x + (b.x - a.x) * f, fy = a.y + (b.y - a.y) * f, fz = a.z + (b.z - a.z) * f;
+          const az = j * 2.399 + rand() * 0.6;   // golden-angle spiral + jitter
+          const off = 0.013;
+          addBlossom(fx + Math.cos(az) * off, fy, fz + Math.sin(az) * off,
+            az, (1 - u * 0.5) * (0.8 + rand() * 0.4));
+        }
+      }
+
+      // Green leaflet band at the top (gated by the leaves toggle).
       if (showLeaves) {
-        // Pointed-ovate ivy leaf: broad near the base, tapering to a soft point.
-        const leaf = G.makeBlade({
-          length: 0.24, halfWidth: 0.115,
-          profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.10 + 0.80 * u)), 0.62),
-          cup: 0.02, bend: 0.03,
-          midrib: 0.10, tipCurl: 0.05,
-          lengthSegs: 7, widthSegs: 8
+        const leaflet = G.makeBlade({
+          length: 0.11, halfWidth: 0.05,
+          profile: u => Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + 0.78 * u)), 0.6),
+          cup: 0.01, bend: 0.015,
+          midrib: 0.09, tipCurl: 0.03,
+          lengthSegs: 5, widthSegs: 6
         });
-        const pairs = 9;
-        for (let i = 1; i <= pairs; i++) {
-          const t = i / (pairs + 0.5);
-          const p = pts[Math.min(N, Math.round(t * N))];
-          const sc = 0.85 - t * 0.4;                    // leaves shrink toward the tip
-          for (const side of [1, -1]) {
-            const c = G.cloneGeom(leaf);
-            // Fan each leaf outward and slightly forward so pairs spread along the stem.
-            G.applyMatrix(c, G.trs(p.x + side * 0.02, p.y, p.z, -side * (1.05 - t * 0.25), sc * (0.9 + rand() * 0.25)));
-            parts.push(c);
-          }
+        const band = [0.04, 0.10, 0.16, 0.22, 0.28];
+        for (let i = 0; i < band.length; i++) {
+          const p = pts[Math.min(N, Math.round(band[i] * N))];
+          const side = i % 2 ? 1 : -1;
+          const sc = 0.95 - i * 0.1;
+          const bx = p.x + side * 0.018;
+          stems.push(G.makeTube([
+            { x: p.x, y: p.y, z: p.z },
+            { x: bx, y: p.y + 0.01, z: p.z }
+          ], 0.005, 3));
+          const c = G.cloneGeom(leaflet);
+          G.applyMatrix(c, G.trs(bx, p.y + 0.01, p.z,
+            -side * (1.2 + rand() * 0.3), sc * (0.85 + rand() * 0.3)));
+          stems.push(c);
         }
       }
-      return G.mergeGeometries(parts);
+
+      return {
+        layers: [
+          { geometry: G.mergeGeometries(blossoms) },
+          { geometry: G.mergeGeometries(stems), fixed: '#3f7d38' }
+        ]
+      };
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/leaf-vine.js ----
-/* Leaf vine — a fine, wiry trailing stem densely lined with small paired oval leaflets.
-   Trailing/filler layer: a delicate green lace that softens edges and fills gaps. Leaves
+/* Leaf vine — a fine, wiry trailing stem lined with alternate heart-shaped leaves, each
+   on a short petiole, matching the reference vine (single leaves alternating side to
+   side, not opposite pairs). Trailing/filler layer: softens edges and fills gaps. Leaves
    are optional (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is
    normalised so the longest axis = 1; attachment is the base (start) of the vine. */
 (function () {
   'use strict';
   const G = GreeneryCore;
+  const T = THREE;
+
+  // One heart-shaped leaf outline (THREE.Shape): ovate envelope with a cordate base —
+  // basal lobes hanging below a rounded cleft where the petiole attaches.
+  function heartLeaf() {
+    const L = 0.16, halfW = 0.078, D = 0.10;  // cleft depth 10% of the leaf
+    const env = u => Math.sin(Math.PI * Math.pow(0.12 + 0.88 * Math.min(1, Math.max(0, u)), 0.9));
+    const mask = u => { const m = Math.max(0, 1 - u / 0.18); return m * m; };
+    const N = 44;
+    const pts = [];
+    // Right side up (CCW), left side down — winding makes front faces point +Z.
+    for (let i = 0; i <= N; i++) {
+      const u = i / N;
+      pts.push(new T.Vector2(halfW * env(u), (u - D * mask(u)) * L));
+    }
+    for (let i = N - 1; i >= 0; i--) {
+      const u = i / N;
+      pts.push(new T.Vector2(-halfW * env(u), (u - D * mask(u)) * L));
+    }
+    // Rounded basal cleft joining the two lobes through the petiole point (0,0).
+    const hw0 = halfW * env(0);
+    for (let k = 1; k < 10; k++) {
+      const s = k / 10;
+      pts.push(new T.Vector2(-hw0 + 2 * hw0 * s, (-D + D * Math.sin(Math.PI * s)) * L));
+    }
+    const geo = new T.ShapeGeometry(new T.Shape(pts));
+    // Gentle cup and tip lift (leaf is small; outline vertices carry the curl).
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i);
+      const u = Math.max(0, y) / L;
+      pos.setZ(i, 0.010 * (x / halfW) * (x / halfW) + 0.012 * u * u);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    return geo;
+  }
+
   G.register({
     type: 'leaf-vine',
     label: 'Leaf vine',
@@ -4609,13 +4790,14 @@ const GreeneryCore = (function () {
     build(G) {
       const showLeaves = G.wantsLeaves();
       const rand = G.mulberry32(0x2545f491);
-      // Fine wiry stem with a tighter S-drift than the ivy.
+      // Near-straight wiry stem with only a gentle drift (reference vine runs fairly
+      // straight between leaves).
       const pts = [];
       const N = 24;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
         pts.push({
-          x: Math.sin(t * 4.3) * 0.07,
+          x: Math.sin(t * 4.3) * 0.035,
           y: t,
           z: Math.sin(t * 3.0 + 0.6) * 0.04
         });
@@ -4623,28 +4805,27 @@ const GreeneryCore = (function () {
       const stem = G.makeTube(pts, t => 0.010 * (1 - t * 0.5) + 0.004, 4);
       const parts = [stem];
       if (showLeaves) {
-        // Small oval leaflet: rounded, lightly cupped, faint midrib.
-        const leaflet = G.makeBlade({
-          length: 0.13, halfWidth: 0.055,
-          profile: u => Math.sin(Math.PI * Math.min(1, 0.14 + 0.72 * u)),
-          cup: 0.01, bend: 0.015,
-          midrib: 0.08,
-          lengthSegs: 5, widthSegs: 6
-        });
-        const pairs = 16;
-        for (let i = 1; i <= pairs; i++) {
-          const t = i / (pairs + 0.5);
+        const leaf = heartLeaf();
+        const nodes = 19;
+        for (let i = 1; i <= nodes; i++) {
+          const t = i / (nodes + 0.6);
           const p = pts[Math.min(N, Math.round(t * N))];
-          const sc = 0.9 - t * 0.45;
-          for (const side of [1, -1]) {
-            const c = G.cloneGeom(leaflet);
-            G.applyMatrix(c, G.trs(p.x + side * 0.012, p.y, p.z, -side * (1.15 - t * 0.3), sc * (0.85 + rand() * 0.3)));
-            parts.push(c);
-          }
+          const side = (i % 2) ? 1 : -1;      // alternate side to side
+          const sc = (1 - t * 0.38) * (0.85 + rand() * 0.3);
+          const bx = p.x + side * 0.03, by = p.y + 0.012, bz = p.z + (rand() - 0.5) * 0.02;
+          // Short petiole from the stem node out to the leaf's cleft.
+          parts.push(G.makeTube([
+            { x: p.x, y: p.y, z: p.z },
+            { x: (p.x + bx) / 2, y: (p.y + by) / 2 + 0.008, z: (p.z + bz) / 2 },
+            { x: bx, y: by, z: bz }
+          ], 0.006, 3));
+          const c = G.cloneGeom(leaf);
+          G.applyMatrix(c, G.trs(bx, by, bz, -side * (0.95 + (rand() - 0.5) * 0.35), sc));
+          parts.push(c);
         }
-        // One terminal leaflet closes the tip.
-        const tipLeaf = G.cloneGeom(leaflet);
-        G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y, pts[N].z, 0.12, 0.45));
+        // One terminal leaf closes the tip.
+        const tipLeaf = G.cloneGeom(leaf);
+        G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y + 0.01, pts[N].z, (rand() - 0.5) * 0.3, 0.6));
         parts.push(tipLeaf);
       }
       return G.mergeGeometries(parts);
@@ -4720,28 +4901,40 @@ const GreeneryEngine = (function () {
     const baseHex = (opts && opts.color) || '#4a7c3f';
     const colorVariation = (opts && opts.colorVariation != null) ? opts.colorVariation : 0.3;
     const built = ensureGeometry(type, (opts && opts.detail), (opts && opts.showLeaves));
-    const geo = built.geometry;
     const mat = getMaterial();
-    const im = new T.InstancedMesh(geo, mat, items.length);
-    im.instanceMatrix.setUsage(T.StaticDrawUsage);
-    im.frustumCulled = false;
-    const base = new T.Color(baseHex);
+    // One InstancedMesh per geometry layer: a single-geometry species (usual) yields
+    // one mesh; a multi-colour species (ivy-wisteria) yields one per layer. A layer
+    // with `fixed` pins its own colour (foliage band = green); other layers take the
+    // per-item colour (it.color) falling back to the call's base colour.
+    const specs = (built.layers || [{ geometry: built.geometry }])
+      .filter(l => l && l.geometry)
+      .map(l => ({ geo: l.geometry, fixed: l.fixed || null }));
+    const meshes = [];
+    let triangles = 0;
     const m = new T.Matrix4(), q = new T.Quaternion();
     const ax = new T.Vector3(0, 0, 1), pos = new T.Vector3(), scl = new T.Vector3(), c = new T.Color();
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      pos.set(it.x || 0, it.y || 0, it.z || 0);
-      q.setFromAxisAngle(ax, it.rot || 0);
-      const sc = it.scale || 1; scl.set(sc, sc, sc);
-      m.compose(pos, q, scl);
-      im.setMatrixAt(i, m);
-      const variant = it.variant != null ? it.variant : 0.5;
-      c.copy(base).offsetHSL(0, 0, (variant - 0.5) * colorVariation * 0.6);
-      im.setColorAt(i, c);
+    for (const spec of specs) {
+      const im = new T.InstancedMesh(spec.geo, mat, items.length);
+      im.instanceMatrix.setUsage(T.StaticDrawUsage);
+      im.frustumCulled = false;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        pos.set(it.x || 0, it.y || 0, it.z || 0);
+        q.setFromAxisAngle(ax, it.rot || 0);
+        const sc = it.scale || 1; scl.set(sc, sc, sc);
+        m.compose(pos, q, scl);
+        im.setMatrixAt(i, m);
+        const variant = it.variant != null ? it.variant : 0.5;
+        c.set(spec.fixed || it.color || baseHex)
+          .offsetHSL(0, 0, (variant - 0.5) * colorVariation * 0.6);
+        im.setColorAt(i, c);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      meshes.push(im);
+      triangles += (spec.geo.userData.triangles || 0) * items.length;
     }
-    im.instanceMatrix.needsUpdate = true;
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
-    return { meshes: [im], triangles: (geo.userData.triangles || 0) * items.length, instances: items.length };
+    return { meshes, triangles, instances: items.length };
   }
 
   // Release per-build meshes: frees instance GPU buffers, keeps shared material + cached geometry.
@@ -6958,6 +7151,10 @@ function createLightModel(type = 'light-par', initial = {}) {
             beam = new THREE.Mesh(geo, matBeam);
             beam.rotation.x = -Math.PI / 2;
             beam.position.z = -0.19;
+            // The glow is 6.5 ft long; if it entered the preview camera's
+            // framing box the fixture itself would shrink to a speck.
+            // Previews fit the housing and let the beam run out of frame.
+            beam.userData.noFraming = true;
             tiltG.add(beam);
         } else { // led: flat wash panel on the same yoke
             const { panG, tiltG } = buildYoke();
@@ -11414,16 +11611,16 @@ function studioArrangements() {
     } catch { return []; }
 }
 
-// Mount one Studio arrangement into the scene, near the origin and nudged
-// apart so several stack visibly. Persists as a flowerPanels[] snapshot.
+// Mount one Studio arrangement into the scene at the origin (x=0). It
+// persists as a flowerPanels[] snapshot; use the shelf's Depth/Turn controls
+// to position it.
 function mountArrangement(arr) {
     if (!arr || !arr.settings) return null;
-    const n = flowerPanels.length;
     const fp = mountFlowerPanel({
         arrangementId: arr.id,
         name: (arr.settings && arr.settings.name) || '',
         settings: arr.settings,
-        x: (n % 5) * 6 - 12,
+        x: 0,
         z: 10,
         ry: 0
     });

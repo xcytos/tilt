@@ -1,7 +1,8 @@
-/* Grass tuft — a dense clump of slim, tapering blades fanning out from a compact base,
-   each arching gently toward the viewer. Filler layer: low, soft, fills gaps between
-   statement foliage. Geometry is normalised so the longest axis = 1 (see greenery-core);
-   attachment is the base of the clump (origin). */
+/* Grass tuft — artificial-turf style: a dense carpet of fine, mostly-vertical
+    blades with near-uniform height and only a slight lean, like the reference turf
+    close-up. Filler layer: low, soft, fills gaps between statement foliage.
+    Geometry is normalised so the longest axis = 1 (see greenery-core);
+    attachment is the base of the clump (origin). */
 (function (root) {
   'use strict';
   const G = root.GreeneryCore;
@@ -11,25 +12,25 @@
     build(G) {
       const rand = G.mulberry32(0x9e3779b9);
       const parts = [];
-      const N = 44;
+      const N = 100;                                    // turf density (reference: dense carpet)
       for (let i = 0; i < N; i++) {
-        const angle = (rand() - 0.5) * Math.PI * 1.05;   // fan the tuft ±~95°
-        const height = 0.5 + rand() * 0.5;               // blades 0.5..1.0 tall
+        const angle = rand() * Math.PI * 2;             // spread blades across the tuft disc
+        const height = 0.65 + rand() * 0.35;            // near-uniform turf height
         // Taper to a fine point: full near the base, pinched at the tip.
         const blade = G.makeBlade({
           length: height,
-          halfWidth: 0.010 + rand() * 0.012,
+          halfWidth: 0.008 + rand() * 0.010,            // fine blades
           profile: u => Math.sin(Math.PI * Math.min(1, 0.06 + 0.88 * u)) * (1 - 0.82 * u * u),
           cup: 0.003,
-          bend: 0.10 + rand() * 0.22,                    // arch the tip toward the viewer
-          midrib: 0.15,                                  // faint central vein
+          bend: 0.02 + rand() * 0.07,                   // gentle tip curve - turf stands up
+          midrib: 0.12,
           lengthSegs: 8, widthSegs: 3
         });
-        // Fan outward from a tight base; slight scale variety keeps the clump organic.
-        const r = 0.045 * rand();
+        // Tight carpet base; blades stand mostly vertical with a small random lean.
+        const r = 0.05 * Math.sqrt(rand());
         G.applyMatrix(blade, G.trs(
-          Math.cos(angle) * r, 0, Math.sin(angle) * r * 0.5,
-          angle * (0.55 + rand() * 0.4), 0.72 + rand() * 0.4));
+          Math.cos(angle) * r, 0, Math.sin(angle) * r * 0.6,
+          (rand() - 0.5) * 0.5, 0.8 + rand() * 0.3));
         parts.push(blade);
       }
       return G.mergeGeometries(parts);
