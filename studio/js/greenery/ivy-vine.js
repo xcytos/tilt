@@ -1,9 +1,10 @@
-/* Wisteria garland — hangs downward from its attachment point (stem base at the top): a
-   slim main stem carrying 4-5 drooping racemes densely packed with small 4-petal
-   blossoms, plus a band of green leaflets at the top (G.wantsLeaves()). Two colour
-   layers: the blossoms take the item colour (pink by default, supportsColor), while the
-   stems and leaflets stay green via a fixed layer colour. Trailing layer: drapes down
-   the panel. Geometry normalises the longest axis to 1 about the origin. */
+/* Wisteria garland — a horizontal garland for the panel: the main stem runs +X from
+   its attachment (stem base on the left) carrying 4-5 racemes that hang straight down,
+   densely packed with small 4-petal blossoms, plus a band of green leaflets at the
+   attach end (G.wantsLeaves()). Two colour layers: the blossoms take the item colour
+   (pink by default, supportsColor), while the stems and leaflets stay green via a
+   fixed layer colour. Trailing layer. Geometry normalises the longest axis to 1 about
+   the origin. */
 (function (root) {
   'use strict';
   const G = root.GreeneryCore;
@@ -20,12 +21,14 @@
       const stems = [];             // fixed-green layer: main stem, racemes, leaflets
       const blossoms = [];          // item-coloured layer: 4-petal flowers
 
-      // Main stem hangs downward (y: 0 -> -1) with a gentle S-drift in x and z.
+      // Main stem runs horizontally (+X) from the attachment with a gentle vertical
+      // arc; racemes hang straight down (-Y) from their nodes — the usable garland
+      // position, stem attached at one end.
       const pts = [];
       const N = 26;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
+        pts.push({ x: t, y: Math.sin(t * 3.1) * 0.05, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
       }
       stems.push(G.makeTube(pts, t => 0.016 * (1 - t * 0.6) + 0.005, 6));
 
@@ -54,7 +57,7 @@
         blossoms.push(G.applyMatrix(G.cloneGeom(flower), m));
       }
 
-      // Five racemes droop from the main stem; each is a tapering axis carrying a dense
+      // Five racemes droop below the main stem; each is a tapering axis carrying a dense
       // golden-angle spiral of blossoms that shrink toward the tip.
       const racemes = 5;
       for (let i = 0; i < racemes; i++) {
@@ -67,9 +70,9 @@
         for (let j = 0; j <= M; j++) {
           const u = j / M;
           rp.push({
-            x: p0.x + side * (0.02 + u * 0.10) + Math.sin(u * 2.4) * 0.02,
-            y: p0.y - u * len,
-            z: p0.z + Math.sin(u * 3.1 + i) * 0.03
+            x: p0.x + Math.sin(u * 2.4) * 0.02 + u * 0.02 * side,
+            y: p0.y - 0.02 - u * len,
+            z: p0.z + side * 0.03 + Math.sin(u * 3.1 + i) * 0.02
           });
         }
         stems.push(G.makeTube(rp, u => 0.010 * (1 - u * 0.7) + 0.003, 4));
@@ -86,7 +89,8 @@
         }
       }
 
-      // Green leaflet band at the top (gated by the leaves toggle).
+      // Green leaflet band at the attach end (gated by the leaves toggle); leaves fan
+      // above and below the now-horizontal stem.
       if (showLeaves) {
         const leaflet = G.makeBlade({
           length: 0.11, halfWidth: 0.05,
@@ -100,14 +104,15 @@
           const p = pts[Math.min(N, Math.round(band[i] * N))];
           const side = i % 2 ? 1 : -1;
           const sc = 0.95 - i * 0.1;
-          const bx = p.x + side * 0.018;
+          const by = p.y + side * 0.018;
           stems.push(G.makeTube([
             { x: p.x, y: p.y, z: p.z },
-            { x: bx, y: p.y + 0.01, z: p.z }
+            { x: p.x + 0.01, y: by, z: p.z }
           ], 0.005, 3));
           const c = G.cloneGeom(leaflet);
-          G.applyMatrix(c, G.trs(bx, p.y + 0.01, p.z,
-            -side * (1.2 + rand() * 0.3), sc * (0.85 + rand() * 0.3)));
+          G.applyMatrix(c, G.trs(p.x + 0.01, by, p.z,
+            side === 1 ? -(0.35 + rand() * 0.25) : -(Math.PI - 0.35 - rand() * 0.25),
+            sc * (0.85 + rand() * 0.3)));
           stems.push(c);
         }
       }

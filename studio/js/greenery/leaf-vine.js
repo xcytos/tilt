@@ -1,8 +1,9 @@
-/* Leaf vine — a fine, wiry trailing stem lined with alternate heart-shaped leaves, each
-   on a short petiole, matching the reference vine (single leaves alternating side to
-   side, not opposite pairs). Trailing/filler layer: softens edges and fills gaps. Leaves
-   are optional (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is
-   normalised so the longest axis = 1; attachment is the base (start) of the vine. */
+/* Leaf vine — a fine, wiry vine running horizontally (attached at its base on the
+   left) lined with alternate heart-shaped leaves on short petioles, matching the
+   reference vine (single leaves alternating side to side, not opposite pairs).
+   Trailing/filler layer: softens edges and fills gaps. Leaves are optional
+   (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is normalised so
+   the longest axis = 1; attachment is the base (start) of the vine. */
 (function (root) {
   'use strict';
   const G = root.GreeneryCore;
@@ -89,7 +90,12 @@
         G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y + 0.01, pts[N].z, (rand() - 0.5) * 0.3, 0.6));
         parts.push(tipLeaf);
       }
-      return G.mergeGeometries(parts);
+      // Lay the vine down: the stem runs +X from its attachment and the leaves, which
+      // alternated sideways from the upright stem, end up alternating above and below
+      // the vine — the usable panel position.
+      const merged = G.mergeGeometries(parts);
+      G.applyMatrix(merged, G.trs(0, 0, 0, -Math.PI / 2, 1));
+      return merged;
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
