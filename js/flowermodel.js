@@ -636,15 +636,24 @@ export const FlowerModel = (function () {
     for (let i = 0; i < keep; i++) out[i] = scored[i].c;
     return out;
   }
-  function greeneryRotation(g, direction, x, y, rand) {
-    const jitter = (rand() * 2 - 1) * g.rotationVariation * Math.PI / 180;
+  // Bushes are radial rosettes (orientation-free); every other category is authored in
+  // its usable pose — garland along +X, spray along +X, leaf/tuft vertical.
+  const RADIAL_CATEGORIES = new Set(['bush']);
+  function greeneryRotation(g, direction, x, y, rand, category) {
+    const radial = category ? RADIAL_CATEGORIES.has(category) : false;
     let base;
     switch (direction) {
       case 'upright': base = 0; break;                                  // tip toward +y
       case 'diag':    base = Math.PI / 4; break;
       case 'outward': base = Math.atan2(y, x) - Math.PI / 2; break;      // tip radially out
-      default:        base = rand() * Math.PI * 2; break;                // 'mixed'
+      default:        // 'mixed': radial bushes scatter freely; directional pieces stay
+        // near their authored pose (±15°) so garlands read horizontal, tufts vertical.
+        base = radial ? rand() * Math.PI * 2 : (rand() * 2 - 1) * 0.26;
     }
+    // Directional pieces get a gentle half-variation jitter: a piece must never land
+    // upside-down or near-vertical when 'Upright'/'Mixed' was asked for. Radial bushes
+    // keep the full variation (rotationally symmetric, so nothing can look wrong).
+    const jitter = (rand() * 2 - 1) * g.rotationVariation * (radial ? 1 : 0.35) * Math.PI / 180;
     return base + jitter;
   }
   // Layered placement: structural -> volume -> filler -> trailing, large pieces first so
@@ -760,7 +769,7 @@ export const FlowerModel = (function () {
         x = clamp(x + jx, -W / 2, W / 2);
         y = clamp(y + jy, -H / 2, H / 2);
         const sc = scaleW * (0.9 + rand() * 0.2);                     // subtle size variation
-        let rot = greeneryRotation(g, g.direction, x, y, rand);
+        let rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
         // HARD CONTAINMENT: keep the full rotated+scaled footprint inside the usable panel
         // (which already excludes the border bands via innerArea). If a leaf would overhang
         // an edge, nudge the origin inward once; if it still cannot fit, omit the piece.
@@ -768,7 +777,7 @@ export const FlowerModel = (function () {
         if (!fit.fits) {
           x = clamp(x + fit.dx, -W / 2, W / 2);
           y = clamp(y + fit.dy, -H / 2, H / 2);
-          rot = greeneryRotation(g, g.direction, x, y, rand);
+          rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
           fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
           if (!fit.fits) { _lastOmitted++; continue; }
         }
