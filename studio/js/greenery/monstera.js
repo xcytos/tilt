@@ -97,7 +97,13 @@
         { x: 0.005, y: -0.16, z: -0.005 },
         { x: 0, y: 0, z: 0 }
       ], 0.011, 6);
-      return G.mergeGeometries([stem, geo]);
+      const merged = G.mergeGeometries([stem, geo]);
+      // Wall anchor = the wire's cut base: lift everything so the stem base IS the
+      // origin and the whole piece sits above it — the leaf is pinned by its stem,
+      // not floating from a junction with the wire dangling below the anchor.
+      merged.computeBoundingBox();
+      merged.translate(0, -merged.boundingBox.min.y, 0);
+      return merged;
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

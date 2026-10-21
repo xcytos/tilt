@@ -1,8 +1,11 @@
 import { GreeneryCore } from './greenery-core.js';
 
-/* Boston fern bush — a full clump of arching, feathery fronds radiating from a compact
-   base. Filler/volume layer. Geometry is normalised so the longest axis = 1 (see
-   greenery-core); attachment is the base of the clump (origin). */
+/* Boston fern bush — wall-anchored fountain: a compact crown pinned at the origin
+   (the cut base of every frond) with arching feathery fronds opening UPWARD and
+   outward, like the reference clump seen from the side mounted on a wall — never a
+   floor rosette with half the crown hanging below the anchor.
+   Filler/volume layer. Geometry is normalised so the longest axis = 1 (see
+   greenery-core); attachment is the crown base (origin). */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -55,23 +58,27 @@ import { GreeneryCore } from './greenery-core.js';
     build(G) {
       const frond = makeFrond(G);
       const parts = [];
-      // Outer ring: long arching fronds forming the rounded silhouette.
+      // Every frond starts at the crown (origin) — the wall anchor. Angles fan UPWARD
+      // from vertical: spread/2 gives the reach of the outermost fronds.
+      const fan = (k, n, spread) => (k / (n - 1) - 0.5) * spread;
+      // Outer ring: longest fronds splaying widest (±105° from vertical — the outermost
+      // reach just past horizontal so their tips drape a little, nothing hangs below).
       const outer = 13;
       for (let k = 0; k < outer; k++) {
-        const theta = k / outer * Math.PI * 2 + 0.2;
+        const theta = fan(k, outer, 3.665);
         const sc = 0.5 * (0.86 + 0.32 * ((k * 37) % 7) / 7);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0, theta, sc)));
       }
-      // Middle ring fills the body of the clump.
+      // Middle ring fills the body of the fountain (±80°).
       const mid = 7;
       for (let k = 0; k < mid; k++) {
-        const theta = k / mid * Math.PI * 2 + 0.65;
+        const theta = fan(k, mid, 2.79);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.008, theta, 0.36)));
       }
-      // Short inner fronds close the centre so no hollow starburst core shows.
+      // Short inner fronds stand near vertical (±40°) to close the centre.
       const inner = 4;
       for (let k = 0; k < inner; k++) {
-        const theta = k / inner * Math.PI * 2 + 1.1;
+        const theta = fan(k, inner, 1.4);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.014, theta, 0.2)));
       }
       return G.mergeGeometries(parts);

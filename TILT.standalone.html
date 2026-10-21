@@ -2527,9 +2527,9 @@ const FlowerModel = (function () {
   // uses it to keep the FULL rotated+scaled footprint inside the usable panel (not just
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
-    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, -0.356, 0.269, 0.644], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, 0, 0.269, 1], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.003, -0.336, 0.997, 0.268], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'boston-fern': { id: 'boston-fern', category: 'bush', label: 'Boston fern bush', lengthIn: 14, widthIn: 10, footprintSqIn: 67,  bounds: [-0.504, -0.176, 0.496, 0.52], color: '#357a2e', defaultLayer: 'volume',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 12, footprintSqIn: 106, bounds: [-0.003, -0.344, 0.997, 0.137],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.002, -0.152, 0.998, 0.128], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
@@ -3116,9 +3116,11 @@ const FlowerModel = (function () {
     for (let i = 0; i < keep; i++) out[i] = scored[i].c;
     return out;
   }
-  // Bushes are radial rosettes (orientation-free); every other category is authored in
-  // its usable pose — garland along +X, spray along +X, leaf/tuft vertical.
-  const RADIAL_CATEGORIES = new Set(['bush']);
+  // No species is a true 360° radial rosette today — the fern is a wall-anchored upward
+  // fountain (base at the crown, fronds opening up), so every category is authored in
+  // its usable pose and gets the gentle scatter. Re-add here if a genuine
+  // orientation-free rosette returns.
+  const RADIAL_CATEGORIES = new Set([]);
   function greeneryRotation(g, direction, x, y, rand, category) {
     const radial = category ? RADIAL_CATEGORIES.has(category) : false;
     let base;
@@ -4482,7 +4484,13 @@ const GreeneryCore = (function () {
         { x: 0.005, y: -0.16, z: -0.005 },
         { x: 0, y: 0, z: 0 }
       ], 0.011, 6);
-      return G.mergeGeometries([stem, geo]);
+      const merged = G.mergeGeometries([stem, geo]);
+      // Wall anchor = the wire's cut base: lift everything so the stem base IS the
+      // origin and the whole piece sits above it — the leaf is pinned by its stem,
+      // not floating from a junction with the wire dangling below the anchor.
+      merged.computeBoundingBox();
+      merged.translate(0, -merged.boundingBox.min.y, 0);
+      return merged;
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -4558,9 +4566,12 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/boston-fern.js ----
-/* Boston fern bush — a full clump of arching, feathery fronds radiating from a compact
-   base. Filler/volume layer. Geometry is normalised so the longest axis = 1 (see
-   greenery-core); attachment is the base of the clump (origin). */
+/* Boston fern bush — wall-anchored fountain: a compact crown pinned at the origin
+   (the cut base of every frond) with arching feathery fronds opening UPWARD and
+   outward, like the reference clump seen from the side mounted on a wall — never a
+   floor rosette with half the crown hanging below the anchor.
+   Filler/volume layer. Geometry is normalised so the longest axis = 1 (see
+   greenery-core); attachment is the crown base (origin). */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -4613,23 +4624,27 @@ const GreeneryCore = (function () {
     build(G) {
       const frond = makeFrond(G);
       const parts = [];
-      // Outer ring: long arching fronds forming the rounded silhouette.
+      // Every frond starts at the crown (origin) — the wall anchor. Angles fan UPWARD
+      // from vertical: spread/2 gives the reach of the outermost fronds.
+      const fan = (k, n, spread) => (k / (n - 1) - 0.5) * spread;
+      // Outer ring: longest fronds splaying widest (±105° from vertical — the outermost
+      // reach just past horizontal so their tips drape a little, nothing hangs below).
       const outer = 13;
       for (let k = 0; k < outer; k++) {
-        const theta = k / outer * Math.PI * 2 + 0.2;
+        const theta = fan(k, outer, 3.665);
         const sc = 0.5 * (0.86 + 0.32 * ((k * 37) % 7) / 7);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0, theta, sc)));
       }
-      // Middle ring fills the body of the clump.
+      // Middle ring fills the body of the fountain (±80°).
       const mid = 7;
       for (let k = 0; k < mid; k++) {
-        const theta = k / mid * Math.PI * 2 + 0.65;
+        const theta = fan(k, mid, 2.79);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.008, theta, 0.36)));
       }
-      // Short inner fronds close the centre so no hollow starburst core shows.
+      // Short inner fronds stand near vertical (±40°) to close the centre.
       const inner = 4;
       for (let k = 0; k < inner; k++) {
-        const theta = k / inner * Math.PI * 2 + 1.1;
+        const theta = fan(k, inner, 1.4);
         parts.push(G.applyMatrix(G.cloneGeom(frond), G.trs(0, 0, 0.014, theta, 0.2)));
       }
       return G.mergeGeometries(parts);

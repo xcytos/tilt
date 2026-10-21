@@ -47,9 +47,9 @@ export const FlowerModel = (function () {
   // uses it to keep the FULL rotated+scaled footprint inside the usable panel (not just
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
-    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, -0.356, 0.269, 0.644], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, 0, 0.269, 1], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.003, -0.336, 0.997, 0.268], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'boston-fern': { id: 'boston-fern', category: 'bush',          label: 'Boston fern bush', lengthIn: 14, widthIn: 13, footprintSqIn: 67,  bounds: [-0.502, -0.476, 0.498, 0.416], color: '#357a2e', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'boston-fern': { id: 'boston-fern', category: 'bush', label: 'Boston fern bush', lengthIn: 14, widthIn: 10, footprintSqIn: 67,  bounds: [-0.504, -0.176, 0.496, 0.52], color: '#357a2e', defaultLayer: 'volume',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 12, footprintSqIn: 106, bounds: [-0.003, -0.344, 0.997, 0.137],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.002, -0.152, 0.998, 0.128], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
@@ -636,9 +636,11 @@ export const FlowerModel = (function () {
     for (let i = 0; i < keep; i++) out[i] = scored[i].c;
     return out;
   }
-  // Bushes are radial rosettes (orientation-free); every other category is authored in
-  // its usable pose — garland along +X, spray along +X, leaf/tuft vertical.
-  const RADIAL_CATEGORIES = new Set(['bush']);
+  // No species is a true 360° radial rosette today — the fern is a wall-anchored upward
+  // fountain (base at the crown, fronds opening up), so every category is authored in
+  // its usable pose and gets the gentle scatter. Re-add here if a genuine
+  // orientation-free rosette returns.
+  const RADIAL_CATEGORIES = new Set([]);
   function greeneryRotation(g, direction, x, y, rand, category) {
     const radial = category ? RADIAL_CATEGORIES.has(category) : false;
     let base;
