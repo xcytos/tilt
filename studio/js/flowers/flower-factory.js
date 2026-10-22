@@ -59,9 +59,10 @@
     const centre = built.center
       ? C.buildCenter({ flowers, colors, S, center: built.center })
       : { meshes: [], triangles: 0 };
+    const stems = C.buildStems({ flowers, S });
     return {
-      meshes: rings.meshes.concat(centre.meshes),
-      triangles: rings.triangles + centre.triangles,
+      meshes: rings.meshes.concat(centre.meshes, stems.meshes),
+      triangles: rings.triangles + centre.triangles + stems.triangles,
       petalsPerFlower: C.petalsPerFlower(s),
       perFlowerTriangles: C.trianglesOf(built)
     };

@@ -36,6 +36,10 @@
   // are pure data so the placement engine stays node-testable without THREE.
   const DESIGN_MODES = ['flowers', 'greenery', 'mixed']; // what composites in the scene
   const COMPOSITIONS = ['greenery-base', 'foliage-clusters', 'flower-dominant']; // mixed-mode flower/greenery balance
+  // Projection band: how far the design stands off the foam face, matching the
+  // reference sheet's Minimal 5-10 / Medium 10-20 / Full 20-30 cm bands.
+  const PROJECTIONS = ['minimal', 'medium', 'full'];
+  const PROJECTION_LIFT_IN = { minimal: 0, medium: 2.4, full: 7.5 }; // head lift off the face, inches
   const GREENERY_MODES = ['single', 'mixed'];            // one greenery item vs several
   const GREENERY_CATEGORIES = ['individual-leaf', 'spray', 'bush', 'garland', 'filler', 'branch'];
   const GREENERY_LAYERS = ['structural', 'volume', 'filler', 'trailing'];
@@ -279,12 +283,27 @@
     const greeneryOn = designMode !== 'flowers';
     // Composition style only matters in mixed mode (flowers + greenery together).
     const composition = designMode === 'mixed' ? cleanEnum(settings.composition, COMPOSITIONS, 'greenery-base') : null;
+    const projection = cleanEnum(settings.projection, PROJECTIONS, 'medium');
     const greenery = normalizeGreenery(settings.greenery);
     // Optional greenery ring behind each flower head (calyx/sepals peeking out). Off by
     // default so the existing flower-only look is preserved; the Studio exposes it as a
     // "Show leaves" checkbox.
     const flowerLeaves = settings.flowerLeaves === undefined ? false : !!settings.flowerLeaves;
-    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, greenery, flowerLeaves };
+    return { name: String(settings.name || 'Untitled arrangement'), width, height, flowerSize, coverage, flowerType, colors, pattern, mixIntensity, groupingLimit, clusterSize, patternDirection, seed, border, borderEnabled: borderActive, borderWidth: firstFrame ? firstFrame.width : 6, borderColor: firstFrame ? firstFrame.color : '#D4AF37', designMode, flowersOn, greeneryOn, composition, projection, greenery, flowerLeaves };
+  }
+  // Head lift off the foam face for the projection band, in world units. The
+  // reference sheet's bands are measured from the wall face to the front of the
+  // design; heads add their own depth (~25% of head size) on top of this lift.
+  function flowerProjection(settings, scale = 0.72) {
+    const s = normalize(settings);
+    const liftIn = PROJECTION_LIFT_IN[s.projection] != null ? PROJECTION_LIFT_IN[s.projection] : PROJECTION_LIFT_IN.medium;
+    return liftIn * (scale / 12);
+  }
+  // Deterministic per-flower lift jitter (78%-122% of the band lift) so the bloom
+  // surface reads as a soft 3D field instead of a flat plane at one z.
+  function projectionJitter(seed) {
+    const v = Math.sin((seed >>> 0) * 127.1 + 311.7) * 43758.5453;
+    return 0.78 + 0.44 * (v - Math.floor(v));
   }
   // Look up a border layer by id (or accept the layer object itself).
   function findBorderLayer(s, which) {
@@ -714,8 +733,11 @@
     const area = innerArea(s);
     const W = area.width * scale, H = area.height * scale;
     const gSeed = (g.seed >>> 0);
-    // Tallest flower petal sits at ~0.14*S above the foam (S = head diameter in world).
-    const flowerTopZ = s.designMode === 'mixed' ? 0.14 * (s.flowerSize / 12) * scale : 0;
+    // Head top = petal lift (~0.14*S) plus the projection band's stem lift; greenery
+    // layers spread through the full head height so they interleave with lifted blooms.
+    const flowerTopZ = s.designMode === 'mixed'
+      ? 0.14 * (s.flowerSize / 12) * scale + flowerProjection(s, scale)
+      : 0;
     const out = [];
     _lastOmitted = 0;
     // Composition tuning (mixed mode only). The cluster field is computed ONCE so every
@@ -978,5 +1000,5 @@
     }
   }
 
-  return { normalize, positions, counts, assignColors, innerArea, borderBands, borderPositions, greeneryBorderPositions, borderEffectivePalette, borderColorIndices, borderSpacingFactor, findBorderLayer, orderOptions, greeneryPositions, greeneryEstimate, greeneryActiveItems, greeneryOmitted, footprintFit, shadeHex, cleanHex, clamp, FLOWER_TYPES, SPECIES_PACK, PATTERNS, MIX_INTENSITIES, GROUPING_LIMITS, CLUSTER_SIZES, PATTERN_DIRS, BORDER_COMPONENTS: LEGACY_BORDER_COMPONENTS, BORDER_LAYER_TYPES, BORDER_MAX_LAYERS, BORDER_ARRANGEMENTS, BORDER_COLOR_MODES, DESIGN_MODES, COMPOSITIONS, GREENERY_MODES, GREENERY_TYPES, GREENERY_CATEGORIES, GREENERY_LAYERS, GREENERY_DIRECTIONS, GREENERY_META, GREENERY_MAX_ITEMS, GREENERY_LOAD_K };
+  return { normalize, flowerProjection, projectionJitter, positions, counts, assignColors, innerArea, borderBands, borderPositions, greeneryBorderPositions, borderEffectivePalette, borderColorIndices, borderSpacingFactor, findBorderLayer, orderOptions, greeneryPositions, greeneryEstimate, greeneryActiveItems, greeneryOmitted, footprintFit, shadeHex, cleanHex, clamp, FLOWER_TYPES, SPECIES_PACK, PATTERNS, MIX_INTENSITIES, GROUPING_LIMITS, CLUSTER_SIZES, PATTERN_DIRS, PROJECTIONS, BORDER_COMPONENTS: LEGACY_BORDER_COMPONENTS, BORDER_LAYER_TYPES, BORDER_MAX_LAYERS, BORDER_ARRANGEMENTS, BORDER_COLOR_MODES, DESIGN_MODES, COMPOSITIONS, GREENERY_MODES, GREENERY_TYPES, GREENERY_CATEGORIES, GREENERY_LAYERS, GREENERY_DIRECTIONS, GREENERY_META, GREENERY_MAX_ITEMS, GREENERY_LOAD_K };
 });

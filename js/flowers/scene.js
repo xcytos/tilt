@@ -168,9 +168,15 @@ export const FlowerScene = (function () {
       const cIdx = model.borderColorIndices(pos.length, palHex.length, layer.arrangement, s.seed);
       const rotMax = (layer.rotation || 0) * Math.PI / 180;
       const lh = hashSeed(layer.id);
+      const lift = model.flowerProjection(s, scale);
       const flowers = pos.map((xy, j) => {
         const r = seededRand((s.seed + 10007 * lh + j * 2654435761) >>> 0);
-        return { x: xy[0], y: xy[1], seed: 100000 + j + lh * 977, colorIndex: cIdx[j] || 0, spin: rotMax ? (r() * 2 - 1) * rotMax : 0 };
+        const seed = 100000 + j + lh * 977;
+        return {
+          x: xy[0], y: xy[1], seed, colorIndex: cIdx[j] || 0,
+          spin: rotMax ? (r() * 2 - 1) * rotMax : 0,
+          z: lift > 0 ? lift * model.projectionJitter(seed) : 0
+        };
       });
       const S = (layer.flowerSize / 12) * scale;
       const result = engine.build({ type: layer.flowerType, flowers, colors: palette, S, detail, leaves: s.flowerLeaves });
@@ -219,7 +225,12 @@ export const FlowerScene = (function () {
       const counts = model.counts(s, allPositions.length);
       const assign = model.assignColors(s, allPositions);
       const colorIndex = assign.colorIndex;
-      const flowers = allPositions.map((xy, i) => ({ x: xy[0], y: xy[1], seed: i, colorIndex: colorIndex[i] || 0 }));
+      // Projection band: heads ride off the foam on green stems (per-flower z jitter).
+      const lift = model.flowerProjection(s, scale);
+      const flowers = allPositions.map((xy, i) => ({
+        x: xy[0], y: xy[1], seed: i, colorIndex: colorIndex[i] || 0,
+        z: lift > 0 ? lift * model.projectionJitter(i) : 0
+      }));
       const palette = counts.map(c => new T.Color(c.hex));
       const S = (s.flowerSize / 12) * scale; // nominal head diameter, world units
 

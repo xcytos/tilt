@@ -207,7 +207,7 @@ export const FlowerCore = (function () {
           const angle = k * Math.PI * 2 / per + angleOff + jr + spin;
           const tilt = baseTilt + (tiltJitter ? (rnd() - 0.5) * 2 * tiltJitter : 0);
           const scale = S * (1 + (sizeVar ? (rnd() - 0.5) * 2 * sizeVar : 0));
-          const zp = z + (zJitter ? (rnd() - 0.5) * 2 * zJitter * S : 0);
+          const zp = z + (f.z || 0) + (zJitter ? (rnd() - 0.5) * 2 * zJitter * S : 0);
           const roll = rollJitter ? (rnd() - 0.5) * 2 * rollJitter : 0;
           petalMatrix(matrix, f.x, f.y, zp, angle, tilt, radius, scale, roll);
           im.setMatrixAt(n, matrix);
@@ -252,7 +252,7 @@ export const FlowerCore = (function () {
     }
     for (let fi = 0; fi < flowers.length; fi++) {
       const f = flowers[fi];
-      _pos.set(f.x, f.y, z);
+      _pos.set(f.x, f.y, z + (f.z || 0));
       _scl.set(scale, scale, scale * (center.squash != null ? center.squash : 1));
       matrix.compose(_pos, idQ, _scl);
       im.setMatrixAt(fi, matrix);
@@ -261,6 +261,41 @@ export const FlowerCore = (function () {
     im.instanceMatrix.needsUpdate = true;
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
     return { meshes: [im], triangles: (geo.userData.triangles || 0) * flowers.length, material: mat };
+  }
+
+  // Green stems for lifted flower heads: one thin instanced cylinder per flower,
+  // from the foam face (z=0) out to the head's base plane (f.z), overshooting a
+  // touch so the tip tucks under the calyx dome. Only flowers with a positive z
+  // get a stem, so the flat (minimal projection) look stays exactly as before.
+  function buildStems(ctx) {
+    const { flowers, S } = ctx;
+    const list = (flowers || []).filter(f => (f.z || 0) > 0.002);
+    if (!list.length) return { meshes: [], triangles: 0 };
+    // Unit cylinder along +Z with its base at z=0; per-instance scale sets radius/length.
+    const geo = new T.CylinderGeometry(1, 1, 1, 5, 1, false);
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, 0, 0.5);
+    geo.computeVertexNormals();
+    geo.userData.triangles = (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
+    const mat = new T.MeshLambertMaterial({ color: 0x4a7a3a, side: T.DoubleSide });
+    const im = new T.InstancedMesh(geo, mat, list.length);
+    im.instanceMatrix.setUsage(T.StaticDrawUsage);
+    im.frustumCulled = false;
+    const matrix = new T.Matrix4();
+    const idQ = new T.Quaternion();
+    const pos = new T.Vector3();
+    const scl = new T.Vector3();
+    const radius = 0.016 * S;
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i];
+      const len = f.z + 0.06 * S;
+      pos.set(f.x, f.y, 0);
+      scl.set(radius, radius, len);
+      matrix.compose(pos, idQ, scl);
+      im.setMatrixAt(i, matrix);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    return { meshes: [im], triangles: geo.userData.triangles * list.length, material: mat };
   }
 
   // Optional green ring behind the head (calyx / sepals peeking out) shown when the
@@ -351,7 +386,7 @@ export const FlowerCore = (function () {
 
   return {
     makePetalGeometry, makeDomeGeometry, petalMatrix, shadedColor,
-    buildRings, buildCenter, buildGeometries, disposeGeometries,
+    buildRings, buildCenter, buildStems, buildGeometries, disposeGeometries,
     trianglesOf, petalsPerFlower, mulberry32, PROFILE,
     register, get, list
   };

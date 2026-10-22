@@ -102,6 +102,16 @@
       </div>
       <label class="check-label"><input id="flowerLeaves" type="checkbox"> <strong>Show leaves</strong> <small>green calyx ring behind each head</small></label>
       <div class="field">
+        <label>Projection <small>how far blooms stand off the panel face</small></label>
+        <div class="seg" role="radiogroup" aria-label="Projection">
+          <input type="radio" id="pj-minimal" name="projectionSeg" value="minimal"><label for="pj-minimal">Minimal</label>
+          <input type="radio" id="pj-medium" name="projectionSeg" value="medium" checked><label for="pj-medium">Medium</label>
+          <input type="radio" id="pj-full" name="projectionSeg" value="full"><label for="pj-full">Full</label>
+        </div>
+        <input id="projection" type="hidden" value="medium">
+        <small>5–10 cm · 10–20 cm · 20–30 cm off the face</small>
+      </div>
+      <div class="field">
         <label for="coverage">Coverage target <strong id="densityValue">100%</strong></label>
         <input id="coverage" type="range" min="70" max="100" value="100">
       </div>
