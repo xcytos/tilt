@@ -1,7 +1,6 @@
-/* Eucalyptus spray — a horizontal branch: several stems fanning from one base (the
-    attachment, on the left), each densely carrying opposite pairs of near-circular
-    silver-dollar coin leaves that alternate above and below the branch, like the
-    reference photo's cut eucalyptus lying across a panel.
+/* Eucalyptus spray — several upright stems fanning from one base, each densely
+    carrying opposite pairs of near-circular silver-dollar coin leaves held nearly
+    horizontal, like the reference photo of a vase full of stalks.
     Volume-layer soft filler foliage; attachment at the base of the spray.
     Geometry is normalised so the longest axis = 1 (see greenery-core). */
 (function (root) {
@@ -56,13 +55,7 @@
         G.applyMatrix(tip, G.trs(pts[N].x, pts[N].y, pts[N].z, (rand() - 0.5) * 0.4, 0.5 * hs));
         parts.push(tip);
       }
-      const merged = G.mergeGeometries(parts);
-      // Lay the spray down: stems run +X (attached at the base on the left) and the
-      // coin leaves, which stood out sideways from the upright stems, end up alternating
-      // above and below the branch — the usable panel position, like a cut branch lying
-      // across the panel instead of a vase of stalks.
-      G.applyMatrix(merged, G.trs(0, 0, 0, -Math.PI / 2, 1));
-      return merged;
+      return G.mergeGeometries(parts);
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

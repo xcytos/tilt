@@ -2528,11 +2528,11 @@ const FlowerModel = (function () {
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
     monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, 0, 0.269, 1], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.003, -0.336, 0.997, 0.268], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.268, -0.003, 0.336, 0.997], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'boston-fern': { id: 'boston-fern', category: 'bush', label: 'Boston fern bush', lengthIn: 14, widthIn: 10, footprintSqIn: 67,  bounds: [-0.504, -0.176, 0.496, 0.52], color: '#357a2e', defaultLayer: 'volume',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 12, footprintSqIn: 106, bounds: [-0.003, -0.344, 0.997, 0.137],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.002, -0.152, 0.998, 0.128], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 6, footprintSqIn: 53, bounds: [-0.089, -0.978, 0.167, 0.022],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.128, -0.002, 0.152, 0.998], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -4496,10 +4496,9 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/eucalyptus.js ----
-/* Eucalyptus spray — a horizontal branch: several stems fanning from one base (the
-    attachment, on the left), each densely carrying opposite pairs of near-circular
-    silver-dollar coin leaves that alternate above and below the branch, like the
-    reference photo's cut eucalyptus lying across a panel.
+/* Eucalyptus spray — several upright stems fanning from one base, each densely
+    carrying opposite pairs of near-circular silver-dollar coin leaves held nearly
+    horizontal, like the reference photo of a vase full of stalks.
     Volume-layer soft filler foliage; attachment at the base of the spray.
     Geometry is normalised so the longest axis = 1 (see greenery-core). */
 (function () {
@@ -4554,13 +4553,7 @@ const GreeneryCore = (function () {
         G.applyMatrix(tip, G.trs(pts[N].x, pts[N].y, pts[N].z, (rand() - 0.5) * 0.4, 0.5 * hs));
         parts.push(tip);
       }
-      const merged = G.mergeGeometries(parts);
-      // Lay the spray down: stems run +X (attached at the base on the left) and the
-      // coin leaves, which stood out sideways from the upright stems, end up alternating
-      // above and below the branch — the usable panel position, like a cut branch lying
-      // across the panel instead of a vase of stalks.
-      G.applyMatrix(merged, G.trs(0, 0, 0, -Math.PI / 2, 1));
-      return merged;
+      return G.mergeGeometries(parts);
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -4694,13 +4687,12 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/ivy-vine.js ----
-/* Wisteria garland — a horizontal garland for the panel: the main stem runs +X from
-   its attachment (stem base on the left) carrying 4-5 racemes that hang straight down,
-   densely packed with small 4-petal blossoms, plus a band of green leaflets at the
-   attach end (G.wantsLeaves()). Two colour layers: the blossoms take the item colour
-   (pink by default, supportsColor), while the stems and leaflets stay green via a
-   fixed layer colour. Trailing layer. Geometry normalises the longest axis to 1 about
-   the origin. */
+/* Wisteria garland — hangs downward from its attachment point (stem base at the top): a
+   slim main stem carrying 4-5 drooping racemes densely packed with small 4-petal
+   blossoms, plus a band of green leaflets at the top (G.wantsLeaves()). Two colour
+   layers: the blossoms take the item colour (pink by default, supportsColor), while the
+   stems and leaflets stay green via a fixed layer colour. Trailing layer: drapes down
+   the panel. Geometry normalises the longest axis to 1 about the origin. */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -4717,14 +4709,12 @@ const GreeneryCore = (function () {
       const stems = [];             // fixed-green layer: main stem, racemes, leaflets
       const blossoms = [];          // item-coloured layer: 4-petal flowers
 
-      // Main stem runs horizontally (+X) from the attachment with a gentle vertical
-      // arc; racemes hang straight down (-Y) from their nodes — the usable garland
-      // position, stem attached at one end.
+      // Main stem hangs downward (y: 0 -> -1) with a gentle S-drift in x and z.
       const pts = [];
       const N = 26;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        pts.push({ x: t, y: Math.sin(t * 3.1) * 0.05, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
+        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
       }
       stems.push(G.makeTube(pts, t => 0.016 * (1 - t * 0.6) + 0.005, 6));
 
@@ -4753,7 +4743,7 @@ const GreeneryCore = (function () {
         blossoms.push(G.applyMatrix(G.cloneGeom(flower), m));
       }
 
-      // Five racemes droop below the main stem; each is a tapering axis carrying a dense
+      // Five racemes droop from the main stem; each is a tapering axis carrying a dense
       // golden-angle spiral of blossoms that shrink toward the tip.
       const racemes = 5;
       for (let i = 0; i < racemes; i++) {
@@ -4766,9 +4756,9 @@ const GreeneryCore = (function () {
         for (let j = 0; j <= M; j++) {
           const u = j / M;
           rp.push({
-            x: p0.x + Math.sin(u * 2.4) * 0.02 + u * 0.02 * side,
-            y: p0.y - 0.02 - u * len,
-            z: p0.z + side * 0.03 + Math.sin(u * 3.1 + i) * 0.02
+            x: p0.x + side * (0.02 + u * 0.10) + Math.sin(u * 2.4) * 0.02,
+            y: p0.y - u * len,
+            z: p0.z + Math.sin(u * 3.1 + i) * 0.03
           });
         }
         stems.push(G.makeTube(rp, u => 0.010 * (1 - u * 0.7) + 0.003, 4));
@@ -4785,8 +4775,7 @@ const GreeneryCore = (function () {
         }
       }
 
-      // Green leaflet band at the attach end (gated by the leaves toggle); leaves fan
-      // above and below the now-horizontal stem.
+      // Green leaflet band at the top (gated by the leaves toggle).
       if (showLeaves) {
         const leaflet = G.makeBlade({
           length: 0.11, halfWidth: 0.05,
@@ -4800,15 +4789,14 @@ const GreeneryCore = (function () {
           const p = pts[Math.min(N, Math.round(band[i] * N))];
           const side = i % 2 ? 1 : -1;
           const sc = 0.95 - i * 0.1;
-          const by = p.y + side * 0.018;
+          const bx = p.x + side * 0.018;
           stems.push(G.makeTube([
             { x: p.x, y: p.y, z: p.z },
-            { x: p.x + 0.01, y: by, z: p.z }
+            { x: bx, y: p.y + 0.01, z: p.z }
           ], 0.005, 3));
           const c = G.cloneGeom(leaflet);
-          G.applyMatrix(c, G.trs(p.x + 0.01, by, p.z,
-            side === 1 ? -(0.35 + rand() * 0.25) : -(Math.PI - 0.35 - rand() * 0.25),
-            sc * (0.85 + rand() * 0.3)));
+          G.applyMatrix(c, G.trs(bx, p.y + 0.01, p.z,
+            -side * (1.2 + rand() * 0.3), sc * (0.85 + rand() * 0.3)));
           stems.push(c);
         }
       }
@@ -4824,12 +4812,11 @@ const GreeneryCore = (function () {
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // ---- js/greenery/leaf-vine.js ----
-/* Leaf vine — a fine, wiry vine running horizontally (attached at its base on the
-   left) lined with alternate heart-shaped leaves on short petioles, matching the
-   reference vine (single leaves alternating side to side, not opposite pairs).
-   Trailing/filler layer: softens edges and fills gaps. Leaves are optional
-   (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is normalised so
-   the longest axis = 1; attachment is the base (start) of the vine. */
+/* Leaf vine — a fine, wiry trailing stem lined with alternate heart-shaped leaves, each
+   on a short petiole, matching the reference vine (single leaves alternating side to
+   side, not opposite pairs). Trailing/filler layer: softens edges and fills gaps. Leaves
+   are optional (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is
+   normalised so the longest axis = 1; attachment is the base (start) of the vine. */
 (function () {
   'use strict';
   const G = GreeneryCore;
@@ -4916,12 +4903,7 @@ const GreeneryCore = (function () {
         G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y + 0.01, pts[N].z, (rand() - 0.5) * 0.3, 0.6));
         parts.push(tipLeaf);
       }
-      // Lay the vine down: the stem runs +X from its attachment and the leaves, which
-      // alternated sideways from the upright stem, end up alternating above and below
-      // the vine — the usable panel position.
-      const merged = G.mergeGeometries(parts);
-      G.applyMatrix(merged, G.trs(0, 0, 0, -Math.PI / 2, 1));
-      return merged;
+      return G.mergeGeometries(parts);
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
