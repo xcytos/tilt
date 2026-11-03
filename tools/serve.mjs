@@ -23,7 +23,7 @@ const MAX_BODY = 128 * 1024;
 // browser reload. project.json and data/ are deliberately absent: saving a
 // project must not reload the page.
 const WATCHED = ['js', 'js/objects', 'models', 'home', 'studio', 'TILT.html', 'index.html',
-    'workflow.html', 'manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png'];
+    'models.html', 'workflow.html', 'manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png'];
 
 // The database is state, not an asset. Neither it nor the repo's own
 // metadata may be downloaded through this server.

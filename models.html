@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Models — TILT</title>
+    <link rel="icon" href="data:,">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#0b1020">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="stylesheet" href="./home/models.css">
+    <script>
+        // Theme before first paint, shared with home and editor through the
+        // same key so the three pages never disagree about dark mode.
+        (function () {
+            var saved = null;
+            try { saved = localStorage.getItem('o2tilt-theme'); } catch (e) { /* private mode */ }
+            var dark = saved ? saved === 'dark'
+                : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (dark) document.documentElement.classList.add('dark');
+        })();
+    </script>
+    <script>
+        // Live reload, same contract as the homepage.
+        (function () {
+            if (!/^https?:$/.test(location.protocol)) return;
+            try {
+                var es = new EventSource('/__events');
+                es.onmessage = function (e) {
+                    if (e.data === 'reload') location.reload();
+                };
+                es.onerror = function () { if (es.readyState === 2) es.close(); };
+            } catch (e) { /* served by something else - no reload */ }
+        })();
+    </script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+<header class="app-bar">
+    <div class="bar">
+        <a class="wordmark" href="./">TILT</a>
+        <span class="bar-sep" aria-hidden="true">/</span>
+        <span class="bar-page">Models</span>
+
+        <div class="bar-actions">
+            <a class="bar-link" href="./">Home</a>
+            <a class="bar-link" href="./workflow.html">Workflow</a>
+            <button class="icon-btn" id="btn-theme" type="button" aria-label="Switch theme">
+                <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+                <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"></path></svg>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <section class="head">
+        <div class="head-row">
+            <h1>Models</h1>
+            <label class="sort">
+                <span>Sort</span>
+                <select id="sort" aria-label="Sort assets">
+                    <option value="name">Name</option>
+                    <option value="type">Asset type</option>
+                    <option value="category">Category</option>
+                </select>
+            </label>
+        </div>
+        <p class="counts" id="counts" aria-live="polite"></p>
+    </section>
+
+    <section class="filters" aria-label="Filter assets">
+        <div class="filter-top">
+            <div class="search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <input id="search-input" type="search" placeholder="Search all models and assets…" aria-label="Search all models and assets" autocomplete="off">
+            </div>
+            <label class="type-pick">
+                <span>Type</span>
+                <select id="type-chips" aria-label="Asset type"></select>
+            </label>
+        </div>
+        <div class="chips" id="cat-chips" aria-label="Categories"></div>
+    </section>
+
+    <section aria-label="Assets">
+        <p class="result" id="result"></p>
+        <div class="grid" id="grid"></div>
+        <div class="empty" id="empty" hidden>
+            <h2>No matches</h2>
+            <p>Nothing in the library matches this search and filter.</p>
+            <button class="btn" id="empty-clear" type="button">Clear filters</button>
+        </div>
+    </section>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-name"></div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="./home/models.js"></script>
+</body>
+</html>
