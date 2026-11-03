@@ -108,9 +108,9 @@ let rebuildQueued = false;
 // stage - unmounting one does not throw its settings away. Written to the
 // project file on a debounce so dragging a slider does not hammer the disk.
 const savedPresets = {};
-// Each SET remembers its own four shape sliders (Center Gap, Swing Pan,
-// Pitch, Decline): switching a SET is a conversion, not a nudge.
-const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
+// Each SET remembers its own shape sliders (Center Gap, Swing Pan, Pitch,
+// the two Declines, Lobes): switching a SET is a conversion, not a nudge.
+const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 let setPresets = Object.create(null);
 
 function setPresetsPlain() {
@@ -431,9 +431,11 @@ function frameSpacingPlain() {
     return Object.fromEntries([...frameSpacing].filter(([, v]) => v > 0));
 }
 
-// A fixture's numbers are the registered schema's business: anything the
-// schema does not know, or clamps, is dropped here - both for documents and
-// for a def's own elements. The registry validates again on the way in.
+// A fixture's numbers and flags are the registered schema's business:
+// anything the schema does not know, or clamps, is dropped here - both for
+// documents and for a def's own elements. A schema toggle (Shown on/off)
+// only survives as a real boolean; numbers keep their range clamp. The
+// registry validates again on the way in.
 // A floor mount may only aim up: the lens sits ~0.4 ft above the ground,
 // so any tilt above -30 drives the wide end of the cone (focus up to 60)
 // into the floor. -30 keeps the lowest edge of a full-spread beam exactly
@@ -447,7 +449,12 @@ function clampElemParams(type, params, anchor) {
     if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
     for (const [k, v] of Object.entries(params)) {
         const p = schema[k];
-        if (!p || p.type !== 'range') continue;
+        if (!p) continue;
+        if (p.type === 'toggle') {
+            if (typeof v === 'boolean') out[k] = v;
+            continue;
+        }
+        if (p.type !== 'range') continue;
         const n = Number(v);
         if (!Number.isFinite(n)) continue;
         out[k] = Math.max(p.min, Math.min(p.max, n));
@@ -939,12 +946,13 @@ function refreshFlowerPanelPlaces() {
     for (const fp of flowerPanels) placeFlowerPanel(fp);
 }
 
-// entry: { id?, name?, arrangementId?, settings, x?, z?, ry? } -> the live panel.
+// entry: { id?, name?, arrangementId?, settings, enabled?, x?, z?, ry? } -> the live panel.
 function mountFlowerPanel(entry) {
     const model = createFlowerPanelModel({
         settings: entry && entry.settings,
         arrangementId: entry && entry.arrangementId,
-        quality: flowerQuality
+        quality: flowerQuality,
+        enabled: !(entry && entry.enabled === false)
     });
     model.build();
     viewer.addModel(model);
@@ -953,6 +961,7 @@ function mountFlowerPanel(entry) {
         model,
         name: (entry && entry.name) || '',
         arrangementId: (entry && entry.arrangementId) || null,
+        enabled: !(entry && entry.enabled === false),
         x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
         z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
         ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
@@ -976,15 +985,17 @@ function flowerPanelsPlain() {
         name: fp.name,
         arrangementId: fp.arrangementId,
         settings: fp.model && fp.model.getSettings ? fp.model.getSettings() : undefined,
+        enabled: fp.enabled !== false,
         x: fp.x, z: fp.z, ry: fp.ry
     }));
 }
 
-// The mounted list the Flowers shelf shows: identity + placement only.
+// The mounted list the Flowers shelf shows: identity + placement + toggle.
 function mountedFlowersPlain() {
     return flowerPanels.map(fp => ({
         id: fp.id,
         name: fp.name || 'Panel',
+        enabled: fp.enabled !== false,
         x: fp.x, z: fp.z, ry: fp.ry
     }));
 }
@@ -998,6 +1009,16 @@ function setFlowerPlace(id, patch) {
     if (Number.isFinite(Number(patch.z))) fp.z = Number(patch.z);
     if (Number.isFinite(Number(patch.ry))) fp.ry = Number(patch.ry);
     placeFlowerPanel(fp);
+    scheduleSave();
+}
+
+// Show / hide a mounted panel without unmounting it. The model applies the
+// toggle as pure visibility (no rebuild); the shelf card keeps its checkbox.
+function setFlowerEnabled(id, on) {
+    const fp = flowerPanels.find(f => f.id === id);
+    if (!fp) return;
+    fp.enabled = !!on;
+    if (fp.model && fp.model.setParams) fp.model.setParams({ enabled: !!on });
     scheduleSave();
 }
 
@@ -2033,6 +2054,7 @@ panel = createPanel({
     flowerQuality,
     onFlowerMount: guard(arr => mountArrangement(arr)),
     onFlowerMove: (id, patch) => setFlowerPlace(id, patch),
+    onFlowerEnabled: (id, on) => setFlowerEnabled(id, on),
     onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
     onFlowerQualityChange: guard(q => setFlowerQuality(q)),
@@ -2071,7 +2093,7 @@ panel = createPanel({
         // are one row of sliders, not two rows that drift apart.
         const ids = new Set(picked.map(m => m.id));
         const list = [...mounted.values()].flat().filter(m => ids.has(m.id));
-        // While a SET is active its four shape sliders belong to that SET:
+        // While a SET is active its shape sliders belong to that SET:
         // come back to it and the numbers are where you left them. Collected
         // across the instances - the per-model map dies with its own loop.
         const shaped = {};
@@ -2110,7 +2132,9 @@ stage('panel');
 // so the shelf list and any mounted panel that references it by id stay in
 // step without a reload.
 if (typeof BroadcastChannel !== 'undefined') {
-    const flowers = new BroadcastChannel('flowerpanel-changed');
+    // Same channel the Studio posts on when an arrangement is saved -
+    // 'flower-panel-changed' (matches the flower-panel-studio-v2 store).
+    const flowers = new BroadcastChannel('flower-panel-changed');
     flowers.onmessage = () => {
         const lib = studioArrangements();
         if (panel && panel.setFlowerArrangements) panel.setFlowerArrangements(lib);

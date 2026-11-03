@@ -12,6 +12,26 @@ const LOBES_MAX = 11;
 const LOBE_GAP_MIN = 0.2;
 const LOBE_GAP_MAX = 3.0;
 const RAIL_RADIUS = 0.12;
+// Rows of the fabric grid given to the fold that wraps the HIDDEN rail:
+// equator, crown, equator (four segments on the tube's own circle). The
+// remaining rows hang from the front equator down to the hem.
+const RAIL_WRAP_ROWS = 4;
+// Clearance the drape keeps outside the rail it sleeves over. The tube is
+// never flag-hidden (Top Rail only swaps the drape), so the cloth must sit
+// just proud of the gold to win the depth test instead of z-fighting it.
+const RAIL_WRAP_GAP = 0.02;
+// The fold also swells into a hood that wraps each pivot bracket (the
+// rail's holder) at the pole columns while the rail is sleeved. The
+// hood radius clears the clevis plates (corner reach 0.270) even at
+// the wrap chords, and the sweep opens past straight-down on both
+// sides so the hanging plates, pivot bolt and lock stay inside the
+// cloth instead of poking through it.
+const BR_HOOD_R = 0.35;
+const BR_HOOD_SWEEP = 140 * Math.PI / 180;
+// Columns either side of a bracket column held at full hood size,
+// then eased back to the plain sleeve over the next BR_HOOD_RAMP.
+const BR_HOOD_HOLD = 4;
+const BR_HOOD_RAMP = 6;
 const FABRIC_RES_X = 300;
 const FABRIC_RES_Y = 8;
 const POLE_COUNT = 3;
@@ -75,11 +95,21 @@ export const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 10,  step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: -90, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 45,  step: 1,   value: 0,  unit: '°' },
+    // Two slopes, one per direction: Centre → End drops the far end as you
+    // walk out from the gap, End → Centre drops the centre end as you walk
+    // in from the far end. Each slider owns one end of the rail, so the
+    // pair tilts it between any two end heights (level, either way, or one
+    // end low and the other at full height).
+    decline: { label: 'Decline Centre → End', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%' },
+    declineIn: { label: 'Decline End → Centre', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%' },
     lobes:   { label: 'Lobes',            type: 'range', min: LOBES_MIN, max: LOBES_MAX, step: 1, value: 6, unit: '' },
     lobeGaps: { label: 'Lobe Gaps', type: 'lobeGaps', min: LOBE_GAP_MIN, max: LOBE_GAP_MAX, step: 0.1, value: WAVE_AMP, unit: ' ft', count: LOBES_MAX, railLen: RAIL_LENGTH },
-    decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
     fabric:  { label: 'Curtains',          type: 'toggle', value: false },
 
+    // The gold serpentine rail itself. Untick it in Settings and the
+    // curtains hang from the bare rail line instead: their heads rise to
+    // cover it, so no gold tube shows along the top.
+    rail:    { label: 'Top Rail',          type: 'toggle', value: true, advanced: true },
     poleShape: { label: 'Square Poles',    type: 'toggle', value: true, advanced: true },
     poleInner: { label: 'Inner Wall',      type: 'range', min: 0.8, max: 3, step: 0.1,
                  value: 1,   unit: ' mm', advanced: true },
@@ -199,8 +229,13 @@ export function getStructuralPoints(state, isRight, segments) {
             || WAVE_AMP;
         const wave = Math.sin(t * Math.PI * nLobes) * lobeAmp;
 
-        // Decline: a pure vertical drop, independent of pitch.
-        const dropY = -t * (state.decline / 100) * MAX_DROP;
+        // Decline: a pure vertical drop, independent of pitch. Two slopes,
+        // one per direction - centre → end drops the far end, end → centre
+        // drops the centre end. A missing key (older callers and documents)
+        // reads 0, keeping the original single-direction behaviour.
+        const dropIn = Number(state.declineIn) || 0;
+        const dropY = -t * (state.decline / 100) * MAX_DROP
+                    - (1 - t) * (dropIn / 100) * MAX_DROP;
 
         // Pitch: roll the serpentine about the rail's own X axis. Poles sit
         // where wave === 0, so their heights are unaffected by pitch.
@@ -222,7 +257,7 @@ export function getStructuralPoints(state, isRight, segments) {
     return pts;
 }
 
-export function generateFabricGeometry(curvePts, isRight) {
+export function generateFabricGeometry(curvePts, isRight, railShown = true) {
     const cols = FABRIC_RES_X, rows = FABRIC_RES_Y;
     const verts = [], uvs = [], indices = [];
     const rowStride = rows + 1;
@@ -243,13 +278,53 @@ export function generateFabricGeometry(curvePts, isRight) {
 
         const phase = t * Math.PI * 2 * PLEAT_FREQ;
 
+        // Rail unticked: the top rows sleeve around the tube's own top
+        // half - equator, crown, equator - just OUTSIDE its surface, so
+        // the rail stays rendered and the fabric simply obscures it in
+        // place. The fold rises from the OPPOSITE face of the rail: the
+        // free edge sits on one side, the arc crowns over, and the skirt
+        // departs from the other side, easing back onto the curtain's
+        // own plane within two rows. At the bracket columns the fold
+        // swells into a hood that also wraps the pivot bracket holding
+        // the rail, easing back to the plain sleeve over a few columns
+        // either side. Rail ticked: no fold, the head hangs just under
+        // the exposed tube as always.
+        const wrapRows = railShown ? 0 : Math.min(RAIL_WRAP_ROWS, rows - 3);
+        const sleeve = RAIL_RADIUS + RAIL_WRAP_GAP;
+        // How bracket-proximate this column is: 1 within the hold of a
+        // bracket column, ramping to 0 over the ramp width beyond it.
+        let prox = 0;
+        if (wrapRows > 0) {
+            for (let k = 0; k < POLE_COUNT; k++) {
+                const d = Math.abs(i - Math.floor((k / (POLE_COUNT - 1)) * cols));
+                if (d <= BR_HOOD_HOLD) { prox = 1; break; }
+                const p = Math.max(0, 1 - (d - BR_HOOD_HOLD) / BR_HOOD_RAMP);
+                if (p > prox) prox = p;
+            }
+        }
+        // Hood radius and half-sweep at this column: full size over a
+        // bracket, easing back to the plain sleeve circle and half-turn.
+        const rad = sleeve + prox * (BR_HOOD_R - sleeve);
+        const sweep = Math.PI / 2 + prox * (BR_HOOD_SWEEP - Math.PI / 2);
         for (let j = 0; j <= rows; j++) {
-            const v = j / rows;
-            const y = THREE.MathUtils.lerp(pt.y - RAIL_RADIUS, 0, v);
+            if (wrapRows > 0 && j <= wrapRows) {
+                const th = sweep - 2 * sweep * (j / wrapRows);
+                const n = Math.sin(th) * rad;
+                const y = pt.y + Math.cos(th) * rad;
+                verts.push(pt.x + normal.x * n, y, pt.z + normal.z * n);
+                uvs.push(t, 1 - j / rows);
+                continue;
+            }
+            const v = (j - wrapRows) / (rows - wrapRows);
+            const headY = railShown ? pt.y - RAIL_RADIUS
+                : pt.y + Math.cos(sweep) * rad;
+            const fall = railShown ? 0
+                : Math.sin(-sweep) * rad * Math.max(0, 1 - (j - wrapRows) / 2);
+            const y = THREE.MathUtils.lerp(headY, 0, v);
             const amp = PLEAT_DEPTH * (0.55 + 0.45 * v);
-            const off = Math.sin(phase) * amp;
+            const off = fall + Math.sin(phase) * amp;
             verts.push(pt.x + normal.x * off, y, pt.z + normal.z * off);
-            uvs.push(t, 1 - v);
+            uvs.push(t, 1 - j / rows);
         }
     }
 
@@ -532,12 +607,16 @@ export function createO2TiltModel(initial = {}) {
         railR = new THREE.Mesh(new THREE.TubeGeometry(rCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
         railL = new THREE.Mesh(new THREE.TubeGeometry(lCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
         railR.castShadow = railL.castShadow = true;
+        // The tube is never flag-hidden: Top Rail only swaps the drape
+        // (hang below / sleeve over), and the sleeved fabric is what
+        // obscures the rail while it stays rendered in place.
         root.add(railR, railL);
 
         release(fabricR); release(fabricL); fabricR = fabricL = null;
         if (state.fabric) {
-            fabricR = new THREE.Mesh(generateFabricGeometry(ptsR, true), matFabric);
-            fabricL = new THREE.Mesh(generateFabricGeometry(ptsL, false), matFabric);
+            const showRail = state.rail !== false;
+            fabricR = new THREE.Mesh(generateFabricGeometry(ptsR, true, showRail), matFabric);
+            fabricL = new THREE.Mesh(generateFabricGeometry(ptsL, false, showRail), matFabric);
             fabricR.castShadow = fabricL.castShadow = true;
             root.add(fabricR, fabricL);
         }

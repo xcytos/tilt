@@ -359,11 +359,29 @@ export function createPanel(opts) {
 
     // Placement controls for one mounted flower panel - X and Depth sliders,
     // plus a Turn (rotate) control: a slider with two stepper arrows flanking
-    // the Turn label that step it to the next / previous angle. Wired straight
+    // the Turn label that step it to the next / previous angle. An Enabled
+    // checkbox shows or hides the panel without unmounting it. Wired straight
     // to the scene (no rebuild while a finger is on a control).
     function buildFlowerPlacement(fp) {
         const wrap = document.createElement('div');
         wrap.className = 'mt-1';
+
+        const enabledRow = document.createElement('label');
+        enabledRow.className = 'flex items-center gap-2 text-sm cursor-pointer '
+            + 'hover:text-sky-600 transition-colors mb-1';
+        const enabledInput = document.createElement('input');
+        enabledInput.type = 'checkbox';
+        enabledInput.className = CHECK_CLS;
+        enabledInput.checked = fp.enabled !== false;
+        enabledInput.addEventListener('change', () => {
+            if (opts.onFlowerEnabled) opts.onFlowerEnabled(fp.id, enabledInput.checked);
+        });
+        const enabledLabel = document.createElement('span');
+        enabledLabel.className = 'font-medium tracking-wide';
+        enabledLabel.textContent = 'Enabled';
+        enabledRow.append(enabledInput, enabledLabel);
+        wrap.appendChild(enabledRow);
+
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
@@ -631,73 +649,157 @@ export function createPanel(opts) {
             }
         }
 
-        // Per-lobe gap sliders: one per active lobe. All LOBES_MAX rows are
-        // built up front and shown/hidden by the Lobes slider so a mid-drag
+        // Lobe gaps, modern: one pill per lobe showing its number, plus one
+        // single slider that edits whichever pill is tapped - or every lobe
+        // at once when the All pill is selected. All LOBES_MAX pills are
+        // built up front and shown/hidden by the Lobes slider, so a mid-drag
         // lobes change never rebuilds the DOM.
         const lobeGapMeta = schema && schema.params
             ? schema.params.lobeGaps : null;
-        const lobeGapSlots = [];
-        function syncLobeGapVisibility() {
-            const n = Math.round(schema.state.lobes) || 6;
-            lobeGapSlots.forEach((slot, i) => {
-                slot.wrap.style.display = i < n ? '' : 'none';
-            });
-        }
-        // The lean degrees on every gap row depend on the lobe count, so a
-        // lobes change re-reads all of them. Always reads fresh state - the
-        // lobeGaps array identity changes when setParams replaces it.
-        function refreshLobeGapTexts() {
-            const lobesNow = Math.round(schema.state.lobes) || 6;
-            const gapsNow = Array.isArray(schema.state.lobeGaps)
-                ? schema.state.lobeGaps : [];
-            lobeGapSlots.forEach((slot, i) => {
-                const v = Number.isFinite(gapsNow[i]) ? gapsNow[i]
-                    : lobeGapMeta.value;
-                slot.value.textContent = lobeGapText(v, lobesNow, lobeGapMeta);
-            });
-        }
+        const LOBE_ALL = -1;
+        let lobeSel = 0;                 // tapped lobe, or LOBE_ALL
+        let lobeUI = null;               // { refresh } once built (Shape only)
+        const lobesNow = () => Math.round(schema.state.lobes) || 6;
+
         if (tool === 'shape' && lobeGapMeta) {
-            const gaps = Array.isArray(schema.state.lobeGaps)
-                ? schema.state.lobeGaps : [];
             const count = lobeGapMeta.count || 11;
-            const lobesNow = Math.round(schema.state.lobes) || 6;
-            for (let i = 0; i < count; i++) {
-                const meta = {
-                    label: `Lobe ${i + 1} Gap`,
-                    type: 'range',
-                    min: lobeGapMeta.min,
-                    max: lobeGapMeta.max,
-                    step: lobeGapMeta.step,
-                    unit: lobeGapMeta.unit
-                };
-                const val = Number.isFinite(gaps[i]) ? gaps[i] : lobeGapMeta.value;
-                const built = rangeBlock(`${key}-lobeGap-${i}`, meta, val);
-                built.value.textContent = lobeGapText(val, lobesNow, lobeGapMeta);
-                built.input.addEventListener('input', e => {
-                    const v = parseFloat(e.target.value);
-                    const lobesCur = Math.round(schema.state.lobes) || 6;
-                    built.value.textContent = lobeGapText(v, lobesCur, lobeGapMeta);
-                    // Read the state array fresh: setParams may have replaced
-                    // it with a new (clamped) array since these rows were built.
-                    const cur = Array.isArray(schema.state.lobeGaps)
-                        ? schema.state.lobeGaps : [];
-                    const arr = Array.from({ length: count },
-                        (_, j) => j === i ? v
-                            : (Number.isFinite(cur[j]) ? cur[j]
-                                : lobeGapMeta.value));
-                    if (Array.isArray(schema.state.lobeGaps)) {
-                        schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
-                    } else {
-                        schema.state.lobeGaps = arr;
-                    }
-                    emit({ lobeGaps: arr.slice() }, targets);
+            // Always reads fresh state - setParams may have replaced the
+            // lobeGaps array with a new (clamped) one since we were built.
+            const gapAt = i => {
+                const arr = Array.isArray(schema.state.lobeGaps)
+                    ? schema.state.lobeGaps : [];
+                const v = Number(arr[i]);
+                return Number.isFinite(v) ? v : lobeGapMeta.value;
+            };
+
+            const wrap = document.createElement('div');
+            wrap.className = 'mt-0.5 mb-1.5';
+            wrap.appendChild(heading('Lobe Gaps'));
+
+            const pillsRow = document.createElement('div');
+            pillsRow.className = 'flex flex-wrap gap-1 mb-1.5';
+            const PILL_ON = 'bg-sky-600 border-sky-600 text-white';
+            const PILL_OFF = 'bg-white/70 border-gray-300 text-gray-600 '
+                + 'hover:border-sky-400 dark:bg-zinc-800/70 dark:border-zinc-600 '
+                + 'dark:text-zinc-300 dark:hover:border-sky-500';
+            const pillCls = on =>
+                'min-w-[2.5rem] px-2 py-1 rounded-md border font-mono text-[11px] '
+                + 'font-semibold tabular-nums transition-colors '
+                + (on ? PILL_ON : PILL_OFF);
+            const pillSlots = [];
+            let allPill = null;
+
+            // The single slider under the pills: its label follows the pick.
+            const slider = placeRangeBlock(`${key}-lobeGap`, 'Lobe 1', 'gap',
+                gapAt(0), lobeGapMeta.min, lobeGapMeta.max, lobeGapMeta.step,
+                lobeGapMeta.unit);
+
+            // Repaint pills, selection, slider and readout from fresh state.
+            const paint = () => {
+                const n = lobesNow();
+                if (lobeSel !== LOBE_ALL && lobeSel > n - 1) lobeSel = n - 1;
+                pillSlots.forEach((slot, i) => {
+                    const on = i === lobeSel;
+                    const v = gapAt(i);
+                    slot.btn.className = pillCls(on);
+                    slot.btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    slot.btn.setAttribute('aria-label',
+                        `Lobe ${i + 1} gap ${fmt(v, lobeGapMeta.unit)}`);
+                    slot.btn.title = `Lobe ${i + 1} · ${fmt(v, lobeGapMeta.unit)}`;
+                    slot.btn.textContent = fmt(v, '');
+                    slot.btn.style.display = i < n ? '' : 'none';
                 });
-                rows[`lobeGap${i}`] = built;
-                lobeGapSlots.push({ wrap: built.wrap, input: built.input, value: built.value });
+                if (allPill) {
+                    const on = lobeSel === LOBE_ALL;
+                    allPill.className = pillCls(on);
+                    allPill.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    allPill.title = `All ${n} lobes`;
+                }
+                // Keep the slider on the selected lobe (All edits from lobe 1).
+                const sel = lobeSel === LOBE_ALL ? 0 : lobeSel;
+                const v = gapAt(sel);
+                slider.input.value = String(v);
+                slider.label.textContent = lobeSel === LOBE_ALL
+                    ? `All ${n} Lobes` : `Lobe ${lobeSel + 1}`;
+                slider.value.textContent = lobeGapText(v, n, lobeGapMeta);
+            };
+
+            // One emit: write the tapped lobe (or all of them) into state,
+            // repaint the pills, and let the model persist the change.
+            const writeGap = v => {
+                const arr = Array.from({ length: count }, (_, j) =>
+                    lobeSel === LOBE_ALL || j === lobeSel ? v : gapAt(j));
+                if (Array.isArray(schema.state.lobeGaps)) {
+                    schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                } else {
+                    schema.state.lobeGaps = arr;
+                }
+                paint();
+                emit({ lobeGaps: arr.slice() }, targets);
+            };
+            slider.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) writeGap(v);
+            });
+
+            for (let i = 0; i < count; i++) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.setAttribute('aria-pressed', 'false');
+                btn.addEventListener('click', () => {
+                    lobeSel = i;
+                    paint();
+                });
+                pillsRow.appendChild(btn);
+                pillSlots.push({ btn });
             }
+            allPill = document.createElement('button');
+            allPill.type = 'button';
+            allPill.textContent = 'All';
+            allPill.setAttribute('aria-pressed', 'false');
+            allPill.addEventListener('click', () => {
+                lobeSel = LOBE_ALL;
+                paint();
+            });
+            pillsRow.appendChild(allPill);
+            wrap.append(pillsRow, slider.wrap);
+
+            // Reset: back to the pre-lobe-feature configuration - 6 lobes at
+            // the default 1 ft gap, a plain sin(6πt) serpentine. One emit,
+            // DOM updated directly.
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = 'mt-0.5 mb-1 w-full rounded-md border '
+                + 'border-gray-300 dark:border-zinc-600 px-2 py-1 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 '
+                + 'dark:text-zinc-400 hover:border-sky-400 hover:text-sky-600 '
+                + 'dark:hover:text-sky-400 transition-colors';
+            resetBtn.textContent = 'Reset Lobes';
+            resetBtn.addEventListener('click', () => {
+                const arr = Array.from({ length: count }, () => lobeGapMeta.value);
+                schema.state.lobes = 6;
+                if (Array.isArray(schema.state.lobeGaps)) {
+                    schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                } else {
+                    schema.state.lobeGaps = arr;
+                }
+                if (rows.lobes) {
+                    rows.lobes.input.value = '6';
+                    if (rows.lobes.value) {
+                        rows.lobes.value.textContent =
+                            fmt(6, schema.params.lobes.unit);
+                    }
+                }
+                lobeSel = 0;
+                paint();
+                emit({ lobes: 6, lobeGaps: arr.slice() }, targets);
+            });
+            wrap.appendChild(resetBtn);
+
+            lobeUI = { wrap, refresh: paint };
         }
 
-        // The S Curve is one open group: the four shape sliders plus where
+        // The S Curve is one open group: the shape sliders plus where
         // this frame stands (X / Depth / Turn as tracks). Open by default -
         // it is what the hand reaches for first. Pillars stay below.
         if (tool === 'shape' && shapeRanges.length) {
@@ -713,50 +815,14 @@ export function createPanel(opts) {
             bodyEl.className = 'px-2 pb-2';
             for (const [k, p] of shapeRanges) {
                 bodyEl.appendChild(addRange(k, p));
-                // After the Lobes slider, insert the per-lobe gap sliders
-                // and keep their visibility (and lean degrees) in sync.
-                if (k === 'lobes') {
-                    for (const slot of lobeGapSlots) bodyEl.appendChild(slot.wrap);
-                    syncLobeGapVisibility();
-                    refreshLobeGapTexts();
+                // After the Lobes slider, insert the pill row + single
+                // slider for the per-lobe gaps and keep them in sync.
+                if (k === 'lobes' && lobeUI) {
+                    bodyEl.appendChild(lobeUI.wrap);
+                    lobeUI.refresh();
                     rows.lobes.input.addEventListener('input', () => {
-                        syncLobeGapVisibility();
-                        refreshLobeGapTexts();
+                        lobeUI.refresh();
                     });
-                    // Reset: back to the pre-lobe-feature configuration -
-                    // 6 lobes at the default 1 ft gap, a plain sin(6πt)
-                    // serpentine. One emit, DOM updated directly.
-                    const resetBtn = document.createElement('button');
-                    resetBtn.type = 'button';
-                    resetBtn.className = 'mt-0.5 mb-1 w-full rounded-md border '
-                        + 'border-gray-300 dark:border-zinc-600 px-2 py-1 text-[11px] '
-                        + 'font-semibold uppercase tracking-wider text-gray-500 '
-                        + 'dark:text-zinc-400 hover:border-sky-400 hover:text-sky-600 '
-                        + 'dark:hover:text-sky-400 transition-colors';
-                    resetBtn.textContent = 'Reset Lobes';
-                    resetBtn.addEventListener('click', () => {
-                        const n = lobeGapMeta.count || 11;
-                        const resetVal = lobeGapMeta.value;
-                        const arr = Array.from({ length: n }, () => resetVal);
-                        schema.state.lobes = 6;
-                        if (Array.isArray(schema.state.lobeGaps)) {
-                            schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
-                        } else {
-                            schema.state.lobeGaps = arr;
-                        }
-                        rows.lobes.input.value = '6';
-                        if (rows.lobes.value) {
-                            rows.lobes.value.textContent =
-                                fmt(6, schema.params.lobes.unit);
-                        }
-                        lobeGapSlots.forEach(slot => {
-                            slot.input.value = String(resetVal);
-                        });
-                        syncLobeGapVisibility();
-                        refreshLobeGapTexts();
-                        emit({ lobes: 6, lobeGaps: arr.slice() }, targets);
-                    });
-                    bodyEl.appendChild(resetBtn);
                 }
             }
             const place = (currentPlaces[key] || [])[idx];
@@ -806,7 +872,7 @@ export function createPanel(opts) {
         // Lights: one rig per frame - add, retarget, tune, remove.
         if (tool === 'lights') inner.appendChild(lightsBlock(key));
 
-        const sec = { key, targets, rows, root };
+        const sec = { key, targets, rows, root, lobeUI };
         sections.push(sec);
         return root;
     }
@@ -815,7 +881,7 @@ export function createPanel(opts) {
     // tracks inside the S Curve group - no bare number boxes. The stage
     // follows the thumb; applyLive parks it when a finger is on the track.
     function positionBlock(key, idx, place) {
-        // Folded by default: the four shape sliders are what the hand
+        // Folded by default: the shape sliders are what the hand
         // reaches for; placement comes after, and the chevron opens it.
         const wrap = document.createElement('details');
         wrap.className = 'mt-1.5 border-t border-dashed '
@@ -1303,6 +1369,26 @@ export function createPanel(opts) {
             return modeRow;
         };
 
+        // The fixture's show/hide switch, one checkbox on every card that
+        // speaks for a fixture (or a wall group of them): checked means the
+        // light renders - housing, beam and real spotlight alike. The click
+        // never folds the card it sits on.
+        const shownBox = (lms, title, aria) => {
+            const mine = (Array.isArray(lms) ? lms : [])
+                .filter(lm => lm && lm.params && lm.params.enabled && lm.state);
+            if (!mine.length) return null;
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = CHECK_CLS;
+            box.checked = mine.every(lm => lm.state.enabled !== false);
+            box.title = title;
+            box.setAttribute('aria-label', aria);
+            box.addEventListener('click', ev => ev.stopPropagation());
+            box.addEventListener('change', () => emit({ enabled: box.checked }, mine));
+            live.selects.push(box);
+            return box;
+        };
+
         // One collapsible card per fixture, in the order of its frame's
         // own list: the heading folds the card away, remove stays in the
         // heading so it is reachable either way.
@@ -1338,7 +1424,13 @@ export function createPanel(opts) {
                 onElementRemove && onElementRemove(id, i);
             });
             live.buttons.push(rm);
-            ch.append(nameEl, rm);
+            const left = document.createElement('span');
+            left.className = 'flex items-center gap-1.5 min-w-0';
+            const shown = shownBox([lm],
+                'Show this light in the scene', 'Show this light');
+            if (shown) left.appendChild(shown);
+            left.appendChild(nameEl);
+            ch.append(left, rm);
             card.appendChild(ch);
 
             if (anchors.length) {
@@ -1488,7 +1580,13 @@ export function createPanel(opts) {
             const nameEl = document.createElement('span');
             nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
             nameEl.textContent = `${wall} - ${idxs.length} light${idxs.length === 1 ? '' : 's'}`;
-            ch.appendChild(nameEl);
+            const left = document.createElement('span');
+            left.className = 'flex items-center gap-1.5 min-w-0';
+            const shown = shownBox(idxs.map(lmOf),
+                'Show these lights in the scene', 'Show these lights');
+            if (shown) left.appendChild(shown);
+            left.appendChild(nameEl);
+            ch.appendChild(left);
             card.appendChild(ch);
 
             const params = new Map();
@@ -1753,6 +1851,13 @@ export function createPanel(opts) {
                 rmRow.appendChild(rmLab);
                 for (const x of strips.filter(y => stripMatch(y.e))) {
                     const side = sideOf(x.e.anchor) || '?';
+                    const where = side === 'L' ? 'left'
+                        : side === 'R' ? 'right' : side;
+                    const pair = document.createElement('span');
+                    pair.className = 'flex items-center gap-1';
+                    const shown = shownBox([lmOf(x.i)],
+                        `Show the ${where} strip`, 'Show this strip');
+                    if (shown) pair.appendChild(shown);
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
@@ -1760,13 +1865,14 @@ export function createPanel(opts) {
                         + 'dark:text-zinc-400 hover:border-red-400 '
                         + 'hover:text-red-500 transition-colors';
                     btn.textContent = '\u00d7';
-                    btn.title = `Remove the ${side === 'L' ? 'left' : side === 'R' ? 'right' : side} strip`;
+                    btn.title = `Remove the ${where} strip`;
                     btn.addEventListener('click', ev => {
                         ev.stopPropagation();
                         onElementRemove && onElementRemove(id, x.i);
                     });
                     live.buttons.push(btn);
-                    rmRow.appendChild(btn);
+                    pair.appendChild(btn);
+                    rmRow.appendChild(pair);
                 }
                 stripLower.appendChild(rmRow);
             };
@@ -2282,7 +2388,7 @@ export function createPanel(opts) {
         },
 
         // Value-level repaint: the SET select, Look chips, scene select,
-        // colour chips, RGB dial, the four shape sliders and the position
+        // colour chips, RGB dial, the shape sliders and the position
         // numbers all move in place. A SET tap must feel like a state
         // change, not a reload - so nothing here rebuilds the DOM.
         applyLive(next = {}) {
@@ -2382,22 +2488,10 @@ export function createPanel(opts) {
                     const schema = sec.targets && sec.targets[0];
                     for (const [k, v] of Object.entries(next.shape)) {
                         if (k === 'lobeGaps') {
-                            // Sync each per-lobe gap slider in place.
-                            const meta = schema && schema.params
-                                ? schema.params.lobeGaps : null;
-                            if (!meta || !Array.isArray(v)) continue;
-                            const count = meta.count || 11;
-                            const lobesNow = Math.round(
-                                schema.state && schema.state.lobes) || 6;
-                            for (let i = 0; i < count; i++) {
-                                const row = sec.rows && sec.rows[`lobeGap${i}`];
-                                if (!row) continue;
-                                const val = Number.isFinite(v[i]) ? v[i] : meta.value;
-                                row.input.value = String(val);
-                                if (row.value) {
-                                    row.value.textContent = lobeGapText(val, lobesNow, meta);
-                                }
-                            }
+                            // Gaps arrived from outside (SET switch, project
+                            // load) - the model already accepted them, so
+                            // repaint the pills and the slider in place.
+                            if (sec.lobeUI) sec.lobeUI.refresh();
                             continue;
                         }
                         const row = sec.rows && sec.rows[k];
@@ -2405,27 +2499,9 @@ export function createPanel(opts) {
                         if (!row || !meta) continue;
                         row.input.value = String(v);
                         if (row.value) row.value.textContent = fmt(v, meta.unit);
-                        // Keep lobe-gap visibility in sync when lobes arrives
-                        // from outside (SET switch, project load), and refresh
-                        // the lean degrees, which depend on the lobe count.
-                        if (k === 'lobes') {
-                            const n = Math.round(v) || 6;
-                            const gMeta = schema && schema.params
-                                ? schema.params.lobeGaps : null;
-                            const gCount = (gMeta && gMeta.count) || 11;
-                            const gapsNow = schema && Array.isArray(schema.state.lobeGaps)
-                                ? schema.state.lobeGaps : [];
-                            for (let i = 0; i < gCount; i++) {
-                                const gRow = sec.rows && sec.rows[`lobeGap${i}`];
-                                if (!gRow) continue;
-                                gRow.wrap.style.display = i < n ? '' : 'none';
-                                if (gMeta && gRow.value) {
-                                    const gv = Number.isFinite(gapsNow[i])
-                                        ? gapsNow[i] : gMeta.value;
-                                    gRow.value.textContent = lobeGapText(gv, n, gMeta);
-                                }
-                            }
-                        }
+                        // Lobes arrived from outside: re-clamp the picked
+                        // pill and repaint the gap pills + slider with it.
+                        if (k === 'lobes' && sec.lobeUI) sec.lobeUI.refresh();
                     }
                 }
             }
@@ -2484,21 +2560,9 @@ export function createPanel(opts) {
             for (const sec of sections) {
                 const owner = sec.targets[0];
                 if (!owner) continue;
+                // The lobe pills + single slider read state on their own.
+                if (sec.lobeUI) sec.lobeUI.refresh();
                 for (const [k, r] of Object.entries(sec.rows)) {
-                    if (k.startsWith('lobeGap')) {
-                        const i = Number(k.slice(8));
-                        const gaps = owner.state.lobeGaps;
-                        const meta = owner.params.lobeGaps;
-                        if (meta && Array.isArray(gaps)) {
-                            const v = Number.isFinite(gaps[i]) ? gaps[i] : meta.value;
-                            r.input.value = String(v);
-                            if (r.value) {
-                                const lobesNow = Math.round(owner.state.lobes) || 6;
-                                r.value.textContent = lobeGapText(v, lobesNow, meta);
-                            }
-                        }
-                        continue;
-                    }
                     const v = owner.state[k];
                     if (r.value) r.value.textContent = fmt(v, owner.params[k].unit);
                     if (r.input.type === 'checkbox') r.input.checked = !!v;

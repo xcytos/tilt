@@ -136,7 +136,7 @@ for (const [label, def, re] of bad) {
 check('a good definition passes', validateDef({
   id: 'ok', name: 'OK',
   environment: { theme: 'dark' },
-  objects: [{ type: 'o2tilt-frame', params: { gap: 3, pan: 10, pitch: 5, decline: 20, fabric: true }, elements: [] }]
+  objects: [{ type: 'o2tilt-frame', params: { gap: 3, pan: 10, pitch: 5, decline: 20, declineIn: 15, fabric: true, rail: false }, elements: [] }]
 }, types).length === 0);
 
 console.log('\n4b. element validation (the def `elements` slot)');
@@ -150,6 +150,8 @@ const elemBad = [
     /elements\[0\]\.params\.power must be a number/],
   ['element param unknown', [{ type: 'light-strip', params: { sparkle: 1 } }],
     /unknown "sparkle"/],
+  ['element toggle wrong type', [{ type: 'light-par', params: { enabled: 'yes' } }],
+    /elements\[0\]\.params\.enabled must be true or false/],
   ['element anchor must be a string', [{ type: 'light-led', anchor: 7 }],
     /elements\[0\]\.anchor must be a string/]
 ];
@@ -165,6 +167,14 @@ check('a definition with lights passes', validateDef({
       { type: 'light-par', anchor: 'pole-R-1', params: { power: 80, focus: 25, pan: 15, tilt: 45 } },
       { type: 'light-strip', anchor: 'rail-L-7', params: { power: 100, length: 4.5 } }
     ]
+  }]
+}, types).length === 0);
+check('a hidden light (Shown off) validates', validateDef({
+  id: 'hid', name: 'Hid',
+  objects: [{
+    type: 'o2tilt-frame',
+    elements: [{ type: 'light-par', anchor: 'pole-R-1',
+      params: { enabled: false, power: 60 } }]
   }]
 }, types).length === 0);
 check('element schemas come from the real module', (() => {

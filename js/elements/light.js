@@ -14,29 +14,35 @@ export const LIGHT_NAMES = {
 };
 
 // Params stay range/toggle so registry validation, the panel and the
-// project clamps all keep their current contract. Hue + Saturation are the
-// fixture's RGBW colour mixing as two sliders: Saturation 0 is plain white,
-// low saturation with Hue ~40 is warm white, high saturation is amber/gold
-// (hue 40) or deep purple (hue 280) - the palettes an entrance actually
-// asks for. Defaults are the wedding look: warm white.
+// project clamps all keep their current contract. `enabled` is the
+// fixture's show/hide switch: hidden, the whole group (housing, beam and
+// any real spotlight) drops out of the scene's render and light tally.
+// Hue + Saturation are the fixture's RGBW colour mixing as two sliders:
+// Saturation 0 is plain white, low saturation with Hue ~40 is warm white,
+// high saturation is amber/gold (hue 40) or deep purple (hue 280) - the
+// palettes an entrance actually asks for. Defaults are the wedding look:
+// warm white.
 export const LIGHT_PARAMS = {
     par: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 45,  unit: '°' },
         focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' },
         hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
-        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35, unit: '%' }
     },
     led: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 55,  unit: '°' },
         wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' },
         hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
-        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35, unit: '%' }
     },
     strip: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power:  { label: 'Power',  type: 'range', min: 0,  max: 100, step: 1,   value: 100, unit: '%' },
         length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
@@ -496,6 +502,10 @@ export function createLightModel(type = 'light-par', initial = {}) {
             beam = new THREE.Mesh(geo, matBeam);
             beam.rotation.x = -Math.PI / 2;
             beam.position.z = -0.19;
+            // The glow is 6.5 ft long; if it entered the preview camera's
+            // framing box the fixture itself would shrink to a speck.
+            // Previews fit the housing and let the beam run out of frame.
+            beam.userData.noFraming = true;
             tiltG.add(beam);
         } else { // led: flat wash panel on the same yoke
             const { panG, tiltG } = buildYoke();
@@ -515,6 +525,10 @@ export function createLightModel(type = 'light-par', initial = {}) {
         }
 
         applyGlow();
+        // Shown off: the whole group leaves the scene - housing, beam and
+        // any real spotlight stop rendering (three skips an invisible
+        // group's subtree), so a hidden fixture neither glows nor lights.
+        root.visible = state.enabled !== false;
         model.dirty = false;
     }
 
@@ -547,6 +561,11 @@ export function createLightModel(type = 'light-par', initial = {}) {
         setTheme,
         setParams(partial) {
             Object.assign(state, partial);
+            // Show/hide answers in the same tick, ahead of the next
+            // rebuild, so the tick of the checkbox is instant feedback.
+            if (partial && 'enabled' in partial) {
+                root.visible = state.enabled !== false;
+            }
             model.dirty = true;
         },
         // The frame's rail (or hem) polyline for this strip, in the

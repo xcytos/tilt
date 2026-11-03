@@ -172,8 +172,15 @@ function cleanFrameElements(raw) {
                 let keys = 0;
                 for (const [k, n] of Object.entries(el.params)) {
                     if (keys >= 8) break;
-                    if (!ELEM_PARAM_RE.test(k)
-                        || typeof n !== 'number' || !Number.isFinite(n)) continue;
+                    if (!ELEM_PARAM_RE.test(k)) continue;
+                    // Booleans carry the schema's flags (Shown on/off);
+                    // anything else has to be a real number.
+                    if (typeof n === 'boolean') {
+                        params[k] = n;
+                        keys++;
+                        continue;
+                    }
+                    if (typeof n !== 'number' || !Number.isFinite(n)) continue;
                     params[k] = n;
                     keys++;
                 }
@@ -228,9 +235,9 @@ function cleanFrameSpacing(raw) {
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
-// The four shape sliders, remembered per SET so each drawing keeps the look
+// The shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
-const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
+const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 // Colours you saved yourself: appended after the board palettes, never
 // replacing them. Capped so a document cannot grow a paint shop.
 function cleanExtras(raw) {
@@ -300,6 +307,8 @@ function cleanFlowerPanels(raw) {
             arrangementId: typeof p.arrangementId === 'string' && FP_ID_RE.test(p.arrangementId)
                 ? p.arrangementId : null,
             settings,
+            // Old documents predate the toggle; they stay visible.
+            enabled: p.enabled !== false,
             x: clampN(p.x, -300, 300, 0),
             z: clampN(p.z, -300, 300, 0),
             ry: clampN(p.ry, -360, 360, 0)

@@ -175,6 +175,53 @@ console.log('\nproject file: mounted flower panels');
     flowerPanels: Array.from({ length: 20 }, (_, i) => ({ id: 'p' + i, settings: { width: 2, height: 2 } }))
   }));
   check('the panel list is capped', many.flowerPanels.length <= 12);
+
+  check('enabled:false survives a round trip; old panels default to visible', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      flowerPanels: [
+        { id: 'panel-off', settings: { width: 4, height: 4 }, enabled: false, x: 1, z: 2, ry: 3 },
+        { id: 'panel-old', settings: { width: 4, height: 4 } }
+      ]
+    }));
+    const off = doc.flowerPanels.find(p => p.id === 'panel-off');
+    const old = doc.flowerPanels.find(p => p.id === 'panel-old');
+    return !!off && !!old && off.enabled === false && old.enabled === true
+      && off.x === 1 && off.z === 2 && off.ry === 3;
+  })());
+  check('junk enabled values fall back to visible',
+    (() => {
+      const doc = proj.parseProject(proj.projectToJSON({
+        flowerPanels: [{ id: 'panel-junk', settings: { width: 4, height: 4 }, enabled: 'no' }]
+      }));
+      return doc.flowerPanels[0].enabled === true;
+    })());
+
+  check('a light element carries its Shown flag through the file', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      elements: { 'frame-1': [
+        { type: 'light-par', anchor: 'pole-R-1', params: { power: 77, enabled: false } },
+        { type: 'light-led', anchor: 'pole-L-2', params: { power: 50, enabled: 'no' } }
+      ] }
+    }));
+    const els = doc.elements['frame-1'];
+    return !!els && els.length === 2
+      && els[0].params.enabled === false && els[0].params.power === 77
+      && els[0].anchor === 'pole-R-1'
+      && !('enabled' in els[1].params) && els[1].params.power === 50;
+  })());
+
+console.log('\nflower studio: a save reaches the open editor');
+check('studio and editor share one BroadcastChannel name', (() => {
+  const editor = read('js/app.js');
+  const studio = read('studio/app.js');
+  const ed = /new BroadcastChannel\('([^']+)'\)/.exec(editor);
+  const st = /new BroadcastChannel\('([^']+)'\)/.exec(studio);
+  return !!ed && !!st && ed[1] === st[1] && ed[1] === 'flower-panel-changed';
+})());
+check('the editor re-reads the studio localStorage store on that ping',
+  /BroadcastChannel\('flower-panel-changed'\)/.test(read('js/app.js'))
+  && /flower-panel-studio-v2/.test(read('js/app.js'))
+  && /flower-panel-studio-v2/.test(read('studio/app.js')));
 }
 
 console.log('\nproject file: applying saved values to a model');
@@ -467,7 +514,7 @@ check('every SET keeps a front look - frame turns are mirrored pairs', (() => {
   });
 })());
 check('every SET carries its own shape sliders, all five different', (() => {
-  const keys = ['gap', 'pan', 'pitch', 'decline'];
+  const keys = ['gap', 'pan', 'pitch', 'decline', 'declineIn'];
   return layouts.LAYOUTS.length === 5
     && layouts.LAYOUTS.every(l => l.params
       && keys.every(k => Number.isFinite(l.params[k])))
@@ -475,12 +522,13 @@ check('every SET carries its own shape sliders, all five different', (() => {
 })());
 check('per-SET slider state round-trips, junk keys drop', (() => {
   const p = proj.parseProject(JSON.stringify({ setPresets: {
-    'classic-symmetry': { gap: 4.5, pan: 12, junk: 99 },
+    'classic-symmetry': { gap: 4.5, pan: 12, declineIn: 40, junk: 99 },
     nope: { gap: 1 },
     'grand-entrance': 'wide'
   }}));
   return p.setPresets['classic-symmetry'].gap === 4.5
     && p.setPresets['classic-symmetry'].pan === 12
+    && p.setPresets['classic-symmetry'].declineIn === 40
     && p.setPresets['classic-symmetry'].junk === undefined
     && !p.setPresets.nope && !p.setPresets['grand-entrance'];
 })());
@@ -728,6 +776,8 @@ check('each light type keeps its own group of settings', (() => {
     && /id: 'param-strippalette'/.test(panel)
     && /rangeBlock\('strippower'/.test(panel)
     && /rangeBlock\('striplength'/.test(panel)
+    && /shownBox\(\[lm\]/.test(panel)
+    && /shownBox\(idxs\.map\(lmOf\)/.test(panel)
     && /stripline-\$\{side\}-\$\{suffix\}/.test(panel)
     && /emit\(\{ hue: h, sat: s \}, targets\)/.test(panel)
     && /id: `stripline-\$\{tag\}-T`/.test(obj)
@@ -776,7 +826,8 @@ check('folds remember, and strips share one block', (() => {
     && /const stripLower = document\.createElement\('div'\)/.test(panel)
     && /const railLines = anchors\.some\(o => o\.kind === 'stripline'\)/
       .test(panel)
-    && /btn\.title = `Remove the \$\{side === 'L' \? 'left'/.test(panel);
+    && /btn\.title = `Remove the \$\{where\} strip`/.test(panel)
+    && /shownBox\(\[lmOf\(x\.i\)\]/.test(panel);
 })());
 check('the strip is one neon-flex assembly, not a black tube', (() => {
   // The rail strip is a designed mounting profile: ONE resampled route,

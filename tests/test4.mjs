@@ -50,6 +50,10 @@ for (const f of FILES) {
         !/slider-gap/.test(panel) && !/param-gap|toggle-fabric/.test(panel) &&
         /Object\.entries\(\w+\.params\)/.test(panel) &&
         /rangeBlock\(/.test(panel) && /toggleBlock\(/.test(panel));
+  check('lobe gaps are number pills + one slider, not a stack of rows',
+        /heading\('Lobe Gaps'\)/.test(panel) &&
+        /placeRangeBlock\(`\$\{key\}-lobeGap`/.test(panel) &&
+        /All/.test(panel) && !/Lobe \$\{i \+ 1\} Gap/.test(panel));
   check('model owns its geometry, params, theme and anchors',
         /createBaseFrame/.test(model) && /generateFabricGeometry/.test(model) &&
         /PARAMS/.test(model) && /MODEL_THEME/.test(model) && /getAnchors/.test(model));
@@ -88,6 +92,80 @@ for (const [k, p] of Object.entries(model.params)) {
 }
 check('every param is a range or toggle with a label', schemaOk, schemaWhy);
 check('state mirrors every param', Object.keys(model.params).every(k => k in model.state));
+check('both slope directions are exposed as labelled ranges', (() => {
+  const out = model.params.decline, inn = model.params.declineIn;
+  return !!out && !!inn
+    && out.type === 'range' && inn.type === 'range'
+    && inn.min === 0 && inn.max === 100 && inn.step > 0
+    && typeof inn.value === 'number'
+    && /Centre → End/.test(out.label) && /End → Centre/.test(inn.label)
+    && model.state.declineIn === inn.value;
+})());
+check('the Top Rail is a Settings (advanced) toggle, on by default', (() => {
+  const r = model.params.rail;
+  return !!r && r.type === 'toggle' && r.advanced === true
+    && typeof r.value === 'boolean' && r.value === true
+    && model.state.rail === true;
+})());
+check('unticking Top Rail never flag-hides the tubes - the drape covers them', (() => {
+  const golds = () => {
+    const out = [];
+    model.object3D.traverse(o => {
+      if (o.isMesh && o.material && o.material.color
+          && o.material.color.getHex() === 0xd4af37) out.push(o);
+    });
+    return out;
+  };
+  model.build();
+  const on = golds();
+  if (on.length !== 2 || !on.every(m => m.visible)) return false;
+  model.setParams({ rail: false });
+  const wentDirty = model.dirty === true;
+  model.build();
+  const off = golds();
+  // The rail stays rendered when unticked - the sleeved fabric is what
+  // obscures it - so visible must never flip to false here.
+  const kept = off.length === 2 && off.every(m => m.visible === true);
+  model.setParams({ rail: true });
+  model.build();
+  return wentDirty && kept && golds().length === 2
+    && golds().every(m => m.visible);
+})());
+check('unticked, the curtain sleeves over the round rail (still rendered)', (() => {
+  // Fabric positions are (FABRIC_RES_X + 1) * (rows + 1) = 301 * 9 = 2709.
+  const fabricOf = () => {
+    const out = [];
+    model.object3D.traverse(o => {
+      if (o.isMesh && o.geometry && o.geometry.getAttribute('position')
+          && o.geometry.getAttribute('position').count === 2709) out.push(o);
+    });
+    return out;
+  };
+  const maxOf = list => {
+    let m = -Infinity;
+    for (const mesh of list) {
+      mesh.geometry.computeBoundingBox();
+      m = Math.max(m, mesh.geometry.boundingBox.max.y);
+    }
+    return m;
+  };
+  const railMax = Math.max(
+    ...mod.getStructuralPoints(model.state, true, 300).map(p => p.y));
+  model.setParams({ fabric: true, rail: false });
+  model.build();
+  const offMax = maxOf(fabricOf());
+  model.setParams({ rail: true });
+  model.build();
+  const onMax = maxOf(fabricOf());
+  model.setParams({ fabric: false });
+  model.build();
+  // Unticked, the fold sleeves the tube (plain columns +0.14) and
+  // swells into the holder hood at the bracket columns (crown +0.35
+  // over the rail axis) - so the top sits in that window, never below
+  // the sleeve or above the hood.
+  return Math.abs(onMax - (railMax - 0.12)) < 1e-6
+    && offMax <= railMax + 0.35 + 1e-6 && offMax >= railMax + 0.14 - 1e-6;
+})());
 
 check('setParams marks the model dirty', (() => {
   model.build();
@@ -306,6 +384,31 @@ const standIndex = g => Number(g.name.slice(-1));
   model.build();
 }
 
+// declineIn = 100 drops the centre stand instead of the far end - the
+// second slope, from end to centre, must drive the same telescope split.
+{
+  model.setParams({ decline: 0, declineIn: 100 });
+  model.build();
+  const s = stands();
+  const exp = idx => 8 - (1 - idx / 2) * 5; // drop anchored at the far end
+  const worst = s.reduce((m, g) => Math.abs(
+    part(g, 'stand-sleeve').scale.y
+    + (part(g, 'stand-inner').visible ? part(g, 'stand-inner').scale.y : 0)
+    - exp(standIndex(g))), 0);
+  check('declineIn re-splits sleeve and inner centre-first', worst < 1e-9,
+        `err ${worst}`);
+  const near = s.filter(g => standIndex(g) === 0);
+  check('the centre stand hides its inner tube once dropped',
+        near.length === 2 && near.every(g => !part(g, 'stand-inner').visible));
+  const far = s.filter(g => standIndex(g) === 2);
+  check('the far stand still reaches full height',
+        far.length === 2 && far.every(g =>
+          Math.abs(part(g, 'stand-inner').scale.y - 3) < 1e-9));
+
+  model.setParams({ declineIn: 0 });
+  model.build();
+}
+
 console.log('\nStage 2: advanced stand settings');
 {
   const advanced = Object.entries(model.params).filter(([, p]) => p.advanced);
@@ -379,10 +482,11 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
       && typeof lm.name === 'string' && lm.subtitle
       && lm.object3D && lm.object3D.isObject3D && lm.params && lm.state
       && ['build', 'setTheme', 'setParams', 'dispose'].every(k => typeof lm[k] === 'function'));
-    check(`${type}: params are ranges with labels, state mirrors params`,
-          Object.entries(lm.params).every(([, p]) =>
-            (p.type === 'range' || p.type === 'toggle') && p.label
-            && p.min < p.max && p.step > 0 && typeof p.value === 'number')
+    check(`${type}: params are ranges/toggles with labels, state mirrors params`,
+          Object.entries(lm.params).every(([, p]) => p.type === 'toggle'
+            ? (p.label && typeof p.value === 'boolean')
+            : (p.type === 'range' && p.label
+               && p.min < p.max && p.step > 0 && typeof p.value === 'number'))
           && Object.keys(lm.params).every(k => k in lm.state));
 
     lm.build();
@@ -403,6 +507,26 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
     if (spots.length) check(`${type}: power drives the spotlight`,
       Math.abs(spotsOf(lm)[0].intensity
         - (type === 'light-par' ? 0.4 * 2.2 : 0.4 * 1.4)) < 1e-9);
+
+    // Show/hide: every fixture carries a Shown toggle, on by default; off
+    // hides the whole group at once (housing, beam and real light alike -
+    // three skips an invisible group's subtree) and survives a rebuild.
+    check(`${type}: Shown is a toggle, defaults on, fixture visible`,
+          lm.params.enabled && lm.params.enabled.type === 'toggle'
+          && lm.params.enabled.value === true
+          && lm.state.enabled === true && lm.object3D.visible === true);
+    lm.setParams({ enabled: false });
+    check(`${type}: Shown off hides the fixture in the same tick`,
+          lm.object3D.visible === false && lm.dirty === true);
+    lm.build();
+    check(`${type}: a rebuild keeps it hidden and its parts intact`,
+          lm.object3D.visible === false && lm.state.enabled === false
+          && spotsOf(lm).length === spots.length);
+    lm.setParams({ enabled: true });
+    check(`${type}: Shown on shows it again`, lm.object3D.visible === true
+          && lm.state.enabled === true);
+    lm.build();
+    check(`${type}: back on survives the rebuild too`, lm.object3D.visible === true);
 
     if (type === 'light-strip') {
       lm.setParams({ length: 11 });

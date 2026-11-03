@@ -687,6 +687,7 @@ import './eucalyptus.js';
 import './boston-fern.js';
 import './grass.js';
 import './ivy-vine.js';
+import './ivy.js';
 import './leaf-vine.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -1810,7 +1811,7 @@ const LAYOUTS = [
         subtitle: 'Balanced gateway & timeless composition',
         // Flat frontal wall: the merged 8-15 degree family lives in the
         // placement; the sliders stay at the classic defaults.
-        params: { gap: 3, pan: 0, pitch: 0, decline: 0, lobes: 6 },
+        params: { gap: 3, pan: 0, pitch: 0, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -10 },
             { kind: 'frame', x: 15, z: 0, ry: 10 }
@@ -1820,7 +1821,7 @@ const LAYOUTS = [
         id: 'cross-flow',
         name: 'Cross-Flow Draping',
         subtitle: 'Intersecting curtains, flowing lines',
-        params: { gap: 2, pan: 45, pitch: 8, decline: 0, lobes: 6 },
+        params: { gap: 2, pan: 45, pitch: 8, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -40 },
             { kind: 'frame', x: 15, z: 0, ry: 40 }
@@ -1830,7 +1831,7 @@ const LAYOUTS = [
         id: 'depth-stagger',
         name: 'Depth Stagger',
         subtitle: 'Front-back placement for dimension',
-        params: { gap: 4, pan: 15, pitch: 0, decline: 25, lobes: 6 },
+        params: { gap: 4, pan: 15, pitch: 0, decline: 25, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: -4, ry: -12 },
             { kind: 'frame', x: 15, z: 5, ry: 12 }
@@ -1843,7 +1844,7 @@ const LAYOUTS = [
         // The slant is in the DEPTH, not in a turn: one frame steps forward,
         // the other back, and both stay mirrored to the audience like every
         // other SET. (Both frames used to share +30 - a corridor, not a set.)
-        params: { gap: 3, pan: 30, pitch: 12, decline: 0, lobes: 6 },
+        params: { gap: 3, pan: 30, pitch: 12, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 4, ry: -10 },
             { kind: 'frame', x: 15, z: -4, ry: 10 }
@@ -1853,7 +1854,7 @@ const LAYOUTS = [
         id: 'grand-entrance',
         name: 'Grand Entrance',
         subtitle: 'Two frames funnelling to a gateway',
-        params: { gap: 6, pan: 20, pitch: 0, decline: 0, lobes: 6 },
+        params: { gap: 6, pan: 20, pitch: 0, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -25 },
             { kind: 'frame', x: 15, z: 0, ry: 25 }
@@ -2083,8 +2084,15 @@ function cleanFrameElements(raw) {
                 let keys = 0;
                 for (const [k, n] of Object.entries(el.params)) {
                     if (keys >= 8) break;
-                    if (!ELEM_PARAM_RE.test(k)
-                        || typeof n !== 'number' || !Number.isFinite(n)) continue;
+                    if (!ELEM_PARAM_RE.test(k)) continue;
+                    // Booleans carry the schema's flags (Shown on/off);
+                    // anything else has to be a real number.
+                    if (typeof n === 'boolean') {
+                        params[k] = n;
+                        keys++;
+                        continue;
+                    }
+                    if (typeof n !== 'number' || !Number.isFinite(n)) continue;
                     params[k] = n;
                     keys++;
                 }
@@ -2139,9 +2147,9 @@ function cleanFrameSpacing(raw) {
 // Documents from before the merge: Divided Entrance is Classic Symmetry now.
 const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
-// The four shape sliders, remembered per SET so each drawing keeps the look
+// The shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
-const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
+const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 // Colours you saved yourself: appended after the board palettes, never
 // replacing them. Capped so a document cannot grow a paint shop.
 function cleanExtras(raw) {
@@ -2211,6 +2219,8 @@ function cleanFlowerPanels(raw) {
             arrangementId: typeof p.arrangementId === 'string' && FP_ID_RE.test(p.arrangementId)
                 ? p.arrangementId : null,
             settings,
+            // Old documents predate the toggle; they stay visible.
+            enabled: p.enabled !== false,
             x: clampN(p.x, -300, 300, 0),
             z: clampN(p.z, -300, 300, 0),
             ry: clampN(p.ry, -360, 360, 0)
@@ -2532,11 +2542,12 @@ const FlowerModel = (function () {
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
     monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, 0, 0.269, 1], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.268, -0.003, 0.336, 0.997], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 30, widthIn: 14, footprintSqIn: 95,  bounds: [-0.268, -0.003, 0.336, 0.997], orientOutward: true, color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'boston-fern': { id: 'boston-fern', category: 'bush', label: 'Boston fern bush', lengthIn: 14, widthIn: 10, footprintSqIn: 67,  bounds: [-0.504, -0.176, 0.496, 0.52], color: '#357a2e', defaultLayer: 'volume',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 6, footprintSqIn: 53, bounds: [-0.089, -0.978, 0.167, 0.022],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.128, -0.002, 0.152, 0.998], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 60, widthIn: 12, footprintSqIn: 140, bounds: [-0.089, -0.978, 0.167, 0.022],     orientOutward: true, color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy':       { id: 'ivy',         category: 'garland',        label: 'Ivy vine',        lengthIn: 60, widthIn: 14, footprintSqIn: 150, bounds: [-0.22, -0.99, 0.22, 0.02],          orientOutward: true, color: '#3f7d3a', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',       lengthIn: 60, widthIn: 12, footprintSqIn: 130, bounds: [-0.128, -0.002, 0.152, 0.998], orientOutward: true, color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -2692,7 +2703,7 @@ const FlowerModel = (function () {
       type: meta.id,
       enabled: r.enabled === undefined ? true : !!r.enabled,
       sizeScale: clamp(num(r.sizeScale, 1), 0.4, 2.5),
-      density: clamp(num(r.density, 70), 10, 100),
+      density: clamp(num(r.density, 85), 10, 100),
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
       colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
@@ -2719,8 +2730,12 @@ const FlowerModel = (function () {
     return {
       mode,
       direction: cleanEnum(r.direction, GREENERY_DIRECTIONS, 'mixed'),
-      overlap: clamp(num(r.overlap, 0.5), 0, 1),
+      overlap: clamp(num(r.overlap, 0.75), 0, 1),
       rotationVariation: clamp(num(r.rotationVariation, 60), 0, 180),
+      // Spray angle (degrees): how far orientOutward species lean out of the panel
+      // plane. 0 = lie flat on the wall (legacy look), 90 = fully perpendicular
+      // (sprays point along the surface normal). Intermediate values lean outward.
+      orientAngle: clamp(num(r.orientAngle, 90), 0, 90),
       seed: Number.isFinite(Number(r.seed)) ? (Math.abs(Math.floor(Number(r.seed))) >>> 0) : 1,
       items
     };
@@ -3060,16 +3075,20 @@ const FlowerModel = (function () {
   //
   // OVERLAP (0.0–1.0) = how tightly pieces are packed. It sets the lattice step relative
   // to the piece's equivalent footprint diameter D:
-  //     step = D * (0.95 − 0.35 * overlap),  clamped to [0.60·D, 0.95·D]
+  //     step = D * (0.95 − 0.50 * overlap),  clamped to [0.45·D, 0.95·D]
   //   overlap 0.0 → 0.95·D  (loose; neighbours just touch)
-  //   overlap 1.0 → 0.60·D  (tight; ~40% overlap) — the 0.60 floor stops pieces from
-  //                         collapsing into an uncontrolled pile no matter the setting.
+  //   overlap 1.0 → 0.45·D  (tight; ~55% overlap) — the 0.45 floor keeps vines dense
+  //                         enough to carpet a panel without collapsing into one pile.
   // Overlap only controls SPACING. Piece COUNT comes from density (fraction of this
   // lattice filled) and Size/Rotation stay independent of it.
+  // Perpendicular sprays: their long axis becomes PROJECTION depth, so cap it — full
+  // 60in garlands would pierce the room. 30in (76cm) is the approved deep band top;
+  // eucalyptus (30in) lands exactly at the cap untouched.
+  const ORIENT_MAX_DEPTH_IN = 30;
   function greeneryStep(footprintSqIn, overlap, scale) {
     const dIn = 2 * Math.sqrt(footprintSqIn / Math.PI);   // equivalent-circle diameter (in)
     const dW = dIn / 12 * scale;                          // -> world units
-    return dW * clamp(0.95 - clamp(overlap, 0, 1) * 0.35, 0.60, 0.95);
+    return dW * clamp(0.95 - clamp(overlap, 0, 1) * 0.50, 0.45, 0.95);
   }
   // ---- foliage-cluster composition (mixed mode only) -------------------------
   // Composition styles tune how flowers and greenery share the panel in 'mixed' mode.
@@ -3216,6 +3235,13 @@ const FlowerModel = (function () {
       : 0;
     const out = [];
     _lastOmitted = 0;
+    // Spray angle (0–90°): 0 = orientOutward species lie flat on the panel (legacy
+    // look: anchor skew, H-fit and containment apply); >0 = they lean out of the
+    // plane by this angle, 90 = fully perpendicular. Depth cap scales by sin(θ)
+    // because only that fraction of the long axis is projection depth.
+    const orientAngleDeg = g.orientAngle;
+    const sprayMode = orientAngleDeg > 0;
+    const orientSin = Math.max(1e-3, Math.sin(orientAngleDeg * Math.PI / 180));
     // Composition tuning (mixed mode only). The cluster field is computed ONCE so every
     // species lands in the same organic masses (they co-locate rather than scattering
     // independently). It uses the SAME seed and inner-area extents as the flower layer,
@@ -3263,7 +3289,7 @@ const FlowerModel = (function () {
             gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9))
         : pickSubset(cands, target, gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9));
       const layerIdx = greeneryLayerIndex(item.layer);
-      const z = greeneryZ(item, layerIdx, flowerTopZ);
+      let z = greeneryZ(item, layerIdx, flowerTopZ);
       const scaleW = meta.lengthIn / 12 * scale * item.sizeScale;    // geometry long axis = 1
       const rand = mulberry32((gSeed ^ hashStr(item.type) ^ (key * 2654435761)) >>> 0);
       const jit = step * 0.24;
@@ -3272,18 +3298,44 @@ const FlowerModel = (function () {
         const jx = (rand() * 2 - 1) * jit, jy = (rand() * 2 - 1) * jit;
         x = clamp(x + jx, -W / 2, W / 2);
         y = clamp(y + jy, -H / 2, H / 2);
-        const sc = scaleW * (0.9 + rand() * 0.2);                     // subtle size variation
+        let sc = scaleW * (0.9 + rand() * 0.2);                        // subtle size variation
+        // Perpendicular sprays: the long axis points out of the wall, so its length is the
+        // projection depth — cap it (deep band, leaves keep their size) instead of fitting
+        // the piece to the panel height (it no longer spans the panel plane).
+        if (meta.orientOutward && sprayMode) sc = Math.min(sc, ORIENT_MAX_DEPTH_IN / 12 * scale / orientSin);
+        // Garland strands: auto-fit the piece to the panel so a 60in vine still places on
+        // a small panel (scaled down) instead of being dropped by containment.
+        else if (meta.category === 'garland') sc = Math.min(sc, H * 0.94);
         let rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
+        // Garland strands anchor at the edge OPPOSITE their run so they sweep the panel
+        // like the reference walls: downward-hanging vines insert near the top, upward
+        // climbers (leaf-vine) root near the bottom. Skew fills that band densely.
+        if (meta.category === 'garland' && !(meta.orientOutward && sprayMode)) {
+          const down = meta.bounds[1] < -meta.bounds[3];              // hangs down vs grows up
+          const yLo = down ? -H / 2 + 0.99 * sc : -H / 2 + 0.02 * sc;
+          const yHi = down ? H / 2 - 0.02 * sc : H / 2 - 0.99 * sc;
+          if (yHi > yLo) {
+            const t = Math.pow(rand(), 0.5);                          // skew toward the anchor edge
+            y = down ? yLo + (yHi - yLo) * t : yHi - (yHi - yLo) * t;
+          }
+        }
         // HARD CONTAINMENT: keep the full rotated+scaled footprint inside the usable panel
         // (which already excludes the border bands via innerArea). If a leaf would overhang
         // an edge, nudge the origin inward once; if it still cannot fit, omit the piece.
-        let fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
-        if (!fit.fits) {
-          x = clamp(x + fit.dx, -W / 2, W / 2);
-          y = clamp(y + fit.dy, -H / 2, H / 2);
-          rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
-          fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
-          if (!fit.fits) { _lastOmitted++; continue; }
+        // Perpendicular sprays: in-plane footprint is just the narrow stem/leaf cross-
+        // section (meta.bounds still describes the flat pose), so containment is skipped
+        // — and the base is seated AT the panel face (slightly into the foam) so every
+        // stem reads as inserted, never floating above the surface.
+        if (meta.orientOutward && sprayMode) z = Math.max(-0.05, -0.02 * sc);
+        else {
+          let fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+          if (!fit.fits) {
+            x = clamp(x + fit.dx, -W / 2, W / 2);
+            y = clamp(y + fit.dy, -H / 2, H / 2);
+            rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
+            fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+            if (!fit.fits) { _lastOmitted++; continue; }
+          }
         }
         out.push({
           key, type: item.type, layer: item.layer, x, y, z,
@@ -4772,7 +4824,7 @@ const GreeneryCore = (function () {
       const N = 26;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
+        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.012 });
       }
       stems.push(G.makeTube(pts, t => 0.016 * (1 - t * 0.6) + 0.005, 6));
 
@@ -4816,7 +4868,7 @@ const GreeneryCore = (function () {
           rp.push({
             x: p0.x + side * (0.02 + u * 0.10) + Math.sin(u * 2.4) * 0.02,
             y: p0.y - u * len,
-            z: p0.z + Math.sin(u * 3.1 + i) * 0.03
+            z: p0.z + Math.sin(u * 3.1 + i) * 0.012
           });
         }
         stems.push(G.makeTube(rp, u => 0.010 * (1 - u * 0.7) + 0.003, 4));
@@ -4865,6 +4917,99 @@ const GreeneryCore = (function () {
           { geometry: G.mergeGeometries(stems), fixed: '#3f7d38' }
         ]
       };
+    }
+  });
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+// ---- js/greenery/ivy.js ----
+/* Ivy vine — a dense trailing vine lined with classic 5-lobed palmate ivy leaves,
+   matching the reference "Ivy Vine Only" wall panel: leaves pack closely along a
+   wiry stem that hangs from its stem-base attachment, each leaf on a short petiole
+   angled outward so the blade lies near the panel face. Leaves are optional
+   (G.wantsLeaves()) so a bare wiry stem can be placed too. Geometry is normalised
+   so the longest axis = 1; attachment is the base (top) of the vine. */
+(function () {
+  'use strict';
+  const G = GreeneryCore;
+  const T = THREE;
+
+  // One 5-lobed ivy leaf outline (THREE.Shape): palmate envelope with lobes at the
+  // tip and ±72°/±144°, sinuses between, a notch at the petiole (bottom) and the two
+  // basal lobes stretched slightly down. Petiole attaches near (0,0); tip points +Y.
+  function ivyLeaf() {
+    const R = 0.125;
+    const N = 60;
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const th = -Math.PI + (i / N) * Math.PI * 2;
+      const lobe = Math.pow(Math.abs(Math.cos(2.5 * th)), 0.62);
+      let r = R * (0.50 + 0.50 * lobe);
+      const down = Math.max(0, -Math.cos(th));
+      r *= 1 + 0.14 * down * down;       // ivy's basal lobes reach a little lower
+      pts.push(new T.Vector2(Math.sin(th) * r * 0.92, Math.cos(th) * r + 0.06));
+    }
+    const geo = new T.ShapeGeometry(new T.Shape(pts));
+    // Gentle cup across the blade + lift toward the tip.
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i) - 0.06;
+      const u = Math.max(0, y) / R;
+      pos.setZ(i, 0.010 * (x / (R * 0.92)) * (x / (R * 0.92)) + 0.008 * u * u);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  G.register({
+    type: 'ivy',
+    label: 'Ivy vine',
+    supportsLeaves: true,
+    build(G) {
+      const showLeaves = G.wantsLeaves();
+      const rand = G.mulberry32(0x1f47e21);
+      // Wiry stem hanging down (y: 0 -> -1) with a gentle S-drift in x and z.
+      const pts = [];
+      const N = 28;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        pts.push({
+          x: Math.sin(t * 3.6 + 0.4) * 0.045,
+          y: -t,
+          z: Math.sin(t * 2.8 + 1.2) * 0.015
+        });
+      }
+      const stem = G.makeTube(pts, t => 0.010 * (1 - t * 0.45) + 0.004, 4);
+      const parts = [stem];
+      if (showLeaves) {
+        const leaf = ivyLeaf();
+        const nodes = 34;
+        for (let i = 1; i <= nodes; i++) {
+          const t = i / (nodes + 0.7);
+          const p = pts[Math.min(N, Math.round(t * N))];
+          const side = (i % 2) ? 1 : -1;
+          const sc = (1 - t * 0.32) * (0.85 + rand() * 0.3);
+          const bx = p.x + side * 0.055, by = p.y - 0.008, bz = p.z + (rand() - 0.5) * 0.012;
+          // Short petiole from the stem node out to the leaf's notch.
+          parts.push(G.makeTube([
+            { x: p.x, y: p.y, z: p.z },
+            { x: (p.x + bx) / 2, y: (p.y + by) / 2 - 0.006, z: (p.z + bz) / 2 },
+            { x: bx, y: by, z: bz }
+          ], 0.005, 3));
+          const c = G.cloneGeom(leaf);
+          // Random out-of-plane tilt so blades catch light individually (the reference
+          // wall reads as layered leaves, not one flat green mass).
+          G.applyMatrix(c, new T.Matrix4().makeRotationX((rand() - 0.5) * 0.7));
+          G.applyMatrix(c, G.trs(bx, by, bz, -side * (1.15 + (rand() - 0.5) * 0.4), sc));
+          parts.push(c);
+        }
+        // One terminal leaf closes the tip.
+        const tipLeaf = G.cloneGeom(leaf);
+        G.applyMatrix(tipLeaf, new T.Matrix4().makeRotationX((rand() - 0.5) * 0.7));
+        G.applyMatrix(tipLeaf, G.trs(pts[N].x, pts[N].y - 0.01, pts[N].z, (rand() - 0.5) * 0.3, 0.62));
+        parts.push(tipLeaf);
+      }
+      return G.mergeGeometries(parts);
     }
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -4932,7 +5077,7 @@ const GreeneryCore = (function () {
         pts.push({
           x: Math.sin(t * 4.3) * 0.035,
           y: t,
-          z: Math.sin(t * 3.0 + 0.6) * 0.04
+          z: Math.sin(t * 3.0 + 0.6) * 0.015
         });
       }
       const stem = G.makeTube(pts, t => 0.010 * (1 - t * 0.5) + 0.004, 4);
@@ -4945,7 +5090,7 @@ const GreeneryCore = (function () {
           const p = pts[Math.min(N, Math.round(t * N))];
           const side = (i % 2) ? 1 : -1;      // alternate side to side
           const sc = (1 - t * 0.38) * (0.85 + rand() * 0.3);
-          const bx = p.x + side * 0.03, by = p.y + 0.012, bz = p.z + (rand() - 0.5) * 0.02;
+          const bx = p.x + side * 0.03, by = p.y + 0.012, bz = p.z + (rand() - 0.5) * 0.012;
           // Short petiole from the stem node out to the leaf's cleft.
           parts.push(G.makeTube([
             { x: p.x, y: p.y, z: p.z },
@@ -5025,6 +5170,42 @@ const GreeneryEngine = (function () {
   // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color,
   // colorVariation, detail, showLeaves }.
   // Throws for an unknown type — never silently falls back.
+  // Local pre-rotation for sprays (opts.orientOutward + opts.orientAngle 0–90): maps
+  // the model's long axis toward +Z (the panel's surface normal) while the stem-base
+  // end stays at z~0, so the piece leans out of the wall instead of lying in its plane.
+  // angle 0 = identity (flat), 90 = fully perpendicular. The union bbox across layers
+  // is used because multi-layer models (wisteria raceme + foliage band) share one
+  // placement scale but occupy different regions — the base end must be decided on the
+  // whole model, not one layer.
+  function orientQuaternion(specs, angleRad) {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const spec of specs) {
+      const g = spec.geo;
+      if (!g) continue;
+      g.computeBoundingBox();
+      const b = g.boundingBox;
+      if (!b) continue;
+      if (b.min.x < x0) x0 = b.min.x;
+      if (b.max.x > x1) x1 = b.max.x;
+      if (b.min.y < y0) y0 = b.min.y;
+      if (b.max.y > y1) y1 = b.max.y;
+    }
+    if (x0 > x1 || y0 > y1) return null;
+    const a = Math.max(0, Math.min(Math.PI / 2, angleRad));
+    const q = new T.Quaternion();
+    if (y1 - y0 >= x1 - x0) {
+      // Long axis = Y. Base is the end nearer the origin; the tip leans to +Z:
+      // Rx(+a) sends +y toward +z, Rx(-a) sends -y toward +z.
+      const theta = (Math.abs(y0) < Math.abs(y1) ? 1 : -1) * a;
+      q.setFromAxisAngle(new T.Vector3(1, 0, 0), theta);
+    } else {
+      // Long axis = X. Ry(-a) sends +x toward +z, Ry(+a) sends -x toward +z.
+      const theta = (Math.abs(x0) < Math.abs(x1) ? -1 : 1) * a;
+      q.setFromAxisAngle(new T.Vector3(0, 1, 0), theta);
+    }
+    return q;
+  }
+
   function build(opts) {
     const type = opts && opts.type;
     const s = G.get(type);
@@ -5046,6 +5227,12 @@ const GreeneryEngine = (function () {
     let triangles = 0;
     const m = new T.Matrix4(), q = new T.Quaternion();
     const ax = new T.Vector3(0, 0, 1), pos = new T.Vector3(), scl = new T.Vector3(), c = new T.Color();
+    // opts.orientAngle (degrees, default 90): lean of orientOutward species out of the
+    // panel plane. 0 disables the pre-rotation entirely (flat pose).
+    const orientAngle = (opts && opts.orientAngle != null) ? Number(opts.orientAngle) : 90;
+    const orientQ = opts.orientOutward && Number.isFinite(orientAngle) && orientAngle > 0
+      ? orientQuaternion(specs, orientAngle * Math.PI / 180)
+      : null;
     for (const spec of specs) {
       const im = new T.InstancedMesh(spec.geo, mat, items.length);
       im.instanceMatrix.setUsage(T.StaticDrawUsage);
@@ -5054,6 +5241,7 @@ const GreeneryEngine = (function () {
         const it = items[i];
         pos.set(it.x || 0, it.y || 0, it.z || 0);
         q.setFromAxisAngle(ax, it.rot || 0);
+        if (orientQ) q.multiply(orientQ);          // local reorient first, then panel roll
         const sc = it.scale || 1; scl.set(sc, sc, sc);
         m.compose(pos, q, scl);
         im.setMatrixAt(i, m);
@@ -5215,6 +5403,8 @@ const FlowerScene = (function () {
           type, items: byType[type],
           color: meta ? meta.color : '#4a7c3f',
           colorVariation: item.colorVariation != null ? item.colorVariation : 0.3,
+          orientOutward: !!(meta && meta.orientOutward),
+          orientAngle: (s.greenery && s.greenery.orientAngle != null) ? s.greenery.orientAngle : 90,
           detail,
           showLeaves: item.showLeaves !== false
         });
@@ -5305,7 +5495,7 @@ const FlowerScene = (function () {
       // Foam slab: a real shallow box whose top face sits at z=0, under the flower heads.
       backingMesh = new T.Mesh(
         new T.BoxGeometry(W, H, foamDepth),
-        new T.MeshStandardMaterial({ color: new T.Color(0x84977b), roughness: 1 })
+        new T.MeshStandardMaterial({ color: new T.Color(0x245034), roughness: 1 })
       );
       backingMesh.position.z = -foamDepth / 2;
       addMesh(group, backingMesh);
@@ -5397,10 +5587,11 @@ const FLOWERPANEL_ID = 'flowerpanel';
 const FLOWERPANEL_NAME = 'Flower Panel';
 const FLOWERPANEL_SUBTITLE = 'Arrangement';
 
-// No auto-renderable knobs: the TILT panel only places and shows the panel; the
-// arrangement is edited in the Studio. Empty schema keeps the persisted params
-// object clean.
-const FLOWERPANEL_PARAMS = {};
+// One knob: Enabled. The arrangement itself is authored in the Studio; the
+// scene only places it, and now also shows/hides it without unmounting.
+const FLOWERPANEL_PARAMS = {
+    enabled: { label: 'Enabled', type: 'toggle', value: true }
+};
 
 // World units per foot. The panel is authored in feet and built 1:1 (the studio
 // used a 0.72 world scale; TILT uses full scale).
@@ -5424,7 +5615,8 @@ function createFlowerPanelModel(initial = {}) {
     const state = {
         settings: FlowerModel.normalize(initial.settings || {}),
         arrangementId: initial.arrangementId || null,
-        quality: scene.getQuality()
+        quality: scene.getQuality(),
+        enabled: initial.enabled !== false
     };
 
     function build() {
@@ -5433,6 +5625,7 @@ function createFlowerPanelModel(initial = {}) {
         // Stand the panel on the floor. Its vertical centre sits at y = 0 in the
         // panel-local frame, so lift by half the height (feet == world units, FT=1).
         panel.position.y = (s.height * FT) / 2;
+        root.visible = state.enabled;
         model.dirty = false;
     }
 
@@ -5458,11 +5651,16 @@ function createFlowerPanelModel(initial = {}) {
         setParams(partial) {
             if (partial && partial.settings) {
                 state.settings = FlowerModel.normalize(partial.settings);
+                model.dirty = true;
             }
             if (partial && 'arrangementId' in partial) {
                 state.arrangementId = partial.arrangementId;
             }
-            model.dirty = true;
+            if (partial && 'enabled' in partial) {
+                // Visibility only - no geometry rebuild, no dirty flag.
+                state.enabled = partial.enabled !== false;
+                root.visible = state.enabled;
+            }
         },
         getSettings() { return state.settings; },
         setSettings(settings) {
@@ -5937,6 +6135,26 @@ const LOBES_MAX = 11;
 const LOBE_GAP_MIN = 0.2;
 const LOBE_GAP_MAX = 3.0;
 const RAIL_RADIUS = 0.12;
+// Rows of the fabric grid given to the fold that wraps the HIDDEN rail:
+// equator, crown, equator (four segments on the tube's own circle). The
+// remaining rows hang from the front equator down to the hem.
+const RAIL_WRAP_ROWS = 4;
+// Clearance the drape keeps outside the rail it sleeves over. The tube is
+// never flag-hidden (Top Rail only swaps the drape), so the cloth must sit
+// just proud of the gold to win the depth test instead of z-fighting it.
+const RAIL_WRAP_GAP = 0.02;
+// The fold also swells into a hood that wraps each pivot bracket (the
+// rail's holder) at the pole columns while the rail is sleeved. The
+// hood radius clears the clevis plates (corner reach 0.270) even at
+// the wrap chords, and the sweep opens past straight-down on both
+// sides so the hanging plates, pivot bolt and lock stay inside the
+// cloth instead of poking through it.
+const BR_HOOD_R = 0.35;
+const BR_HOOD_SWEEP = 140 * Math.PI / 180;
+// Columns either side of a bracket column held at full hood size,
+// then eased back to the plain sleeve over the next BR_HOOD_RAMP.
+const BR_HOOD_HOLD = 4;
+const BR_HOOD_RAMP = 6;
 const FABRIC_RES_X = 300;
 const FABRIC_RES_Y = 8;
 const POLE_COUNT = 3;
@@ -6000,11 +6218,21 @@ const PARAMS = {
     gap:     { label: 'Center Gap',        type: 'range', min: 0, max: 10,  step: 0.1, value: 3,  unit: ' ft' },
     pan:     { label: 'Swing Pan (Arc)',   type: 'range', min: -90, max: 90,  step: 1,   value: 0,  unit: '°' },
     pitch:   { label: 'Pitch (Rail Tilt)', type: 'range', min: 0, max: 45,  step: 1,   value: 0,  unit: '°' },
+    // Two slopes, one per direction: Centre → End drops the far end as you
+    // walk out from the gap, End → Centre drops the centre end as you walk
+    // in from the far end. Each slider owns one end of the rail, so the
+    // pair tilts it between any two end heights (level, either way, or one
+    // end low and the other at full height).
+    decline: { label: 'Decline Centre → End', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%' },
+    declineIn: { label: 'Decline End → Centre', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%' },
     lobes:   { label: 'Lobes',            type: 'range', min: LOBES_MIN, max: LOBES_MAX, step: 1, value: 6, unit: '' },
     lobeGaps: { label: 'Lobe Gaps', type: 'lobeGaps', min: LOBE_GAP_MIN, max: LOBE_GAP_MAX, step: 0.1, value: WAVE_AMP, unit: ' ft', count: LOBES_MAX, railLen: RAIL_LENGTH },
-    decline: { label: 'Decline (Slope)',   type: 'range', min: 0, max: 100, step: 1,   value: 0,  unit: '%' },
     fabric:  { label: 'Curtains',          type: 'toggle', value: false },
 
+    // The gold serpentine rail itself. Untick it in Settings and the
+    // curtains hang from the bare rail line instead: their heads rise to
+    // cover it, so no gold tube shows along the top.
+    rail:    { label: 'Top Rail',          type: 'toggle', value: true, advanced: true },
     poleShape: { label: 'Square Poles',    type: 'toggle', value: true, advanced: true },
     poleInner: { label: 'Inner Wall',      type: 'range', min: 0.8, max: 3, step: 0.1,
                  value: 1,   unit: ' mm', advanced: true },
@@ -6124,8 +6352,13 @@ function getStructuralPoints(state, isRight, segments) {
             || WAVE_AMP;
         const wave = Math.sin(t * Math.PI * nLobes) * lobeAmp;
 
-        // Decline: a pure vertical drop, independent of pitch.
-        const dropY = -t * (state.decline / 100) * MAX_DROP;
+        // Decline: a pure vertical drop, independent of pitch. Two slopes,
+        // one per direction - centre → end drops the far end, end → centre
+        // drops the centre end. A missing key (older callers and documents)
+        // reads 0, keeping the original single-direction behaviour.
+        const dropIn = Number(state.declineIn) || 0;
+        const dropY = -t * (state.decline / 100) * MAX_DROP
+                    - (1 - t) * (dropIn / 100) * MAX_DROP;
 
         // Pitch: roll the serpentine about the rail's own X axis. Poles sit
         // where wave === 0, so their heights are unaffected by pitch.
@@ -6147,7 +6380,7 @@ function getStructuralPoints(state, isRight, segments) {
     return pts;
 }
 
-function generateFabricGeometry(curvePts, isRight) {
+function generateFabricGeometry(curvePts, isRight, railShown = true) {
     const cols = FABRIC_RES_X, rows = FABRIC_RES_Y;
     const verts = [], uvs = [], indices = [];
     const rowStride = rows + 1;
@@ -6168,13 +6401,53 @@ function generateFabricGeometry(curvePts, isRight) {
 
         const phase = t * Math.PI * 2 * PLEAT_FREQ;
 
+        // Rail unticked: the top rows sleeve around the tube's own top
+        // half - equator, crown, equator - just OUTSIDE its surface, so
+        // the rail stays rendered and the fabric simply obscures it in
+        // place. The fold rises from the OPPOSITE face of the rail: the
+        // free edge sits on one side, the arc crowns over, and the skirt
+        // departs from the other side, easing back onto the curtain's
+        // own plane within two rows. At the bracket columns the fold
+        // swells into a hood that also wraps the pivot bracket holding
+        // the rail, easing back to the plain sleeve over a few columns
+        // either side. Rail ticked: no fold, the head hangs just under
+        // the exposed tube as always.
+        const wrapRows = railShown ? 0 : Math.min(RAIL_WRAP_ROWS, rows - 3);
+        const sleeve = RAIL_RADIUS + RAIL_WRAP_GAP;
+        // How bracket-proximate this column is: 1 within the hold of a
+        // bracket column, ramping to 0 over the ramp width beyond it.
+        let prox = 0;
+        if (wrapRows > 0) {
+            for (let k = 0; k < POLE_COUNT; k++) {
+                const d = Math.abs(i - Math.floor((k / (POLE_COUNT - 1)) * cols));
+                if (d <= BR_HOOD_HOLD) { prox = 1; break; }
+                const p = Math.max(0, 1 - (d - BR_HOOD_HOLD) / BR_HOOD_RAMP);
+                if (p > prox) prox = p;
+            }
+        }
+        // Hood radius and half-sweep at this column: full size over a
+        // bracket, easing back to the plain sleeve circle and half-turn.
+        const rad = sleeve + prox * (BR_HOOD_R - sleeve);
+        const sweep = Math.PI / 2 + prox * (BR_HOOD_SWEEP - Math.PI / 2);
         for (let j = 0; j <= rows; j++) {
-            const v = j / rows;
-            const y = THREE.MathUtils.lerp(pt.y - RAIL_RADIUS, 0, v);
+            if (wrapRows > 0 && j <= wrapRows) {
+                const th = sweep - 2 * sweep * (j / wrapRows);
+                const n = Math.sin(th) * rad;
+                const y = pt.y + Math.cos(th) * rad;
+                verts.push(pt.x + normal.x * n, y, pt.z + normal.z * n);
+                uvs.push(t, 1 - j / rows);
+                continue;
+            }
+            const v = (j - wrapRows) / (rows - wrapRows);
+            const headY = railShown ? pt.y - RAIL_RADIUS
+                : pt.y + Math.cos(sweep) * rad;
+            const fall = railShown ? 0
+                : Math.sin(-sweep) * rad * Math.max(0, 1 - (j - wrapRows) / 2);
+            const y = THREE.MathUtils.lerp(headY, 0, v);
             const amp = PLEAT_DEPTH * (0.55 + 0.45 * v);
-            const off = Math.sin(phase) * amp;
+            const off = fall + Math.sin(phase) * amp;
             verts.push(pt.x + normal.x * off, y, pt.z + normal.z * off);
-            uvs.push(t, 1 - v);
+            uvs.push(t, 1 - j / rows);
         }
     }
 
@@ -6457,12 +6730,16 @@ function createO2TiltModel(initial = {}) {
         railR = new THREE.Mesh(new THREE.TubeGeometry(rCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
         railL = new THREE.Mesh(new THREE.TubeGeometry(lCurv, FABRIC_RES_X, RAIL_RADIUS, 12, false), matRail);
         railR.castShadow = railL.castShadow = true;
+        // The tube is never flag-hidden: Top Rail only swaps the drape
+        // (hang below / sleeve over), and the sleeved fabric is what
+        // obscures the rail while it stays rendered in place.
         root.add(railR, railL);
 
         release(fabricR); release(fabricL); fabricR = fabricL = null;
         if (state.fabric) {
-            fabricR = new THREE.Mesh(generateFabricGeometry(ptsR, true), matFabric);
-            fabricL = new THREE.Mesh(generateFabricGeometry(ptsL, false), matFabric);
+            const showRail = state.rail !== false;
+            fabricR = new THREE.Mesh(generateFabricGeometry(ptsR, true, showRail), matFabric);
+            fabricL = new THREE.Mesh(generateFabricGeometry(ptsL, false, showRail), matFabric);
             fabricR.castShadow = fabricL.castShadow = true;
             root.add(fabricR, fabricL);
         }
@@ -6813,29 +7090,35 @@ const LIGHT_NAMES = {
 };
 
 // Params stay range/toggle so registry validation, the panel and the
-// project clamps all keep their current contract. Hue + Saturation are the
-// fixture's RGBW colour mixing as two sliders: Saturation 0 is plain white,
-// low saturation with Hue ~40 is warm white, high saturation is amber/gold
-// (hue 40) or deep purple (hue 280) - the palettes an entrance actually
-// asks for. Defaults are the wedding look: warm white.
+// project clamps all keep their current contract. `enabled` is the
+// fixture's show/hide switch: hidden, the whole group (housing, beam and
+// any real spotlight) drops out of the scene's render and light tally.
+// Hue + Saturation are the fixture's RGBW colour mixing as two sliders:
+// Saturation 0 is plain white, low saturation with Hue ~40 is warm white,
+// high saturation is amber/gold (hue 40) or deep purple (hue 280) - the
+// palettes an entrance actually asks for. Defaults are the wedding look:
+// warm white.
 const LIGHT_PARAMS = {
     par: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 45,  unit: '°' },
         focus: { label: 'Focus',  type: 'range', min: 10,   max: 60,  step: 1,   value: 30,  unit: '°' },
         hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
-        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35, unit: '%' }
     },
     led: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power: { label: 'Power',  type: 'range', min: 0,    max: 100, step: 1,   value: 100, unit: '%' },
         pan:   { label: 'Pan',    type: 'range', min: -180, max: 180, step: 1,   value: 0,   unit: '°' },
         tilt:  { label: 'Tilt',   type: 'range', min: -90,  max: 90,  step: 1,   value: 55,  unit: '°' },
         wash:  { label: 'Spread', type: 'range', min: 20,   max: 120, step: 1,   value: 70,  unit: '°' },
         hue:   { label: 'Hue',    type: 'range', min: 0,    max: 360, step: 1,   value: 40,  unit: '°' },
-        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35,  unit: '%' }
+        sat:   { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1,  value: 35, unit: '%' }
     },
     strip: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
         power:  { label: 'Power',  type: 'range', min: 0,  max: 100, step: 1,   value: 100, unit: '%' },
         length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
@@ -7318,6 +7601,10 @@ function createLightModel(type = 'light-par', initial = {}) {
         }
 
         applyGlow();
+        // Shown off: the whole group leaves the scene - housing, beam and
+        // any real spotlight stop rendering (three skips an invisible
+        // group's subtree), so a hidden fixture neither glows nor lights.
+        root.visible = state.enabled !== false;
         model.dirty = false;
     }
 
@@ -7350,6 +7637,11 @@ function createLightModel(type = 'light-par', initial = {}) {
         setTheme,
         setParams(partial) {
             Object.assign(state, partial);
+            // Show/hide answers in the same tick, ahead of the next
+            // rebuild, so the tick of the checkbox is instant feedback.
+            if (partial && 'enabled' in partial) {
+                root.visible = state.enabled !== false;
+            }
             model.dirty = true;
         },
         // The frame's rail (or hem) polyline for this strip, in the
@@ -8297,11 +8589,29 @@ function createPanel(opts) {
 
     // Placement controls for one mounted flower panel - X and Depth sliders,
     // plus a Turn (rotate) control: a slider with two stepper arrows flanking
-    // the Turn label that step it to the next / previous angle. Wired straight
+    // the Turn label that step it to the next / previous angle. An Enabled
+    // checkbox shows or hides the panel without unmounting it. Wired straight
     // to the scene (no rebuild while a finger is on a control).
     function buildFlowerPlacement(fp) {
         const wrap = document.createElement('div');
         wrap.className = 'mt-1';
+
+        const enabledRow = document.createElement('label');
+        enabledRow.className = 'flex items-center gap-2 text-sm cursor-pointer '
+            + 'hover:text-sky-600 transition-colors mb-1';
+        const enabledInput = document.createElement('input');
+        enabledInput.type = 'checkbox';
+        enabledInput.className = CHECK_CLS;
+        enabledInput.checked = fp.enabled !== false;
+        enabledInput.addEventListener('change', () => {
+            if (opts.onFlowerEnabled) opts.onFlowerEnabled(fp.id, enabledInput.checked);
+        });
+        const enabledLabel = document.createElement('span');
+        enabledLabel.className = 'font-medium tracking-wide';
+        enabledLabel.textContent = 'Enabled';
+        enabledRow.append(enabledInput, enabledLabel);
+        wrap.appendChild(enabledRow);
+
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
@@ -8569,73 +8879,157 @@ function createPanel(opts) {
             }
         }
 
-        // Per-lobe gap sliders: one per active lobe. All LOBES_MAX rows are
-        // built up front and shown/hidden by the Lobes slider so a mid-drag
+        // Lobe gaps, modern: one pill per lobe showing its number, plus one
+        // single slider that edits whichever pill is tapped - or every lobe
+        // at once when the All pill is selected. All LOBES_MAX pills are
+        // built up front and shown/hidden by the Lobes slider, so a mid-drag
         // lobes change never rebuilds the DOM.
         const lobeGapMeta = schema && schema.params
             ? schema.params.lobeGaps : null;
-        const lobeGapSlots = [];
-        function syncLobeGapVisibility() {
-            const n = Math.round(schema.state.lobes) || 6;
-            lobeGapSlots.forEach((slot, i) => {
-                slot.wrap.style.display = i < n ? '' : 'none';
-            });
-        }
-        // The lean degrees on every gap row depend on the lobe count, so a
-        // lobes change re-reads all of them. Always reads fresh state - the
-        // lobeGaps array identity changes when setParams replaces it.
-        function refreshLobeGapTexts() {
-            const lobesNow = Math.round(schema.state.lobes) || 6;
-            const gapsNow = Array.isArray(schema.state.lobeGaps)
-                ? schema.state.lobeGaps : [];
-            lobeGapSlots.forEach((slot, i) => {
-                const v = Number.isFinite(gapsNow[i]) ? gapsNow[i]
-                    : lobeGapMeta.value;
-                slot.value.textContent = lobeGapText(v, lobesNow, lobeGapMeta);
-            });
-        }
+        const LOBE_ALL = -1;
+        let lobeSel = 0;                 // tapped lobe, or LOBE_ALL
+        let lobeUI = null;               // { refresh } once built (Shape only)
+        const lobesNow = () => Math.round(schema.state.lobes) || 6;
+
         if (tool === 'shape' && lobeGapMeta) {
-            const gaps = Array.isArray(schema.state.lobeGaps)
-                ? schema.state.lobeGaps : [];
             const count = lobeGapMeta.count || 11;
-            const lobesNow = Math.round(schema.state.lobes) || 6;
-            for (let i = 0; i < count; i++) {
-                const meta = {
-                    label: `Lobe ${i + 1} Gap`,
-                    type: 'range',
-                    min: lobeGapMeta.min,
-                    max: lobeGapMeta.max,
-                    step: lobeGapMeta.step,
-                    unit: lobeGapMeta.unit
-                };
-                const val = Number.isFinite(gaps[i]) ? gaps[i] : lobeGapMeta.value;
-                const built = rangeBlock(`${key}-lobeGap-${i}`, meta, val);
-                built.value.textContent = lobeGapText(val, lobesNow, lobeGapMeta);
-                built.input.addEventListener('input', e => {
-                    const v = parseFloat(e.target.value);
-                    const lobesCur = Math.round(schema.state.lobes) || 6;
-                    built.value.textContent = lobeGapText(v, lobesCur, lobeGapMeta);
-                    // Read the state array fresh: setParams may have replaced
-                    // it with a new (clamped) array since these rows were built.
-                    const cur = Array.isArray(schema.state.lobeGaps)
-                        ? schema.state.lobeGaps : [];
-                    const arr = Array.from({ length: count },
-                        (_, j) => j === i ? v
-                            : (Number.isFinite(cur[j]) ? cur[j]
-                                : lobeGapMeta.value));
-                    if (Array.isArray(schema.state.lobeGaps)) {
-                        schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
-                    } else {
-                        schema.state.lobeGaps = arr;
-                    }
-                    emit({ lobeGaps: arr.slice() }, targets);
+            // Always reads fresh state - setParams may have replaced the
+            // lobeGaps array with a new (clamped) one since we were built.
+            const gapAt = i => {
+                const arr = Array.isArray(schema.state.lobeGaps)
+                    ? schema.state.lobeGaps : [];
+                const v = Number(arr[i]);
+                return Number.isFinite(v) ? v : lobeGapMeta.value;
+            };
+
+            const wrap = document.createElement('div');
+            wrap.className = 'mt-0.5 mb-1.5';
+            wrap.appendChild(heading('Lobe Gaps'));
+
+            const pillsRow = document.createElement('div');
+            pillsRow.className = 'flex flex-wrap gap-1 mb-1.5';
+            const PILL_ON = 'bg-sky-600 border-sky-600 text-white';
+            const PILL_OFF = 'bg-white/70 border-gray-300 text-gray-600 '
+                + 'hover:border-sky-400 dark:bg-zinc-800/70 dark:border-zinc-600 '
+                + 'dark:text-zinc-300 dark:hover:border-sky-500';
+            const pillCls = on =>
+                'min-w-[2.5rem] px-2 py-1 rounded-md border font-mono text-[11px] '
+                + 'font-semibold tabular-nums transition-colors '
+                + (on ? PILL_ON : PILL_OFF);
+            const pillSlots = [];
+            let allPill = null;
+
+            // The single slider under the pills: its label follows the pick.
+            const slider = placeRangeBlock(`${key}-lobeGap`, 'Lobe 1', 'gap',
+                gapAt(0), lobeGapMeta.min, lobeGapMeta.max, lobeGapMeta.step,
+                lobeGapMeta.unit);
+
+            // Repaint pills, selection, slider and readout from fresh state.
+            const paint = () => {
+                const n = lobesNow();
+                if (lobeSel !== LOBE_ALL && lobeSel > n - 1) lobeSel = n - 1;
+                pillSlots.forEach((slot, i) => {
+                    const on = i === lobeSel;
+                    const v = gapAt(i);
+                    slot.btn.className = pillCls(on);
+                    slot.btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    slot.btn.setAttribute('aria-label',
+                        `Lobe ${i + 1} gap ${fmt(v, lobeGapMeta.unit)}`);
+                    slot.btn.title = `Lobe ${i + 1} · ${fmt(v, lobeGapMeta.unit)}`;
+                    slot.btn.textContent = fmt(v, '');
+                    slot.btn.style.display = i < n ? '' : 'none';
                 });
-                rows[`lobeGap${i}`] = built;
-                lobeGapSlots.push({ wrap: built.wrap, input: built.input, value: built.value });
+                if (allPill) {
+                    const on = lobeSel === LOBE_ALL;
+                    allPill.className = pillCls(on);
+                    allPill.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    allPill.title = `All ${n} lobes`;
+                }
+                // Keep the slider on the selected lobe (All edits from lobe 1).
+                const sel = lobeSel === LOBE_ALL ? 0 : lobeSel;
+                const v = gapAt(sel);
+                slider.input.value = String(v);
+                slider.label.textContent = lobeSel === LOBE_ALL
+                    ? `All ${n} Lobes` : `Lobe ${lobeSel + 1}`;
+                slider.value.textContent = lobeGapText(v, n, lobeGapMeta);
+            };
+
+            // One emit: write the tapped lobe (or all of them) into state,
+            // repaint the pills, and let the model persist the change.
+            const writeGap = v => {
+                const arr = Array.from({ length: count }, (_, j) =>
+                    lobeSel === LOBE_ALL || j === lobeSel ? v : gapAt(j));
+                if (Array.isArray(schema.state.lobeGaps)) {
+                    schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                } else {
+                    schema.state.lobeGaps = arr;
+                }
+                paint();
+                emit({ lobeGaps: arr.slice() }, targets);
+            };
+            slider.input.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) writeGap(v);
+            });
+
+            for (let i = 0; i < count; i++) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.setAttribute('aria-pressed', 'false');
+                btn.addEventListener('click', () => {
+                    lobeSel = i;
+                    paint();
+                });
+                pillsRow.appendChild(btn);
+                pillSlots.push({ btn });
             }
+            allPill = document.createElement('button');
+            allPill.type = 'button';
+            allPill.textContent = 'All';
+            allPill.setAttribute('aria-pressed', 'false');
+            allPill.addEventListener('click', () => {
+                lobeSel = LOBE_ALL;
+                paint();
+            });
+            pillsRow.appendChild(allPill);
+            wrap.append(pillsRow, slider.wrap);
+
+            // Reset: back to the pre-lobe-feature configuration - 6 lobes at
+            // the default 1 ft gap, a plain sin(6πt) serpentine. One emit,
+            // DOM updated directly.
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = 'mt-0.5 mb-1 w-full rounded-md border '
+                + 'border-gray-300 dark:border-zinc-600 px-2 py-1 text-[11px] '
+                + 'font-semibold uppercase tracking-wider text-gray-500 '
+                + 'dark:text-zinc-400 hover:border-sky-400 hover:text-sky-600 '
+                + 'dark:hover:text-sky-400 transition-colors';
+            resetBtn.textContent = 'Reset Lobes';
+            resetBtn.addEventListener('click', () => {
+                const arr = Array.from({ length: count }, () => lobeGapMeta.value);
+                schema.state.lobes = 6;
+                if (Array.isArray(schema.state.lobeGaps)) {
+                    schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
+                } else {
+                    schema.state.lobeGaps = arr;
+                }
+                if (rows.lobes) {
+                    rows.lobes.input.value = '6';
+                    if (rows.lobes.value) {
+                        rows.lobes.value.textContent =
+                            fmt(6, schema.params.lobes.unit);
+                    }
+                }
+                lobeSel = 0;
+                paint();
+                emit({ lobes: 6, lobeGaps: arr.slice() }, targets);
+            });
+            wrap.appendChild(resetBtn);
+
+            lobeUI = { wrap, refresh: paint };
         }
 
-        // The S Curve is one open group: the four shape sliders plus where
+        // The S Curve is one open group: the shape sliders plus where
         // this frame stands (X / Depth / Turn as tracks). Open by default -
         // it is what the hand reaches for first. Pillars stay below.
         if (tool === 'shape' && shapeRanges.length) {
@@ -8651,50 +9045,14 @@ function createPanel(opts) {
             bodyEl.className = 'px-2 pb-2';
             for (const [k, p] of shapeRanges) {
                 bodyEl.appendChild(addRange(k, p));
-                // After the Lobes slider, insert the per-lobe gap sliders
-                // and keep their visibility (and lean degrees) in sync.
-                if (k === 'lobes') {
-                    for (const slot of lobeGapSlots) bodyEl.appendChild(slot.wrap);
-                    syncLobeGapVisibility();
-                    refreshLobeGapTexts();
+                // After the Lobes slider, insert the pill row + single
+                // slider for the per-lobe gaps and keep them in sync.
+                if (k === 'lobes' && lobeUI) {
+                    bodyEl.appendChild(lobeUI.wrap);
+                    lobeUI.refresh();
                     rows.lobes.input.addEventListener('input', () => {
-                        syncLobeGapVisibility();
-                        refreshLobeGapTexts();
+                        lobeUI.refresh();
                     });
-                    // Reset: back to the pre-lobe-feature configuration -
-                    // 6 lobes at the default 1 ft gap, a plain sin(6πt)
-                    // serpentine. One emit, DOM updated directly.
-                    const resetBtn = document.createElement('button');
-                    resetBtn.type = 'button';
-                    resetBtn.className = 'mt-0.5 mb-1 w-full rounded-md border '
-                        + 'border-gray-300 dark:border-zinc-600 px-2 py-1 text-[11px] '
-                        + 'font-semibold uppercase tracking-wider text-gray-500 '
-                        + 'dark:text-zinc-400 hover:border-sky-400 hover:text-sky-600 '
-                        + 'dark:hover:text-sky-400 transition-colors';
-                    resetBtn.textContent = 'Reset Lobes';
-                    resetBtn.addEventListener('click', () => {
-                        const n = lobeGapMeta.count || 11;
-                        const resetVal = lobeGapMeta.value;
-                        const arr = Array.from({ length: n }, () => resetVal);
-                        schema.state.lobes = 6;
-                        if (Array.isArray(schema.state.lobeGaps)) {
-                            schema.state.lobeGaps.splice(0, schema.state.lobeGaps.length, ...arr);
-                        } else {
-                            schema.state.lobeGaps = arr;
-                        }
-                        rows.lobes.input.value = '6';
-                        if (rows.lobes.value) {
-                            rows.lobes.value.textContent =
-                                fmt(6, schema.params.lobes.unit);
-                        }
-                        lobeGapSlots.forEach(slot => {
-                            slot.input.value = String(resetVal);
-                        });
-                        syncLobeGapVisibility();
-                        refreshLobeGapTexts();
-                        emit({ lobes: 6, lobeGaps: arr.slice() }, targets);
-                    });
-                    bodyEl.appendChild(resetBtn);
                 }
             }
             const place = (currentPlaces[key] || [])[idx];
@@ -8744,7 +9102,7 @@ function createPanel(opts) {
         // Lights: one rig per frame - add, retarget, tune, remove.
         if (tool === 'lights') inner.appendChild(lightsBlock(key));
 
-        const sec = { key, targets, rows, root };
+        const sec = { key, targets, rows, root, lobeUI };
         sections.push(sec);
         return root;
     }
@@ -8753,7 +9111,7 @@ function createPanel(opts) {
     // tracks inside the S Curve group - no bare number boxes. The stage
     // follows the thumb; applyLive parks it when a finger is on the track.
     function positionBlock(key, idx, place) {
-        // Folded by default: the four shape sliders are what the hand
+        // Folded by default: the shape sliders are what the hand
         // reaches for; placement comes after, and the chevron opens it.
         const wrap = document.createElement('details');
         wrap.className = 'mt-1.5 border-t border-dashed '
@@ -9241,6 +9599,26 @@ function createPanel(opts) {
             return modeRow;
         };
 
+        // The fixture's show/hide switch, one checkbox on every card that
+        // speaks for a fixture (or a wall group of them): checked means the
+        // light renders - housing, beam and real spotlight alike. The click
+        // never folds the card it sits on.
+        const shownBox = (lms, title, aria) => {
+            const mine = (Array.isArray(lms) ? lms : [])
+                .filter(lm => lm && lm.params && lm.params.enabled && lm.state);
+            if (!mine.length) return null;
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = CHECK_CLS;
+            box.checked = mine.every(lm => lm.state.enabled !== false);
+            box.title = title;
+            box.setAttribute('aria-label', aria);
+            box.addEventListener('click', ev => ev.stopPropagation());
+            box.addEventListener('change', () => emit({ enabled: box.checked }, mine));
+            live.selects.push(box);
+            return box;
+        };
+
         // One collapsible card per fixture, in the order of its frame's
         // own list: the heading folds the card away, remove stays in the
         // heading so it is reachable either way.
@@ -9276,7 +9654,13 @@ function createPanel(opts) {
                 onElementRemove && onElementRemove(id, i);
             });
             live.buttons.push(rm);
-            ch.append(nameEl, rm);
+            const left = document.createElement('span');
+            left.className = 'flex items-center gap-1.5 min-w-0';
+            const shown = shownBox([lm],
+                'Show this light in the scene', 'Show this light');
+            if (shown) left.appendChild(shown);
+            left.appendChild(nameEl);
+            ch.append(left, rm);
             card.appendChild(ch);
 
             if (anchors.length) {
@@ -9426,7 +9810,13 @@ function createPanel(opts) {
             const nameEl = document.createElement('span');
             nameEl.className = 'text-xs font-semibold text-gray-700 dark:text-zinc-200';
             nameEl.textContent = `${wall} - ${idxs.length} light${idxs.length === 1 ? '' : 's'}`;
-            ch.appendChild(nameEl);
+            const left = document.createElement('span');
+            left.className = 'flex items-center gap-1.5 min-w-0';
+            const shown = shownBox(idxs.map(lmOf),
+                'Show these lights in the scene', 'Show these lights');
+            if (shown) left.appendChild(shown);
+            left.appendChild(nameEl);
+            ch.appendChild(left);
             card.appendChild(ch);
 
             const params = new Map();
@@ -9691,6 +10081,13 @@ function createPanel(opts) {
                 rmRow.appendChild(rmLab);
                 for (const x of strips.filter(y => stripMatch(y.e))) {
                     const side = sideOf(x.e.anchor) || '?';
+                    const where = side === 'L' ? 'left'
+                        : side === 'R' ? 'right' : side;
+                    const pair = document.createElement('span');
+                    pair.className = 'flex items-center gap-1';
+                    const shown = shownBox([lmOf(x.i)],
+                        `Show the ${where} strip`, 'Show this strip');
+                    if (shown) pair.appendChild(shown);
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
@@ -9698,13 +10095,14 @@ function createPanel(opts) {
                         + 'dark:text-zinc-400 hover:border-red-400 '
                         + 'hover:text-red-500 transition-colors';
                     btn.textContent = '\u00d7';
-                    btn.title = `Remove the ${side === 'L' ? 'left' : side === 'R' ? 'right' : side} strip`;
+                    btn.title = `Remove the ${where} strip`;
                     btn.addEventListener('click', ev => {
                         ev.stopPropagation();
                         onElementRemove && onElementRemove(id, x.i);
                     });
                     live.buttons.push(btn);
-                    rmRow.appendChild(btn);
+                    pair.appendChild(btn);
+                    rmRow.appendChild(pair);
                 }
                 stripLower.appendChild(rmRow);
             };
@@ -10220,7 +10618,7 @@ function createPanel(opts) {
         },
 
         // Value-level repaint: the SET select, Look chips, scene select,
-        // colour chips, RGB dial, the four shape sliders and the position
+        // colour chips, RGB dial, the shape sliders and the position
         // numbers all move in place. A SET tap must feel like a state
         // change, not a reload - so nothing here rebuilds the DOM.
         applyLive(next = {}) {
@@ -10320,22 +10718,10 @@ function createPanel(opts) {
                     const schema = sec.targets && sec.targets[0];
                     for (const [k, v] of Object.entries(next.shape)) {
                         if (k === 'lobeGaps') {
-                            // Sync each per-lobe gap slider in place.
-                            const meta = schema && schema.params
-                                ? schema.params.lobeGaps : null;
-                            if (!meta || !Array.isArray(v)) continue;
-                            const count = meta.count || 11;
-                            const lobesNow = Math.round(
-                                schema.state && schema.state.lobes) || 6;
-                            for (let i = 0; i < count; i++) {
-                                const row = sec.rows && sec.rows[`lobeGap${i}`];
-                                if (!row) continue;
-                                const val = Number.isFinite(v[i]) ? v[i] : meta.value;
-                                row.input.value = String(val);
-                                if (row.value) {
-                                    row.value.textContent = lobeGapText(val, lobesNow, meta);
-                                }
-                            }
+                            // Gaps arrived from outside (SET switch, project
+                            // load) - the model already accepted them, so
+                            // repaint the pills and the slider in place.
+                            if (sec.lobeUI) sec.lobeUI.refresh();
                             continue;
                         }
                         const row = sec.rows && sec.rows[k];
@@ -10343,27 +10729,9 @@ function createPanel(opts) {
                         if (!row || !meta) continue;
                         row.input.value = String(v);
                         if (row.value) row.value.textContent = fmt(v, meta.unit);
-                        // Keep lobe-gap visibility in sync when lobes arrives
-                        // from outside (SET switch, project load), and refresh
-                        // the lean degrees, which depend on the lobe count.
-                        if (k === 'lobes') {
-                            const n = Math.round(v) || 6;
-                            const gMeta = schema && schema.params
-                                ? schema.params.lobeGaps : null;
-                            const gCount = (gMeta && gMeta.count) || 11;
-                            const gapsNow = schema && Array.isArray(schema.state.lobeGaps)
-                                ? schema.state.lobeGaps : [];
-                            for (let i = 0; i < gCount; i++) {
-                                const gRow = sec.rows && sec.rows[`lobeGap${i}`];
-                                if (!gRow) continue;
-                                gRow.wrap.style.display = i < n ? '' : 'none';
-                                if (gMeta && gRow.value) {
-                                    const gv = Number.isFinite(gapsNow[i])
-                                        ? gapsNow[i] : gMeta.value;
-                                    gRow.value.textContent = lobeGapText(gv, n, gMeta);
-                                }
-                            }
-                        }
+                        // Lobes arrived from outside: re-clamp the picked
+                        // pill and repaint the gap pills + slider with it.
+                        if (k === 'lobes' && sec.lobeUI) sec.lobeUI.refresh();
                     }
                 }
             }
@@ -10422,21 +10790,9 @@ function createPanel(opts) {
             for (const sec of sections) {
                 const owner = sec.targets[0];
                 if (!owner) continue;
+                // The lobe pills + single slider read state on their own.
+                if (sec.lobeUI) sec.lobeUI.refresh();
                 for (const [k, r] of Object.entries(sec.rows)) {
-                    if (k.startsWith('lobeGap')) {
-                        const i = Number(k.slice(8));
-                        const gaps = owner.state.lobeGaps;
-                        const meta = owner.params.lobeGaps;
-                        if (meta && Array.isArray(gaps)) {
-                            const v = Number.isFinite(gaps[i]) ? gaps[i] : meta.value;
-                            r.input.value = String(v);
-                            if (r.value) {
-                                const lobesNow = Math.round(owner.state.lobes) || 6;
-                                r.value.textContent = lobeGapText(v, lobesNow, meta);
-                            }
-                        }
-                        continue;
-                    }
                     const v = owner.state[k];
                     if (r.value) r.value.textContent = fmt(v, owner.params[k].unit);
                     if (r.input.type === 'checkbox') r.input.checked = !!v;
@@ -10825,9 +11181,9 @@ let rebuildQueued = false;
 // stage - unmounting one does not throw its settings away. Written to the
 // project file on a debounce so dragging a slider does not hammer the disk.
 const savedPresets = {};
-// Each SET remembers its own four shape sliders (Center Gap, Swing Pan,
-// Pitch, Decline): switching a SET is a conversion, not a nudge.
-const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'lobes'];
+// Each SET remembers its own shape sliders (Center Gap, Swing Pan, Pitch,
+// the two Declines, Lobes): switching a SET is a conversion, not a nudge.
+const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 let setPresets = Object.create(null);
 
 function setPresetsPlain() {
@@ -11148,9 +11504,11 @@ function frameSpacingPlain() {
     return Object.fromEntries([...frameSpacing].filter(([, v]) => v > 0));
 }
 
-// A fixture's numbers are the registered schema's business: anything the
-// schema does not know, or clamps, is dropped here - both for documents and
-// for a def's own elements. The registry validates again on the way in.
+// A fixture's numbers and flags are the registered schema's business:
+// anything the schema does not know, or clamps, is dropped here - both for
+// documents and for a def's own elements. A schema toggle (Shown on/off)
+// only survives as a real boolean; numbers keep their range clamp. The
+// registry validates again on the way in.
 // A floor mount may only aim up: the lens sits ~0.4 ft above the ground,
 // so any tilt above -30 drives the wide end of the cone (focus up to 60)
 // into the floor. -30 keeps the lowest edge of a full-spread beam exactly
@@ -11164,7 +11522,12 @@ function clampElemParams(type, params, anchor) {
     if (!params || typeof params !== 'object' || Array.isArray(params)) return out;
     for (const [k, v] of Object.entries(params)) {
         const p = schema[k];
-        if (!p || p.type !== 'range') continue;
+        if (!p) continue;
+        if (p.type === 'toggle') {
+            if (typeof v === 'boolean') out[k] = v;
+            continue;
+        }
+        if (p.type !== 'range') continue;
         const n = Number(v);
         if (!Number.isFinite(n)) continue;
         out[k] = Math.max(p.min, Math.min(p.max, n));
@@ -11656,12 +12019,13 @@ function refreshFlowerPanelPlaces() {
     for (const fp of flowerPanels) placeFlowerPanel(fp);
 }
 
-// entry: { id?, name?, arrangementId?, settings, x?, z?, ry? } -> the live panel.
+// entry: { id?, name?, arrangementId?, settings, enabled?, x?, z?, ry? } -> the live panel.
 function mountFlowerPanel(entry) {
     const model = createFlowerPanelModel({
         settings: entry && entry.settings,
         arrangementId: entry && entry.arrangementId,
-        quality: flowerQuality
+        quality: flowerQuality,
+        enabled: !(entry && entry.enabled === false)
     });
     model.build();
     viewer.addModel(model);
@@ -11670,6 +12034,7 @@ function mountFlowerPanel(entry) {
         model,
         name: (entry && entry.name) || '',
         arrangementId: (entry && entry.arrangementId) || null,
+        enabled: !(entry && entry.enabled === false),
         x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
         z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
         ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
@@ -11693,15 +12058,17 @@ function flowerPanelsPlain() {
         name: fp.name,
         arrangementId: fp.arrangementId,
         settings: fp.model && fp.model.getSettings ? fp.model.getSettings() : undefined,
+        enabled: fp.enabled !== false,
         x: fp.x, z: fp.z, ry: fp.ry
     }));
 }
 
-// The mounted list the Flowers shelf shows: identity + placement only.
+// The mounted list the Flowers shelf shows: identity + placement + toggle.
 function mountedFlowersPlain() {
     return flowerPanels.map(fp => ({
         id: fp.id,
         name: fp.name || 'Panel',
+        enabled: fp.enabled !== false,
         x: fp.x, z: fp.z, ry: fp.ry
     }));
 }
@@ -11715,6 +12082,16 @@ function setFlowerPlace(id, patch) {
     if (Number.isFinite(Number(patch.z))) fp.z = Number(patch.z);
     if (Number.isFinite(Number(patch.ry))) fp.ry = Number(patch.ry);
     placeFlowerPanel(fp);
+    scheduleSave();
+}
+
+// Show / hide a mounted panel without unmounting it. The model applies the
+// toggle as pure visibility (no rebuild); the shelf card keeps its checkbox.
+function setFlowerEnabled(id, on) {
+    const fp = flowerPanels.find(f => f.id === id);
+    if (!fp) return;
+    fp.enabled = !!on;
+    if (fp.model && fp.model.setParams) fp.model.setParams({ enabled: !!on });
     scheduleSave();
 }
 
@@ -12750,6 +13127,7 @@ panel = createPanel({
     flowerQuality,
     onFlowerMount: guard(arr => mountArrangement(arr)),
     onFlowerMove: (id, patch) => setFlowerPlace(id, patch),
+    onFlowerEnabled: (id, on) => setFlowerEnabled(id, on),
     onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
     onFlowerQualityChange: guard(q => setFlowerQuality(q)),
@@ -12788,7 +13166,7 @@ panel = createPanel({
         // are one row of sliders, not two rows that drift apart.
         const ids = new Set(picked.map(m => m.id));
         const list = [...mounted.values()].flat().filter(m => ids.has(m.id));
-        // While a SET is active its four shape sliders belong to that SET:
+        // While a SET is active its shape sliders belong to that SET:
         // come back to it and the numbers are where you left them. Collected
         // across the instances - the per-model map dies with its own loop.
         const shaped = {};

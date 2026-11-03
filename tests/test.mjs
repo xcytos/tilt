@@ -25,7 +25,10 @@ const CONSTS = `
   const POLE_MAX_HEIGHT = 8.0, RAIL_LENGTH = 12.0, WAVE_AMP = 1.0;
   const LOBES_MIN = 4, LOBES_MAX = 11, LOBE_GAP_MIN = 0.2, LOBE_GAP_MAX = 3.0;
   const RAIL_RADIUS = 0.12, POLE_RADIUS = 0.08;
-  const FABRIC_RES_X = 300, FABRIC_RES_Y = 8;
+  const RAIL_WRAP_ROWS = 4, RAIL_WRAP_GAP = 0.02;
+  const BR_HOOD_R = 0.35, BR_HOOD_SWEEP = 140 * Math.PI / 180;
+  const BR_HOOD_HOLD = 4, BR_HOOD_RAMP = 6;
+  const FABRIC_RES_X = 300, FABRIC_RES_Y = 8, POLE_COUNT = 3;
   const MAX_DROP = 5.0, PLEAT_FREQ = 30, PLEAT_DEPTH = 0.12;
   let UI = { gap: 3.0, pan: 0, pitch: 0, decline: 0, lobes: 6, lobeGaps: [1,1,1,1,1,1,1,1,1,1,1] };
 `;
@@ -36,6 +39,8 @@ const factory = new Function('THREE', `${CONSTS}${src};
     generateFabricGeometry, UI
   };`);
 const { getStructuralPoints, generateFabricGeometry, UI } = factory(THREE);
+// Module-scope copies for pins that run outside the factory scope.
+const BR_HOOD_R = 0.35, BR_HOOD_SWEEP = 140 * Math.PI / 180;
 
 let fails = 0;
 function check(label, cond, extra = '') {
@@ -88,6 +93,30 @@ check(`far end Y = 3 (8-5), got ${full[300].y.toFixed(6)}`, approx(full[300].y, 
 Object.assign(UI, { gap: 3, pan: 0, pitch: 0, decline: 100 });
 check('same with pitch=0', approx(getStructuralPoints(true, 300)[300].y, 3, 1e-9));
 
+console.log('\n4b. The second slope: declineIn drops from end to centre');
+Object.assign(UI, { gap: 3, pan: 0, pitch: 0, decline: 0, declineIn: 100 });
+const inward = getStructuralPoints(true, 300);
+check(`centre Y = 3 (8-5), got ${inward[0].y.toFixed(6)}`, approx(inward[0].y, 3, 1e-9));
+check(`far end stays at 8, got ${inward[300].y.toFixed(6)}`, approx(inward[300].y, 8, 1e-9));
+Object.assign(UI, { decline: 100 });
+const both = getStructuralPoints(true, 300);
+check('both directions at 100%: each end drops exactly 5 ft',
+       approx(both[0].y, 3, 1e-9) && approx(both[300].y, 3, 1e-9));
+Object.assign(UI, { decline: 40, declineIn: 10 });
+const mixed = getStructuralPoints(true, 300);
+check('ends drop independently (40% out, 10% in)',
+       approx(mixed[0].y, 8 - 0.1 * 5, 1e-9) && approx(mixed[300].y, 8 - 0.4 * 5, 1e-9));
+check('the rail blends the two drops linearly between them',
+       approx(mixed[150].y, 8 - 0.5 * 0.4 * 5 - 0.5 * 0.1 * 5, 1e-9));
+// Older callers never heard of declineIn - the old single slope must be
+// exactly what they still get.
+delete UI.declineIn;
+Object.assign(UI, { decline: 60 });
+const legacy = getStructuralPoints(true, 300);
+check('a state without declineIn keeps the old centre → end slope only',
+       approx(legacy[0].y, 8, 1e-9) && approx(legacy[300].y, 8 - 0.6 * 5, 1e-9));
+UI.declineIn = 0; // later sections never mention it - keep it out of their way
+
 console.log('\n5. Fabric: pleat normal is a true mirror AND perpendicular to the rail');
 function pleatNormal(pts, i, isRight) {
   const cols = 300, pt = pts[i];
@@ -134,6 +163,71 @@ for (const isRight of [true, false]) {
   check(`  hem at floor: minY=${bb.min.y.toFixed(4)}`, Math.abs(bb.min.y) < 1e-6);
   check(`  head under rail: maxY=${bb.max.y.toFixed(4)} (rail max ${Math.max(...pts.map(p => p.y)).toFixed(4)})`,
         bb.max.y <= Math.max(...pts.map(p => p.y)) - 0.12 + 1e-6);
+}
+
+console.log('\n6b. Rail unticked: the curtain sleeves over the still-rendered rail');
+Object.assign(UI, { gap: 3, pan: 0, pitch: 0, decline: 0, declineIn: 0 });
+{
+  const pts = getStructuralPoints(true, 300);
+  const railTop = Math.max(...pts.map(p => p.y));
+  const bbOf = g => { g.computeBoundingBox(); return g.boundingBox; };
+  const headOn = bbOf(generateFabricGeometry(pts, true)).max.y;
+  const wrapped = generateFabricGeometry(pts, true, false);
+  const headOff = bbOf(wrapped).max.y;
+  check(`rail ticked: head hangs ${railTop - headOn} below the tube (0.12)`,
+        approx(headOn, railTop - 0.12, 1e-6));
+  check(`unticked: the holder hood reaches the crown (+${(headOff - railTop).toFixed(2)})`,
+        approx(headOff, railTop + 0.35, 1e-6));
+  check('unticked: plain columns hug the tube from just outside it', (() => {
+    // Off a bracket the top rows lie on a circle one gap-proud of the
+    // tube - equator, crown, equator - so the rendered rail is obscured
+    // by fabric, never z-fighting cloth at the same radius.
+    const pos = wrapped.getAttribute('position');
+    const stride = pos.count / pts.length;
+    const rail = pts[75];
+    for (let j = 0; j <= 4; j++) {
+      const k = 75 * stride + j;
+      const d = Math.hypot(pos.getX(k) - rail.x,
+        pos.getY(k) - rail.y, pos.getZ(k) - rail.z);
+      if (Math.abs(d - 0.14) > 1e-6) return false;
+    }
+    return true;
+  })());
+  check('unticked: the holder hood wraps the bracket at full radius', (() => {
+    // At a bracket column the fold swells clear of the clevis plates
+    // and bolts: every wrap row sits on the hood circle (0.35), not on
+    // the plain sleeve.
+    const pos = wrapped.getAttribute('position');
+    const stride = pos.count / pts.length;
+    const rail = pts[150];
+    for (let j = 0; j <= 4; j++) {
+      const k = 150 * stride + j;
+      const d = Math.hypot(pos.getX(k) - rail.x,
+        pos.getY(k) - rail.y, pos.getZ(k) - rail.z);
+      if (Math.abs(d - 0.35) > 1e-6) return false;
+    }
+    return true;
+  })());
+  check('unticked: the fabric wraps from the opposite side of the rail', (() => {
+    // The free edge sits on the +normal face and the skirt departs from
+    // the -normal face: the fold rises from across the rail, not from
+    // the side the curtain already hangs on. Over a bracket those pins
+    // are the hood's own tail (sin(sweep)·R) and first skirt row.
+    const pos = wrapped.getAttribute('position');
+    const stride = pos.count / pts.length;
+    const i = 150;
+    const a = pts[i], b = pts[i + 1];
+    const tx = b.x - a.x, tz = b.z - a.z;
+    const len = Math.hypot(tx, tz) || 1;
+    const nx = -tz / len, nz = tx / len;
+    const offOf = k => (pos.getX(k) - a.x) * nx + (pos.getZ(k) - a.z) * nz;
+    const tail = offOf(i * stride);        // j=0, the free edge
+    const skirt = offOf(i * stride + 5);   // first row below the fold
+    return Math.abs(tail - Math.sin(BR_HOOD_SWEEP) * BR_HOOD_R) < 1e-6
+      && Math.abs(skirt - Math.sin(-BR_HOOD_SWEEP) * BR_HOOD_R / 2) < 1e-6;
+  })());
+  check('the hem still lands on the floor with the rail sleeved',
+        Math.abs(bbOf(wrapped).min.y) < 1e-6);
 }
 
 console.log('\n7. Pole sampling hits the wave nodes (poles stay on the centreline)');

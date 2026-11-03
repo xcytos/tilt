@@ -25,7 +25,7 @@ export const LAYOUTS = [
         subtitle: 'Balanced gateway & timeless composition',
         // Flat frontal wall: the merged 8-15 degree family lives in the
         // placement; the sliders stay at the classic defaults.
-        params: { gap: 3, pan: 0, pitch: 0, decline: 0, lobes: 6 },
+        params: { gap: 3, pan: 0, pitch: 0, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -10 },
             { kind: 'frame', x: 15, z: 0, ry: 10 }
@@ -35,7 +35,7 @@ export const LAYOUTS = [
         id: 'cross-flow',
         name: 'Cross-Flow Draping',
         subtitle: 'Intersecting curtains, flowing lines',
-        params: { gap: 2, pan: 45, pitch: 8, decline: 0, lobes: 6 },
+        params: { gap: 2, pan: 45, pitch: 8, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -40 },
             { kind: 'frame', x: 15, z: 0, ry: 40 }
@@ -45,7 +45,7 @@ export const LAYOUTS = [
         id: 'depth-stagger',
         name: 'Depth Stagger',
         subtitle: 'Front-back placement for dimension',
-        params: { gap: 4, pan: 15, pitch: 0, decline: 25, lobes: 6 },
+        params: { gap: 4, pan: 15, pitch: 0, decline: 25, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: -4, ry: -12 },
             { kind: 'frame', x: 15, z: 5, ry: 12 }
@@ -58,7 +58,7 @@ export const LAYOUTS = [
         // The slant is in the DEPTH, not in a turn: one frame steps forward,
         // the other back, and both stay mirrored to the audience like every
         // other SET. (Both frames used to share +30 - a corridor, not a set.)
-        params: { gap: 3, pan: 30, pitch: 12, decline: 0, lobes: 6 },
+        params: { gap: 3, pan: 30, pitch: 12, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 4, ry: -10 },
             { kind: 'frame', x: 15, z: -4, ry: 10 }
@@ -68,7 +68,7 @@ export const LAYOUTS = [
         id: 'grand-entrance',
         name: 'Grand Entrance',
         subtitle: 'Two frames funnelling to a gateway',
-        params: { gap: 6, pan: 20, pitch: 0, decline: 0, lobes: 6 },
+        params: { gap: 6, pan: 20, pitch: 0, decline: 0, declineIn: 0, lobes: 6 },
         placements: [
             { kind: 'frame', x: -15, z: 0, ry: -25 },
             { kind: 'frame', x: 15, z: 0, ry: 25 }
