@@ -56,11 +56,12 @@
   // the instance origin), so leaves cannot overhang the border/frame.
   const GREENERY_META = {
     monstera:    { id: 'monstera',    category: 'individual-leaf', label: 'Monstera leaf',    lengthIn: 18, widthIn: 10, footprintSqIn: 101, bounds: [-0.269, 0, 0.269, 1], color: '#2f6b28', defaultLayer: 'structural', attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 16, widthIn: 10, footprintSqIn: 50,  bounds: [-0.268, -0.003, 0.336, 0.997], color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    eucalyptus:  { id: 'eucalyptus',  category: 'spray',           label: 'Eucalyptus spray', lengthIn: 30, widthIn: 14, footprintSqIn: 95,  bounds: [-0.268, -0.003, 0.336, 0.997], orientOutward: true, color: '#5e8c54', defaultLayer: 'volume',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     'boston-fern': { id: 'boston-fern', category: 'bush', label: 'Boston fern bush', lengthIn: 14, widthIn: 10, footprintSqIn: 67,  bounds: [-0.504, -0.176, 0.496, 0.52], color: '#357a2e', defaultLayer: 'volume',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
     grass:       { id: 'grass',       category: 'filler',         label: 'Grass tuft',       lengthIn: 12, widthIn: 6,  footprintSqIn: 42,  bounds: [-0.221, -0.001, 0.245, 0.999], color: '#6a9a4f', defaultLayer: 'filler',     attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 24, widthIn: 6, footprintSqIn: 53, bounds: [-0.089, -0.978, 0.167, 0.022],     color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
-    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',        lengthIn: 20, widthIn: 6,  footprintSqIn: 46,  bounds: [-0.128, -0.002, 0.152, 0.998], color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
+    'ivy-vine':  { id: 'ivy-vine',    category: 'garland',        label: 'Ivy / wisteria vine', lengthIn: 60, widthIn: 12, footprintSqIn: 140, bounds: [-0.089, -0.978, 0.167, 0.022],     orientOutward: true, color: '#ee9ec4', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'ivy':       { id: 'ivy',         category: 'garland',        label: 'Ivy vine',        lengthIn: 60, widthIn: 14, footprintSqIn: 150, bounds: [-0.22, -0.99, 0.22, 0.02],          orientOutward: true, color: '#3f7d3a', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' },
+    'leaf-vine': { id: 'leaf-vine',   category: 'garland',        label: 'Leaf vine',       lengthIn: 60, widthIn: 12, footprintSqIn: 130, bounds: [-0.128, -0.002, 0.152, 0.998], orientOutward: true, color: '#4a8a42', defaultLayer: 'trailing',   attachmentPoint: 'stem-base', placementMode: 'surface', allowScale: true, allowRotation: true, coverageMethod: 'projected-footprint' }
   };
   const GREENERY_TYPES = Object.keys(GREENERY_META);
   const cleanGreeneryType = value => (typeof value === 'string' && GREENERY_META[value] ? value : GREENERY_TYPES[0]);
@@ -216,7 +217,7 @@
       type: meta.id,
       enabled: r.enabled === undefined ? true : !!r.enabled,
       sizeScale: clamp(num(r.sizeScale, 1), 0.4, 2.5),
-      density: clamp(num(r.density, 70), 10, 100),
+      density: clamp(num(r.density, 85), 10, 100),
       proportion: clamp(num(r.proportion, 100), 1, 100),
       layer: cleanEnum(r.layer, GREENERY_LAYERS, meta.defaultLayer),
       colorVariation: clamp(num(r.colorVariation, 0.3), 0, 1),
@@ -243,8 +244,12 @@
     return {
       mode,
       direction: cleanEnum(r.direction, GREENERY_DIRECTIONS, 'mixed'),
-      overlap: clamp(num(r.overlap, 0.5), 0, 1),
+      overlap: clamp(num(r.overlap, 0.75), 0, 1),
       rotationVariation: clamp(num(r.rotationVariation, 60), 0, 180),
+      // Spray angle (degrees): how far orientOutward species lean out of the panel
+      // plane. 0 = lie flat on the wall (legacy look), 90 = fully perpendicular
+      // (sprays point along the surface normal). Intermediate values lean outward.
+      orientAngle: clamp(num(r.orientAngle, 90), 0, 90),
       seed: Number.isFinite(Number(r.seed)) ? (Math.abs(Math.floor(Number(r.seed))) >>> 0) : 1,
       items
     };
@@ -584,16 +589,20 @@
   //
   // OVERLAP (0.0–1.0) = how tightly pieces are packed. It sets the lattice step relative
   // to the piece's equivalent footprint diameter D:
-  //     step = D * (0.95 − 0.35 * overlap),  clamped to [0.60·D, 0.95·D]
+  //     step = D * (0.95 − 0.50 * overlap),  clamped to [0.45·D, 0.95·D]
   //   overlap 0.0 → 0.95·D  (loose; neighbours just touch)
-  //   overlap 1.0 → 0.60·D  (tight; ~40% overlap) — the 0.60 floor stops pieces from
-  //                         collapsing into an uncontrolled pile no matter the setting.
+  //   overlap 1.0 → 0.45·D  (tight; ~55% overlap) — the 0.45 floor keeps vines dense
+  //                         enough to carpet a panel without collapsing into one pile.
   // Overlap only controls SPACING. Piece COUNT comes from density (fraction of this
   // lattice filled) and Size/Rotation stay independent of it.
+  // Perpendicular sprays: their long axis becomes PROJECTION depth, so cap it — full
+  // 60in garlands would pierce the room. 30in (76cm) is the approved deep band top;
+  // eucalyptus (30in) lands exactly at the cap untouched.
+  const ORIENT_MAX_DEPTH_IN = 30;
   function greeneryStep(footprintSqIn, overlap, scale) {
     const dIn = 2 * Math.sqrt(footprintSqIn / Math.PI);   // equivalent-circle diameter (in)
     const dW = dIn / 12 * scale;                          // -> world units
-    return dW * clamp(0.95 - clamp(overlap, 0, 1) * 0.35, 0.60, 0.95);
+    return dW * clamp(0.95 - clamp(overlap, 0, 1) * 0.50, 0.45, 0.95);
   }
   // ---- foliage-cluster composition (mixed mode only) -------------------------
   // Composition styles tune how flowers and greenery share the panel in 'mixed' mode.
@@ -740,6 +749,13 @@
       : 0;
     const out = [];
     _lastOmitted = 0;
+    // Spray angle (0–90°): 0 = orientOutward species lie flat on the panel (legacy
+    // look: anchor skew, H-fit and containment apply); >0 = they lean out of the
+    // plane by this angle, 90 = fully perpendicular. Depth cap scales by sin(θ)
+    // because only that fraction of the long axis is projection depth.
+    const orientAngleDeg = g.orientAngle;
+    const sprayMode = orientAngleDeg > 0;
+    const orientSin = Math.max(1e-3, Math.sin(orientAngleDeg * Math.PI / 180));
     // Composition tuning (mixed mode only). The cluster field is computed ONCE so every
     // species lands in the same organic masses (they co-locate rather than scattering
     // independently). It uses the SAME seed and inner-area extents as the flower layer,
@@ -787,7 +803,7 @@
             gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9))
         : pickSubset(cands, target, gSeed ^ hashStr(item.type) ^ (key * 0x9e3779b9));
       const layerIdx = greeneryLayerIndex(item.layer);
-      const z = greeneryZ(item, layerIdx, flowerTopZ);
+      let z = greeneryZ(item, layerIdx, flowerTopZ);
       const scaleW = meta.lengthIn / 12 * scale * item.sizeScale;    // geometry long axis = 1
       const rand = mulberry32((gSeed ^ hashStr(item.type) ^ (key * 2654435761)) >>> 0);
       const jit = step * 0.24;
@@ -796,18 +812,44 @@
         const jx = (rand() * 2 - 1) * jit, jy = (rand() * 2 - 1) * jit;
         x = clamp(x + jx, -W / 2, W / 2);
         y = clamp(y + jy, -H / 2, H / 2);
-        const sc = scaleW * (0.9 + rand() * 0.2);                     // subtle size variation
+        let sc = scaleW * (0.9 + rand() * 0.2);                        // subtle size variation
+        // Perpendicular sprays: the long axis points out of the wall, so its length is the
+        // projection depth — cap it (deep band, leaves keep their size) instead of fitting
+        // the piece to the panel height (it no longer spans the panel plane).
+        if (meta.orientOutward && sprayMode) sc = Math.min(sc, ORIENT_MAX_DEPTH_IN / 12 * scale / orientSin);
+        // Garland strands: auto-fit the piece to the panel so a 60in vine still places on
+        // a small panel (scaled down) instead of being dropped by containment.
+        else if (meta.category === 'garland') sc = Math.min(sc, H * 0.94);
         let rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
+        // Garland strands anchor at the edge OPPOSITE their run so they sweep the panel
+        // like the reference walls: downward-hanging vines insert near the top, upward
+        // climbers (leaf-vine) root near the bottom. Skew fills that band densely.
+        if (meta.category === 'garland' && !(meta.orientOutward && sprayMode)) {
+          const down = meta.bounds[1] < -meta.bounds[3];              // hangs down vs grows up
+          const yLo = down ? -H / 2 + 0.99 * sc : -H / 2 + 0.02 * sc;
+          const yHi = down ? H / 2 - 0.02 * sc : H / 2 - 0.99 * sc;
+          if (yHi > yLo) {
+            const t = Math.pow(rand(), 0.5);                          // skew toward the anchor edge
+            y = down ? yLo + (yHi - yLo) * t : yHi - (yHi - yLo) * t;
+          }
+        }
         // HARD CONTAINMENT: keep the full rotated+scaled footprint inside the usable panel
         // (which already excludes the border bands via innerArea). If a leaf would overhang
         // an edge, nudge the origin inward once; if it still cannot fit, omit the piece.
-        let fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
-        if (!fit.fits) {
-          x = clamp(x + fit.dx, -W / 2, W / 2);
-          y = clamp(y + fit.dy, -H / 2, H / 2);
-          rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
-          fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
-          if (!fit.fits) { _lastOmitted++; continue; }
+        // Perpendicular sprays: in-plane footprint is just the narrow stem/leaf cross-
+        // section (meta.bounds still describes the flat pose), so containment is skipped
+        // — and the base is seated AT the panel face (slightly into the foam) so every
+        // stem reads as inserted, never floating above the surface.
+        if (meta.orientOutward && sprayMode) z = Math.max(-0.05, -0.02 * sc);
+        else {
+          let fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+          if (!fit.fits) {
+            x = clamp(x + fit.dx, -W / 2, W / 2);
+            y = clamp(y + fit.dy, -H / 2, H / 2);
+            rot = greeneryRotation(g, g.direction, x, y, rand, meta.category);
+            fit = footprintFit(meta, x, y, rot, sc, W / 2, H / 2);
+            if (!fit.fits) { _lastOmitted++; continue; }
+          }
         }
         out.push({
           key, type: item.type, layer: item.layer, x, y, z,

@@ -27,6 +27,7 @@ export const ORDER = [
     'js/greenery/boston-fern.js',
     'js/greenery/grass.js',
     'js/greenery/ivy-vine.js',
+    'js/greenery/ivy.js',
     'js/greenery/leaf-vine.js',
     'js/greenery/greenery-factory.js',
     'js/flowers/scene.js',

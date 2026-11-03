@@ -47,6 +47,42 @@
   // Build instanced meshes. opts: { type, items:[{x,y,z,rot,scale,variant}], color,
   // colorVariation, showLeaves }.
   // Throws for an unknown type — never silently falls back.
+  // Local pre-rotation for sprays (opts.orientOutward + opts.orientAngle 0–90): maps
+  // the model's long axis toward +Z (the panel's surface normal) while the stem-base
+  // end stays at z~0, so the piece leans out of the wall instead of lying in its plane.
+  // angle 0 = identity (flat), 90 = fully perpendicular. The union bbox across layers
+  // is used because multi-layer models (wisteria raceme + foliage band) share one
+  // placement scale but occupy different regions — the base end must be decided on the
+  // whole model, not one layer.
+  function orientQuaternion(specs, angleRad) {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const spec of specs) {
+      const g = spec.geo;
+      if (!g) continue;
+      g.computeBoundingBox();
+      const b = g.boundingBox;
+      if (!b) continue;
+      if (b.min.x < x0) x0 = b.min.x;
+      if (b.max.x > x1) x1 = b.max.x;
+      if (b.min.y < y0) y0 = b.min.y;
+      if (b.max.y > y1) y1 = b.max.y;
+    }
+    if (x0 > x1 || y0 > y1) return null;
+    const a = Math.max(0, Math.min(Math.PI / 2, angleRad));
+    const q = new T.Quaternion();
+    if (y1 - y0 >= x1 - x0) {
+      // Long axis = Y. Base is the end nearer the origin; the tip leans to +Z:
+      // Rx(+a) sends +y toward +z, Rx(-a) sends -y toward +z.
+      const theta = (Math.abs(y0) < Math.abs(y1) ? 1 : -1) * a;
+      q.setFromAxisAngle(new T.Vector3(1, 0, 0), theta);
+    } else {
+      // Long axis = X. Ry(-a) sends +x toward +z, Ry(+a) sends -x toward +z.
+      const theta = (Math.abs(x0) < Math.abs(x1) ? -1 : 1) * a;
+      q.setFromAxisAngle(new T.Vector3(0, 1, 0), theta);
+    }
+    return q;
+  }
+
   function build(opts) {
     const type = opts && opts.type;
     const s = G.get(type);
@@ -68,6 +104,12 @@
     let triangles = 0;
     const m = new T.Matrix4(), q = new T.Quaternion();
     const ax = new T.Vector3(0, 0, 1), pos = new T.Vector3(), scl = new T.Vector3(), c = new T.Color();
+    // opts.orientAngle (degrees, default 90): lean of orientOutward species out of the
+    // panel plane. 0 disables the pre-rotation entirely (flat pose).
+    const orientAngle = (opts && opts.orientAngle != null) ? Number(opts.orientAngle) : 90;
+    const orientQ = opts.orientOutward && Number.isFinite(orientAngle) && orientAngle > 0
+      ? orientQuaternion(specs, orientAngle * Math.PI / 180)
+      : null;
     for (const spec of specs) {
       const im = new T.InstancedMesh(spec.geo, mat, items.length);
       im.instanceMatrix.setUsage(T.StaticDrawUsage);
@@ -76,6 +118,7 @@
         const it = items[i];
         pos.set(it.x || 0, it.y || 0, it.z || 0);
         q.setFromAxisAngle(ax, it.rot || 0);
+        if (orientQ) q.multiply(orientQ);          // local reorient first, then panel roll
         const sc = it.scale || 1; scl.set(sc, sc, sc);
         m.compose(pos, q, scl);
         im.setMatrixAt(i, m);

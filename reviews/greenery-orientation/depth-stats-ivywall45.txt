@@ -1,0 +1,10 @@
+=== EXACT DEPTH — ivywall45 panel (8x8ft, wall face z=0, 2in foam behind) ===
+world->in: x16.67; geometry z includes piece thickness + placement layer z
+
+species        n     layer(s)             full z range (in)      back -> front (in)
+ivy           195   trailing             -2.91 .. 27.24         -2.91 -> 27.24
+
+PANEL PROJECTION from wall face: 27.24 in  (69.2 cm)  -> above Full band
+foam slab: z -2.00 .. 0 in (2in board behind the face)
+deepest piece back: -2.91 in (-7.4 cm)  = stems/base seated 2.91in INTO the foam (inserted look)
+reference bands (studio/references/greenery+foilage.png top view): Minimal 5-10cm | Medium 10-20cm | Full 20-30cm

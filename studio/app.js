@@ -16,11 +16,11 @@ let activeFlowerMeshes=[], backingMesh=null, borderFrameMeshes={}, borderFlowerM
  const defaultFrameBorder=()=>({type:'frame',enabled:true,width:6,color:'#D4AF37',depth:2});
  const defaultGreeneryBorder=()=>({type:'greenery',enabled:true,species:'monstera',width:4,sizeScale:1,density:70,overlap:0.5,rotationVariation:60,colorVariation:0.3});
  const defaultGreeneryItems=()=>[
-  {type:'monstera',enabled:true,sizeScale:1,density:70,proportion:30,layer:'structural',colorVariation:0.3},
-  {type:'eucalyptus',enabled:true,sizeScale:1,density:70,proportion:40,layer:'volume',colorVariation:0.3},
-  {type:'boston-fern',enabled:true,sizeScale:1,density:70,proportion:30,layer:'filler',colorVariation:0.3}
- ];
- const defaults=()=>({name:'Untitled arrangement',width:8,height:8,flowerSize:5,flowerType:'rose',coverage:100,pattern:'nongrouping',mixIntensity:'high',groupingLimit:'balanced',clusterSize:'small',patternDirection:'ltr',seed:1,border:{layers:[]},designMode:'flowers',greenery:{mode:'mixed',direction:'mixed',overlap:0.5,rotationVariation:60,seed:1,items:defaultGreeneryItems()},colors:[{id:1,name:'White',hex:'#ffffff'}],projection:'medium'});
+  {type:'monstera',enabled:true,sizeScale:1,density:85,proportion:30,layer:'structural',colorVariation:0.3},
+  {type:'eucalyptus',enabled:true,sizeScale:1,density:85,proportion:40,layer:'volume',colorVariation:0.3},
+  {type:'boston-fern',enabled:true,sizeScale:1,density:85,proportion:30,layer:'filler',colorVariation:0.3}
+];
+ const defaults=()=>({name:'Untitled arrangement',width:8,height:8,flowerSize:5,flowerType:'rose',coverage:100,pattern:'nongrouping',mixIntensity:'high',groupingLimit:'balanced',clusterSize:'small',patternDirection:'ltr',seed:1,border:{layers:[]},designMode:'flowers',greenery:{mode:'mixed',direction:'mixed',overlap:0.75,rotationVariation:60,orientAngle:90,seed:1,items:defaultGreeneryItems()},colors:[{id:1,name:'White',hex:'#ffffff'}],projection:'medium'});
  let greeneryItems=defaultGreeneryItems();
 const model=window.FlowerModel;
 const engine=window.FlowerEngine;
@@ -34,7 +34,7 @@ function nameForColor(hex){const names={'#ffffff':'White','#fffaf0':'Ivory','#ff
   function readGreenery(){
   const g=id=>$(id);
   const num=(el,d)=>{const n=Number(el&&el.value);return isFinite(n)?n:d};
-  return {mode:g('greeneryMode')?g('greeneryMode').value:'single',direction:g('greeneryDirection')?g('greeneryDirection').value:'mixed',overlap:num(g('greeneryOverlap'),0.5),rotationVariation:num(g('greeneryRotation'),60),seed:Math.abs(Math.floor(num(g('greenerySeed'),1)))>>>0,items:greeneryItems};
+  return {mode:g('greeneryMode')?g('greeneryMode').value:'single',direction:g('greeneryDirection')?g('greeneryDirection').value:'mixed',overlap:num(g('greeneryOverlap'),0.5),rotationVariation:num(g('greeneryRotation'),60),orientAngle:num(g('greenerySprayAngle'),90),seed:Math.abs(Math.floor(num(g('greenerySeed'),1)))>>>0,items:greeneryItems};
  }
  function settings(){return model.normalize({name:$('arrangementName').value.trim()||'Untitled arrangement',width:$('width').value,height:$('height').value,flowerSize:$('flowerSize').value,flowerType:$('flowerType').value,coverage:$('coverage').value,pattern:$('pattern').value,mixIntensity:$('mixIntensity').value,groupingLimit:$('groupingLimit').value,clusterSize:$('clusterSize').value,patternDirection:$('patternDirection').value,seed:Number($('seed').value)||1,border:{layers:borderLayers},flowersOn:$('flowersOn')?$('flowersOn').checked:true,greeneryOn:$('greeneryOn')?$('greeneryOn').checked:false,composition:$('composition')?$('composition').value:'greenery-base',projection:$('projection')?$('projection').value:'medium',flowerLeaves:$('flowerLeaves')?$('flowerLeaves').checked:false,greenery:readGreenery(),colors})}
  function updateSummary(){const s=settings(),pos=model.positions(s);let borderFlowers=0;for(const l of s.border.layers){if(l.enabled&&l.type==='flower')borderFlowers+=model.borderPositions(s,l.id).length}let borderGreenery=0;for(const l of s.border.layers){if(l.enabled&&l.type==='greenery')borderGreenery+=model.greeneryBorderPositions(s,l.id).length}const total=pos.length+borderFlowers;const set=(id,val)=>{const el=$(id);if(el)el.textContent=val};set('totalCount',total.toLocaleString());const sp=engine&&engine.get?engine.get(s.flowerType):null;set('dimensionLabel',`${s.width} ft × ${s.height} ft · ${sp?sp.label:s.flowerType} heads · 2 in foam`);set('coverageLabel',s.coverage===100?'Full-face coverage target':`${s.coverage}% coverage target`);set('densityValue',s.coverage+'%');set('previewName',s.name);const gEst=model.greeneryEstimate(s);renderGreeneryInventory(gEst,s);const greTotal=gEst.totalItems+borderGreenery;const head=s.designMode==='greenery'?`${greTotal.toLocaleString()} greenery pieces · ${s.width}×${s.height} ft panel`:s.designMode==='mixed'?`${total.toLocaleString()} flowers + ${greTotal.toLocaleString()} greenery · ${s.width}×${s.height} ft panel`:`${total.toLocaleString()} flowers · ${s.width}×${s.height} ft panel`;set('headerCount',head);renderColorCounts(pos.length)}
@@ -69,7 +69,7 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
      const meta=model.GREENERY_META[type];
      const item=active.find(a=>a.type===type)||{colorVariation:0.3};
      let res;
-     try{res=greenEngine.build({type,items:byType[type],color:meta?meta.color:'#4a7c3f',colorVariation:item.colorVariation!=null?item.colorVariation:0.3,showLeaves:item.showLeaves!==false});}
+     try{res=greenEngine.build({type,items:byType[type],color:meta?meta.color:'#4a7c3f',colorVariation:item.colorVariation!=null?item.colorVariation:0.3,orientOutward:!!(meta&&meta.orientOutward),orientAngle:(s.greenery&&s.greenery.orientAngle!=null)?s.greenery.orientAngle:90,showLeaves:item.showLeaves!==false});}
      catch(err){debug('error','Greenery geometry generation failed',{type},err);previewStatus('The "'+type+'" greenery model failed to build. Open diagnostics for details.',true,'error');throw err}
      for(let i=0;i<res.meshes.length;i++)greeneryGroup.add(res.meshes[i]);
      greeneryMeshes=greeneryMeshes.concat(res.meshes);
@@ -285,6 +285,7 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
   set('greeneryDirection',dir);syncRadioGroup('greeneryDirectionSeg',dir);
   set('greeneryOverlap',g.overlap!=null?g.overlap:0.5);
   set('greeneryRotation',g.rotationVariation!=null?g.rotationVariation:60);
+  set('greenerySprayAngle',g.orientAngle!=null?g.orientAngle:90);
   set('greenerySeed',g.seed!=null?g.seed:1);
   syncGreeneryFields();
  }
@@ -320,6 +321,7 @@ function releaseBorder(){for(const id of Object.keys(borderFrameMeshes)){const m
   if(mixed)mixed.hidden=mode!=='mixed';
   const ov=$('greeneryOverlapValue'),ovEl=$('greeneryOverlap');if(ov&&ovEl)ov.textContent=Number(ovEl.value).toFixed(2);
   const rv=$('greeneryRotationValue'),rvEl=$('greeneryRotation');if(rv&&rvEl)rv.textContent=rvEl.value+'°';
+  const oa=$('greenerySprayValue'),oaEl=$('greenerySprayAngle');if(oa&&oaEl)oa.textContent=oaEl.value+'°';
   if(mode==='single')syncSingleGreeneryControls();else renderGreeneryItems();
   updateGreeneryMaxWarning();
   syncFullnessUI();
@@ -409,7 +411,7 @@ function buildScene(refit=false){
  const s=settings(),W=s.width*.72,H=s.height*.72,foamDepth=(2/12)*.72;
  const showFlowers=s.designMode!=='greenery';
  // The foam is a real shallow slab; its top face sits at z=0, directly under the flower heads.
- backingMesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,foamDepth),new THREE.MeshStandardMaterial({color:new THREE.Color(0x84977b).convertSRGBToLinear(),roughness:1}));
+  backingMesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,foamDepth),new THREE.MeshStandardMaterial({color:new THREE.Color(0x245034).convertSRGBToLinear(),roughness:1}));
  backingMesh.position.z=-foamDepth/2;group.add(backingMesh);
   const allPositions=model.positions(s),counts=model.counts(s,allPositions.length);
   // Colour arrangement is chosen by the Pattern engine (proportions always preserved).
@@ -534,6 +536,7 @@ function wire(){['width','height','flowerSize','coverage','mixIntensity','groupi
     if($('greeneryDirection'))$('greeneryDirection').value=r.value;scheduleBuild(false)}));
   const ovEl=$('greeneryOverlap');if(ovEl)ovEl.addEventListener('input',()=>{const l=$('greeneryOverlapValue');if(l)l.textContent=Number(ovEl.value).toFixed(2);scheduleBuild(false)});
   const rvEl=$('greeneryRotation');if(rvEl)rvEl.addEventListener('input',()=>{const l=$('greeneryRotationValue');if(l)l.textContent=rvEl.value+'°';scheduleBuild(false)});
+  const oaEl=$('greenerySprayAngle');if(oaEl)oaEl.addEventListener('input',()=>{const l=$('greenerySprayValue');if(l)l.textContent=oaEl.value+'°';scheduleBuild(false)});
   if($('greeneryType'))$('greeneryType').addEventListener('change',e=>{if(!greeneryItems[0])return;greeneryItems[0].type=e.target.value;scheduleBuild(false)});
   if($('greenerySize'))$('greenerySize').addEventListener('input',e=>{if(!greeneryItems[0])return;const v=Number(e.target.value);greeneryItems[0].sizeScale=v;const l=$('greenerySizeValue');if(l)l.textContent=v.toFixed(1)+'×';scheduleBuild(false)});
   if($('greeneryAdd'))$('greeneryAdd').onclick=()=>{if(greeneryItems.length>=model.GREENERY_MAX_ITEMS)return;greeneryItems.push({type:'monstera',enabled:true,sizeScale:1,density:currentFullness(),proportion:Math.round(100/(greeneryItems.length+1)),layer:'volume',colorVariation:0.3});renderGreeneryItems();updateGreeneryMaxWarning();scheduleBuild(false)};
@@ -581,7 +584,7 @@ function buildElementView(kind,value){
     const meta=model.GREENERY_META&&model.GREENERY_META[value];
     const item={key:0,type:value,layer:meta?meta.defaultLayer:'structural',x:0,y:0,z:0,rot:0,scale:1,variant:0.5,seed:1};
     try{
-      const res=greenEngine.build({type:value,items:[item],color:meta?meta.color:'#4a7c3f',colorVariation:0.3});
+      const res=greenEngine.build({type:value,items:[item],color:meta?meta.color:'#4a7c3f',colorVariation:0.3,orientOutward:!!(meta&&meta.orientOutward)});
       meshes=res.meshes||[];
       if(meta&&meta.bounds){const[ax,ay,bx,by]=meta.bounds,cx=(ax+bx)/2,cy=(ay+by)/2;meshes.forEach(mm=>mm.position.set(-cx,-cy,0))}
       meshes.forEach(mm=>scene.add(mm));

@@ -12,10 +12,11 @@ export const FLOWERPANEL_ID = 'flowerpanel';
 export const FLOWERPANEL_NAME = 'Flower Panel';
 export const FLOWERPANEL_SUBTITLE = 'Arrangement';
 
-// No auto-renderable knobs: the TILT panel only places and shows the panel; the
-// arrangement is edited in the Studio. Empty schema keeps the persisted params
-// object clean.
-export const FLOWERPANEL_PARAMS = {};
+// One knob: Enabled. The arrangement itself is authored in the Studio; the
+// scene only places it, and now also shows/hides it without unmounting.
+export const FLOWERPANEL_PARAMS = {
+    enabled: { label: 'Enabled', type: 'toggle', value: true }
+};
 
 // World units per foot. The panel is authored in feet and built 1:1 (the studio
 // used a 0.72 world scale; TILT uses full scale).
@@ -39,7 +40,8 @@ export function createFlowerPanelModel(initial = {}) {
     const state = {
         settings: FlowerModel.normalize(initial.settings || {}),
         arrangementId: initial.arrangementId || null,
-        quality: scene.getQuality()
+        quality: scene.getQuality(),
+        enabled: initial.enabled !== false
     };
 
     function build() {
@@ -48,6 +50,7 @@ export function createFlowerPanelModel(initial = {}) {
         // Stand the panel on the floor. Its vertical centre sits at y = 0 in the
         // panel-local frame, so lift by half the height (feet == world units, FT=1).
         panel.position.y = (s.height * FT) / 2;
+        root.visible = state.enabled;
         model.dirty = false;
     }
 
@@ -73,11 +76,16 @@ export function createFlowerPanelModel(initial = {}) {
         setParams(partial) {
             if (partial && partial.settings) {
                 state.settings = FlowerModel.normalize(partial.settings);
+                model.dirty = true;
             }
             if (partial && 'arrangementId' in partial) {
                 state.arrangementId = partial.arrangementId;
             }
-            model.dirty = true;
+            if (partial && 'enabled' in partial) {
+                // Visibility only - no geometry rebuild, no dirty flag.
+                state.enabled = partial.enabled !== false;
+                root.visible = state.enabled;
+            }
         },
         getSettings() { return state.settings; },
         setSettings(settings) {

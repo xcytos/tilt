@@ -28,7 +28,7 @@ import { GreeneryCore } from './greenery-core.js';
       const N = 26;
       for (let i = 0; i <= N; i++) {
         const t = i / N;
-        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.03 });
+        pts.push({ x: Math.sin(t * 3.1) * 0.05, y: -t, z: Math.sin(t * 2.2 + 1.1) * 0.012 });
       }
       stems.push(G.makeTube(pts, t => 0.016 * (1 - t * 0.6) + 0.005, 6));
 
@@ -72,7 +72,7 @@ import { GreeneryCore } from './greenery-core.js';
           rp.push({
             x: p0.x + side * (0.02 + u * 0.10) + Math.sin(u * 2.4) * 0.02,
             y: p0.y - u * len,
-            z: p0.z + Math.sin(u * 3.1 + i) * 0.03
+            z: p0.z + Math.sin(u * 3.1 + i) * 0.012
           });
         }
         stems.push(G.makeTube(rp, u => 0.010 * (1 - u * 0.7) + 0.003, 4));

@@ -52,7 +52,12 @@ const { createFlowerPanelModel, FLOWERPANEL_ID, FLOWERPANEL_PARAMS } = mod;
 console.log('\nFlower Panel factory — contract');
 check('exports createFlowerPanelModel', typeof createFlowerPanelModel === 'function');
 check('stable id', FLOWERPANEL_ID === 'flowerpanel');
-check('params schema is an object (empty: no auto knobs)', FLOWERPANEL_PARAMS && typeof FLOWERPANEL_PARAMS === 'object' && Object.keys(FLOWERPANEL_PARAMS).length === 0);
+check('params schema carries the Enabled toggle', FLOWERPANEL_PARAMS
+  && FLOWERPANEL_PARAMS.enabled
+  && FLOWERPANEL_PARAMS.enabled.type === 'toggle'
+  && FLOWERPANEL_PARAMS.enabled.label === 'Enabled'
+  && FLOWERPANEL_PARAMS.enabled.value === true
+  && Object.keys(FLOWERPANEL_PARAMS).length === 1);
 
 const model = createFlowerPanelModel();
 check('id/name/subtitle present', model.id === 'flowerpanel' && typeof model.name === 'string' && typeof model.subtitle === 'string');
@@ -60,6 +65,14 @@ check('object3D is a mountable Object3D', model.object3D && model.object3D.isObj
 check('builds real content (backing + flowers)', model.object3D.children.length > 0, `${model.object3D.children.length} children`);
 check('exposes params + state', !!model.params && !!model.state);
 check('state carries normalized settings', model.state.settings && typeof model.state.settings.width === 'number' && typeof model.state.settings.height === 'number');
+check('a fresh panel starts enabled and visible',
+  model.state.enabled === true && model.object3D.visible === true);
+check('a panel built with enabled:false starts hidden', (() => {
+  const m = createFlowerPanelModel({ enabled: false });
+  const hid = m.state.enabled === false && m.object3D.visible === false;
+  m.dispose();
+  return hid;
+})());
 check('exposes build/setTheme/setParams/getSettings/setSettings/dispose',
   ['build', 'setTheme', 'setParams', 'getSettings', 'setSettings', 'dispose'].every(k => typeof model[k] === 'function'));
 check('stands on the floor (lifted by half height)', (() => {
@@ -87,6 +100,34 @@ check('setSettings() replaces + marks dirty', (() => {
   model.build();
   return ok && model.dirty === false;
 })());
+
+console.log('\nFlower Panel factory — the Enabled toggle');
+check('setParams({enabled:false}) hides immediately, with no rebuild', (() => {
+  const kids = model.object3D.children[0].children[0].children.length;
+  model.setParams({ enabled: false });
+  const hid = model.object3D.visible === false
+    && model.state.enabled === false
+    && model.dirty === false
+    && model.object3D.children[0].children[0].children.length === kids;
+  model.setParams({ enabled: true });
+  return hid && model.object3D.visible === true && model.state.enabled === true;
+})());
+check('build() re-applies the toggle', (() => {
+  model.setParams({ enabled: false });
+  model.build();
+  const hidden = model.object3D.visible === false && model.dirty === false;
+  model.setParams({ enabled: true });
+  model.build();
+  return hidden && model.object3D.visible === true;
+})());
+check('a settings rebuild keeps the panel hidden while disabled', (() => {
+  model.setParams({ enabled: false });
+  model.setParams({ settings: { width: 5, height: 5, designMode: 'flowers' } });
+  const dirty = model.dirty === true;
+  model.build();
+  return dirty && model.object3D.visible === false;
+})());
+model.setParams({ enabled: true });
 
 console.log('\nFlower Panel factory — dispose');
 model.dispose();

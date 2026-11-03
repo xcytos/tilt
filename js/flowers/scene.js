@@ -126,6 +126,8 @@ export const FlowerScene = (function () {
           type, items: byType[type],
           color: meta ? meta.color : '#4a7c3f',
           colorVariation: item.colorVariation != null ? item.colorVariation : 0.3,
+          orientOutward: !!(meta && meta.orientOutward),
+          orientAngle: (s.greenery && s.greenery.orientAngle != null) ? s.greenery.orientAngle : 90,
           detail,
           showLeaves: item.showLeaves !== false
         });
@@ -216,7 +218,7 @@ export const FlowerScene = (function () {
       // Foam slab: a real shallow box whose top face sits at z=0, under the flower heads.
       backingMesh = new T.Mesh(
         new T.BoxGeometry(W, H, foamDepth),
-        new T.MeshStandardMaterial({ color: new T.Color(0x84977b), roughness: 1 })
+        new T.MeshStandardMaterial({ color: new T.Color(0x245034), roughness: 1 })
       );
       backingMesh.position.z = -foamDepth / 2;
       addMesh(group, backingMesh);

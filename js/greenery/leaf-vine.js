@@ -63,7 +63,7 @@ import { GreeneryCore } from './greenery-core.js';
         pts.push({
           x: Math.sin(t * 4.3) * 0.035,
           y: t,
-          z: Math.sin(t * 3.0 + 0.6) * 0.04
+          z: Math.sin(t * 3.0 + 0.6) * 0.015
         });
       }
       const stem = G.makeTube(pts, t => 0.010 * (1 - t * 0.5) + 0.004, 4);
@@ -76,7 +76,7 @@ import { GreeneryCore } from './greenery-core.js';
           const p = pts[Math.min(N, Math.round(t * N))];
           const side = (i % 2) ? 1 : -1;      // alternate side to side
           const sc = (1 - t * 0.38) * (0.85 + rand() * 0.3);
-          const bx = p.x + side * 0.03, by = p.y + 0.012, bz = p.z + (rand() - 0.5) * 0.02;
+          const bx = p.x + side * 0.03, by = p.y + 0.012, bz = p.z + (rand() - 0.5) * 0.012;
           // Short petiole from the stem node out to the leaf's cleft.
           parts.push(G.makeTube([
             { x: p.x, y: p.y, z: p.z },

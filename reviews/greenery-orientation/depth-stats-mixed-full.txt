@@ -1,0 +1,17 @@
+=== EXACT DEPTH — mixed-full panel (8x8ft, wall face z=0, 2in foam behind) ===
+world->in: x16.67; geometry z includes piece thickness + placement layer z
+
+species        n     layer(s)             full z range (in)      back -> front (in)
+monstera      9     structural           -0.60 .. 1.05          -0.60 -> 1.05
+eucalyptus    26    volume               3.08 .. 4.38           3.08 -> 4.38
+boston-fern   27    volume               3.27 .. 4.62           3.27 -> 4.62
+grass         35    filler               6.60 .. 8.14           6.60 -> 8.14
+ivy-vine      29    trailing             7.50 .. 10.33          7.50 -> 10.33
+leaf-vine     31    trailing             8.04 .. 9.66           8.04 -> 9.66
+
+FLOWERS (rose 5in, leaves=true, proj=full, lift=7.50in, n=1067): z 0.00 -> 10.45 in
+
+PANEL PROJECTION from wall face: 10.45 in  (26.5 cm)  -> Full (20-30cm) band
+foam slab: z -2.00 .. 0 in (2in board behind the face)
+deepest piece back: -0.60 in (-1.5 cm)  = stems/base seated 0.60in INTO the foam (inserted look)
+reference bands (studio/references/greenery+foilage.png top view): Minimal 5-10cm | Medium 10-20cm | Full 20-30cm
