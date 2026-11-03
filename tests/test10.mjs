@@ -145,6 +145,26 @@ check('the server announces the same version as the panel',
 console.log('\neditor: the project bar in TILT.html');
 const shell = read('TILT.html');
 
+console.log('\neditor: the red diagnostics badge can be dismissed');
+check('the badge builds an x control beside the count',
+  /id = 'err-dismiss'/.test(shell)
+  && /id = 'err-count'/.test(shell)
+  && /Dismiss diagnostics badge/.test(shell));
+check('the x is a labelled button that reaches the keyboard',
+  /x\.setAttribute\('role', 'button'\)/.test(shell)
+  && /x\.setAttribute\('tabindex', '0'\)/.test(shell)
+  && /x\.addEventListener\('keydown'/.test(shell));
+check('tapping the x never opens the menu behind it',
+  /x\.addEventListener\('click'[\s\S]{0,400}stopPropagation\(\)/.test(shell));
+check('a dismissal survives the 2s re-probe until a new failure arrives',
+  /var dismissedAt = 0/.test(shell)
+  && /n > 0 && n > dismissedAt/.test(shell)
+  && /dismissedAt = lastN/.test(shell)
+  && /setInterval\(show, 2000\)/.test(shell));
+check('only the x is tappable; the pill still passes clicks to the button',
+  /#err-dismiss \{[\s\S]{0,160}pointer-events: auto/.test(shell)
+  && /#err-badge \{[\s\S]{0,400}pointer-events: none/.test(shell));
+
 console.log('\nPWA: installable, offline shell, never the project state');
 check('the manifest, worker and icons are on disk', (() => {
   const mf = JSON.parse(read('manifest.webmanifest'));

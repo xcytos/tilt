@@ -146,13 +146,39 @@
             box-shadow: 0 14px 34px rgba(0,0,0,0.24);
         }
         .dark #overflow { background: #18181b; border-color: rgba(255,255,255,0.14); }
-        #diag {
-            position: fixed; top: calc(52px + env(safe-area-inset-top)); right: 0.5rem;
-            z-index: 120; max-width: min(520px, 72vw); margin: 0; padding: 0.45rem 0.55rem;
-            border-radius: 8px; background: rgba(127,29,29,0.94); color: #fff;
+        #overflow { max-height: calc(100vh - 72px - env(safe-area-inset-top)); overflow-y: auto; }
+        /* Red badge on the ⋮ button while the self-check has failures - the
+           diagnostic itself lives inside the menu (see .menu-diag), so the
+           canvas stays clear. */
+        #btn-overflow { position: relative; }
+        #err-badge {
+            position: absolute; top: 5px; right: 5px;
+            min-width: 16px; height: 16px; padding: 0 2px 0 4px;
+            border-radius: 999px; background: #dc2626; color: #fff;
+            font: 700 10px/16px system-ui, sans-serif; text-align: center;
+            box-shadow: 0 0 0 2px #fff;
+            pointer-events: none;
+            display: inline-flex; align-items: center; gap: 1px;
+        }
+        #err-badge[hidden] { display: none; }
+        .dark #err-badge { box-shadow: 0 0 0 2px #18181b; }
+        /* The x is the only tappable part; the rest of the pill still
+           passes clicks through to the menu button underneath. */
+        #err-dismiss {
+            pointer-events: auto;
+            cursor: pointer;
+            padding: 0 4px;
+            margin-right: -1px;
+            font: 700 12px/16px system-ui, sans-serif;
+            opacity: 0.85;
+        }
+        #err-dismiss:hover, #err-dismiss:focus-visible { opacity: 1; }
+        .menu-diag {
+            margin: 0.3rem 0.4rem 0.4rem; padding: 0.45rem 0.55rem;
+            max-height: 42vh; overflow-y: auto; border-radius: 8px;
+            background: rgba(127,29,29,0.94); color: #fff;
             font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-            white-space: pre-wrap; word-break: break-word; pointer-events: none;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            white-space: pre-wrap; word-break: break-word;
         }
         .menu-item {
             display: block; width: 100%; min-height: 42px; padding: 0.55rem 0.7rem;
@@ -508,25 +534,86 @@
                 }
                 return { bad: bad, lines: lines };
             }
-            // Only ever on screen when a check is failing: this is a fault
-            // report, not part of the interface.
+            // The fault report lives behind the ⋮ menu now: no red box sits
+            // on the canvas, the button wears a red issue-count badge while
+            // anything fails, and editor.js renders the text inside the menu
+            // from window.__tiltDiagText(). This still refreshes on every
+            // probe so the badge cannot go stale.
+            var lastReport = '';
+            var lastN = 0;
+            // Failures the user has acknowledged with the badge's x. The
+            // badge re-probes every 2s, so without this it would spring
+            // right back; a NEW failure (count rises) shows it again.
+            var dismissedAt = 0;
+            function dismissBadge(more) {
+                dismissedAt = lastN;
+                var b = document.getElementById('err-badge');
+                if (b) b.hidden = true;
+                more.classList.remove('has-errors');
+                more.setAttribute('aria-label', 'Project menu');
+            }
+            function badge(n) {
+                var more = document.getElementById('btn-overflow');
+                if (!more) return;
+                lastN = n;
+                var b = document.getElementById('err-badge');
+                if (n > 0 && n > dismissedAt) {
+                    if (!b) {
+                        b = document.createElement('span');
+                        b.id = 'err-badge';
+                        var cnt = document.createElement('span');
+                        cnt.id = 'err-count';
+                        b.appendChild(cnt);
+                        var x = document.createElement('span');
+                        x.id = 'err-dismiss';
+                        x.setAttribute('role', 'button');
+                        x.setAttribute('tabindex', '0');
+                        x.setAttribute('aria-label', 'Dismiss diagnostics badge');
+                        x.textContent = '×';
+                        x.addEventListener('click', function (e) {
+                            // Inside the menu button: keep the click from
+                            // toggling the menu open as a side effect.
+                            e.stopPropagation();
+                            dismissBadge(more);
+                        });
+                        x.addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter' || e.key === ' '
+                                    || e.key === 'Spacebar') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                dismissBadge(more);
+                            }
+                        });
+                        b.appendChild(x);
+                        more.appendChild(b);
+                    }
+                    b.hidden = false;
+                    document.getElementById('err-count').textContent =
+                        n > 9 ? '9+' : String(n);
+                    more.classList.add('has-errors');
+                    more.setAttribute('aria-label',
+                        'Project menu, ' + n + ' issue' + (n === 1 ? '' : 's')
+                        + ', tap the x to dismiss');
+                } else {
+                    if (b) b.hidden = true;
+                    more.classList.remove('has-errors');
+                    more.setAttribute('aria-label', 'Project menu');
+                }
+            }
             function show() {
                 var r = probe();
-                var box = document.getElementById('diag');
-                if (!r.bad.length) {
-                    if (box) box.remove();
-                    return;
-                }
-                if (!box) {
-                    box = document.createElement('pre');
-                    box.id = 'diag';
-                    document.body.appendChild(box);
-                }
-                box.textContent = 'TILT self-check\n'
-                    + r.bad.map(function (s) { return '! ' + s; }).join('\n')
-                    + '\n\n' + r.lines.join('\n');
+                window.__tiltDiagBad = r.bad.length;
+                badge(r.bad.length);
+                lastReport = r.bad.length
+                    ? 'TILT self-check\n'
+                        + r.bad.map(function (s) { return '! ' + s; }).join('\n')
+                        + '\n\n' + r.lines.join('\n')
+                    : 'TILT self-check: all clear\n\n' + r.lines.join('\n');
             }
             window.__tiltDiag = show;
+            window.__tiltDiagText = function () {
+                return lastReport || 'TILT self-check: not run yet';
+            };
             setTimeout(show, 8000);
             setInterval(show, 2000);
         })();

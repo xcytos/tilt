@@ -49,6 +49,7 @@ export function createEditor(opts) {
     let flashTimer = 0;
     let menuOpen = false;
     let sheetHost = null;
+    let diagEl = null;
 
     nameEl.textContent = currentName;
     statusEl.textContent = STATUS_TEXT[state];
@@ -88,7 +89,13 @@ export function createEditor(opts) {
             { sep: true },
             { act: 'theme', label: isDark ? 'Dark mode: On' : 'Dark mode: Off' },
             { act: 'reset', label: 'Reset to defaults', danger: true },
-            { act: 'home', label: 'All projects' }
+            { act: 'home', label: 'All projects' },
+            { sep: true },
+            // The self-check report (formerly the floating red box). It is a
+            // view, not an action - clicking toggles the text inside the menu
+            // instead of closing it, and the entry turns red while the ⋮
+            // badge reports failures.
+            { act: 'diag', label: 'Diagnostics' }
         ];
 
     function closeMenu() {
@@ -96,12 +103,29 @@ export function createEditor(opts) {
         menuOpen = false;
         menuEl.hidden = true;
         menuEl.textContent = '';
+        diagEl = null;
         more.setAttribute('aria-expanded', 'false');
+    }
+
+    // Toggle the self-check text inside the menu. The report is produced by
+    // the shell's inline probe (window.__tiltDiag / __tiltDiagText) so the
+    // menu never keeps its own copy of what is failing.
+    function toggleDiag() {
+        if (diagEl) { diagEl.remove(); diagEl = null; return; }
+        try { window.__tiltDiag && window.__tiltDiag(); } catch (e) { /* stale shell */ }
+        const text = typeof window.__tiltDiagText === 'function'
+            ? window.__tiltDiagText() : '';
+        if (!text) return;
+        diagEl = document.createElement('pre');
+        diagEl.className = 'menu-diag';
+        diagEl.textContent = text;
+        menuEl.appendChild(diagEl);
     }
 
     function openMenu() {
         if (menuOpen) return closeMenu();
         menuEl.textContent = '';
+        diagEl = null;
         for (const item of MENU) {
             if (!item) continue;
             if (item.sep) {
@@ -112,9 +136,14 @@ export function createEditor(opts) {
             }
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'menu-item' + (item.danger ? ' is-danger' : '');
+            const diagBad = item.act === 'diag' ? (window.__tiltDiagBad || 0) : 0;
+            btn.className = 'menu-item' + (item.danger || diagBad ? ' is-danger' : '');
             btn.textContent = item.label;
-            btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
+            if (item.act === 'diag') {
+                btn.addEventListener('click', e => { e.stopPropagation(); toggleDiag(); });
+            } else {
+                btn.addEventListener('click', () => { closeMenu(); void run(item.act); });
+            }
             menuEl.appendChild(btn);
         }
         // The popup is fixed to the screen, so pin it to the bar's real
