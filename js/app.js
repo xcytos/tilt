@@ -2041,6 +2041,8 @@ panel = createPanel({
     shadowInfo: () => viewer.shadowInfo(),
     onShadowToggle: on => viewer.setShadowsEnabled(on),
     onShadowBoxToggle: on => viewer.setShadowBoxVisible(on),
+    onQualityChange: guard(q => viewer.setQuality(q)),
+    renderQuality: viewer.quality,
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onElementAdd: guard((id, type) => onElementAdd(id, type)),
@@ -2230,6 +2232,17 @@ editor = createEditor({
     // Save first: the API exports what the server holds, which would
     // otherwise be the state from before the last edit.
     onExport: async () => { await saveNow(); exportDoc(); },
+    // Photoreal render studio: lazily imported so the main bundle never
+    // pays for it, and it only runs when the menu item is tapped.
+    onRender: async () => {
+        try {
+            const studio = await import('./renderStudio.js');
+            await studio.openRenderStudio(projectName);
+        } catch (err) {
+            console.error('[render-studio]', err);
+            if (editor) editor.flash('Could not open the render studio');
+        }
+    },
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject(),
     isDark: viewer.isDark,

@@ -133,6 +133,7 @@ export function createPanel(opts) {
         onFoldChange,
         onFlowerMount, onFlowerOpenStudio, onFlowerQualityChange,
         shadowInfo, onShadowToggle, onShadowBoxToggle,
+        viewerQuality = 'standard', onQualityChange,
         onShelfChange, themeIsDark = false,
         folds = []
     } = opts;
@@ -2071,6 +2072,49 @@ export function createPanel(opts) {
                 shadowRefs.paint = paint;
                 wrap.appendChild(box);
             }
+
+            // Render quality: real-time cinematic lane (bloom + deep
+            // shadows) vs the standard WebGL look. The chips repaint
+            // locally the same way the shadow buttons above do - the
+            // viewer stays the source of truth for what is actually on.
+            let quality = viewerQuality === 'cinematic' ? 'cinematic' : 'standard';
+            const qwrap = document.createElement('div');
+            qwrap.className = 'mt-3 pt-2 border-t border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            qwrap.appendChild(heading('Render quality'));
+            const qrow = document.createElement('div');
+            qrow.className = 'flex flex-wrap gap-2';
+            const Q_OPTS = [['standard', 'Standard'], ['cinematic', 'Cinematic']];
+            const paintQ = () => {
+                for (const b of qBtn) {
+                    const on = b.dataset.quality === quality;
+                    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    b.className = chipCls(on);
+                }
+            };
+            const qBtn = [];
+            for (const [qid, label] of Q_OPTS) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.dataset.quality = qid;
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    if (quality === qid) return;
+                    quality = qid;
+                    paintQ();
+                    onQualityChange && onQualityChange(qid);
+                });
+                qBtn.push(btn);
+                live.buttons.push(btn);
+                qrow.appendChild(btn);
+            }
+            paintQ();
+            qwrap.appendChild(qrow);
+            const qnote = document.createElement('div');
+            qnote.className = 'text-[11px] text-gray-500 dark:text-zinc-400';
+            qnote.textContent = 'Cinematic: bloom + 4K shadows, heavier on weak GPUs';
+            qwrap.appendChild(qnote);
+            wrap.appendChild(qwrap);
         }
         return wrap;
     }

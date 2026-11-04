@@ -9,8 +9,10 @@ Endpoints (localhost:8765, bearer token in forge/.token):
   GET  /v1/jobs/{id}           -> job status/artifacts
 """
 import json
+import mimetypes
 import os
 import queue
+import re
 import secrets
 import subprocess
 import threading
@@ -146,22 +148,60 @@ def worker():
 threading.Thread(target=worker, daemon=True, name="forge-worker").start()
 
 
+# The TILT page (localhost PWA) talks to forge cross-origin. Same-machine
+# origins only: an arbitrary website must never reach a local GPU service.
+_LOCAL_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+
+
+def _local_origin(origin):
+    return bool(origin) and bool(_LOCAL_RE.match(origin.strip()))
+
+
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json"}
+
+
 class Handler(BaseHTTPRequestHandler):
+    server_version = "TiltForge/0.2.0"
+
+    def _cors(self):
+        origin = self.headers.get("Origin") or ""
+        if _local_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Headers",
+                             "Authorization, Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self._cors()
         self.end_headers()
         self.wfile.write(body)
 
     def _auth(self):
         return self.headers.get("Authorization") == "Bearer " + TOKEN
 
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Max-Age", "86400")
+        self._cors()
+        self.end_headers()
+
     def do_GET(self):
+        origin = self.headers.get("Origin") or ""
+        local = _local_origin(origin)
         if self.path == "/v1/health":
-            self._send(200, {"service": "tilt-forge", "version": "0.1.0",
+            self._send(200, {"service": "tilt-forge", "version": "0.2.0",
                              "blender": os.path.exists(BLENDER), "jobs": len(JOBS)})
+        elif self.path == "/v1/handshake":
+            # Browser cannot read forge/.token, so a page served locally gets
+            # the bearer here. Off-machine origins get nothing.
+            if not local:
+                return self._send(403, {"error": "same-machine origins only"})
+            self._send(200, {"service": "tilt-forge", "token": TOKEN})
         elif self.path == "/v1/looks":
             self._send(200, LOOKS)
         elif self.path.startswith("/v1/jobs/"):
@@ -170,6 +210,28 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 return self._send(404, {"error": "no job " + jid})
             self._send(200, {"id": jid, **job})
+        elif self.path.startswith("/v1/artifact/"):
+            # GET /v1/artifact/{job}/{filename} - images for the studio modal.
+            if not local:
+                return self._send(403, {"error": "same-machine origins only"})
+            rest = self.path[len("/v1/artifact/"):]
+            jid, name = (rest.split("/", 1) + [""])[:2]
+            jid = jid.replace("..", "")
+            name = os.path.basename(name.replace("\\", "/"))
+            path = os.path.abspath(os.path.join(ARTIFACTS, jid, name))
+            if os.path.dirname(path) != os.path.abspath(os.path.join(ARTIFACTS, jid)) \
+                    or not os.path.isfile(path):
+                return self._send(404, {"error": "no artifact"})
+            ext = os.path.splitext(name)[1].lower()
+            with open(path, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", MIME.get(ext, "application/octet-stream"))
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self._send(404, {"error": "unknown path"})
 
