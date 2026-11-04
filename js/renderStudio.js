@@ -12,12 +12,19 @@ const QUALITY = [
     { id: 'high', label: 'High', samples: 512 }
 ];
 
+// Camera presets mirror render-lab/render_ballroom.py SHOTS - unknown ids
+// would crash the blender script (which exits 0 on its own python errors).
 const SHOTS = [
     { id: 'grand-wide', label: 'Grand wide' },
     { id: 'grand-front', label: 'Front' },
-    { id: 'three-q', label: 'Three quarter' },
-    { id: 'dj-booth', label: 'DJ wing' },
-    { id: 'dance-floor', label: 'Dance floor' }
+    { id: 'grand-threeQ', label: 'Three quarter' },
+    { id: 'grand-low', label: 'Low angle' },
+    { id: 'grand-high', label: 'High angle' },
+    { id: 'grand-side', label: 'Side' },
+    { id: 'det-chand', label: 'Chandelier' },
+    { id: 'det-table', label: 'Gala table' },
+    { id: 'det-rail', label: 'Rail detail' },
+    { id: 'det-drape', label: 'Drape detail' }
 ];
 
 const SHEET_CLS = 'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm '
@@ -144,6 +151,27 @@ export async function openRenderStudio(name) {
         token ? '' : 'Forge not reachable — start forge_server.py first.');
     card.appendChild(status);
 
+    // Progress bar. Hidden until a job is submitted; the poll loop drives
+    // the fill straight from the forge job's progress field (the worker
+    // streams Blender's sample lines into it), animated by a small CSS
+    // transition so 1.2s polls still read as continuous motion.
+    const barWrap = el('div', 'hidden', '');
+    const track = el('div', 'h-2 w-full rounded-full bg-gray-200 '
+        + 'dark:bg-zinc-700 overflow-hidden', '');
+    const fill = el('div', 'h-full w-0 rounded-full bg-gradient-to-r '
+        + 'from-sky-500 to-teal-400 transition-all duration-300', '');
+    track.appendChild(fill);
+    barWrap.appendChild(track);
+    card.appendChild(barWrap);
+    const setBar = (pct, failed) => {
+        barWrap.classList.remove('hidden');
+        fill.className = 'h-full rounded-full transition-all duration-300 '
+            + (failed
+                ? 'bg-red-500'
+                : 'bg-gradient-to-r from-sky-500 to-teal-400');
+        fill.style.width = Math.max(0, Math.min(100, failed ? 100 : pct)) + '%';
+    };
+
     const gallery = el('div', 'grid grid-cols-2 gap-2');
     card.appendChild(gallery);
 
@@ -174,6 +202,7 @@ export async function openRenderStudio(name) {
         const samples = (QUALITY.find(q => q.id === qualityId) || QUALITY[1]).samples;
         try {
             status.textContent = 'Sending job to Forge…';
+            setBar(1);
             const r = await fetch(FORGE + '/v1/render.json', {
                 method: 'POST',
                 headers: {
@@ -192,14 +221,38 @@ export async function openRenderStudio(name) {
             status.textContent = 'Queued as ' + job.id
                 + ' — Forge is reconstructing…';
 
+            // Status enums mean approximate phases; forge >0.2.0 sends a
+            // numeric progress with sample-level detail, the fallback keeps
+            // the bar honest against older workers.
+            const guess = (data) => {
+                if (typeof data.progress === 'number') return data.progress;
+                if (data.status === 'done') return 100;
+                if (data.status === 'collage') return 95;
+                if (data.status === 'reconstructing') return 5;
+                if (data.status && data.status.startsWith('rendering:')) {
+                    const all = SHOTS.filter(s => picked.has(s.id)).map(s => s.id);
+                    const i = Math.max(0, all.indexOf(data.status.split(':')[1]));
+                    return 10 + Math.round(85 * i / Math.max(1, all.length));
+                }
+                return 2;
+            };
+
             const poll = setInterval(async () => {
                 let data;
                 try {
                     const jr = await fetch(FORGE + '/v1/jobs/' + job.id);
                     data = await jr.json();
                 } catch (e) { return; }
+                setBar(guess(data));
+                const label = (data.detail
+                    ? (data.detail.charAt(0).toUpperCase() + data.detail.slice(1))
+                    : (data.status.startsWith('rendering:')
+                        ? 'Rendering ' + data.status.split(':')[1] + '…'
+                        : data.status));
+                status.textContent = label + ' (' + guess(data) + '%)';
                 if (data.status === 'failed') {
                     clearInterval(poll);
+                    setBar(100, true);
                     status.textContent = 'Render failed: '
                         + (data.error || 'unknown');
                     go.disabled = false;
@@ -207,6 +260,7 @@ export async function openRenderStudio(name) {
                 }
                 if (data.status === 'done') {
                     clearInterval(poll);
+                    setBar(100);
                     status.textContent = 'Finished — '
                         + (data.artifacts || []).length + ' image(s)';
                     go.disabled = false;
@@ -226,14 +280,9 @@ export async function openRenderStudio(name) {
                     }
                     return;
                 }
-                if (data.status.startsWith('rendering:')) {
-                    status.textContent = 'Rendering shot: '
-                        + data.status.split(':')[1] + '…';
-                } else {
-                    status.textContent = 'Status: ' + data.status;
-                }
             }, 1200);
         } catch (err) {
+            setBar(100, true);
             status.textContent = 'Could not reach Forge ('
                 + ((err && err.message) || 'offline') + ')';
             go.disabled = false;

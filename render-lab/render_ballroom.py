@@ -6,7 +6,9 @@ import bpy
 import json
 import math
 import os
+import re
 import sys
+import time
 import mathutils
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -208,6 +210,39 @@ except Exception:
     pass
 scene.render.film_transparent = False
 
+# ---------- realtime progress ----------
+# stdout is fully buffered when Blender runs behind a pipe, so the sample
+# lines never stream. Instead the render_stats handler writes a sidecar
+# JSON every >=0.4s; the forge worker watches it and feeds the studio's
+# progress bar. Cheap enough to leave on for every forge render.
+PROGRESS_FILE = os.environ.get("FORGE_PROGRESS")
+if PROGRESS_FILE:
+    # Blender passes no stats payload to render_stats here (5.x calls it
+    # with just scene, context), but it fires once per path-tracing tick,
+    # so counting ticks against the sample budget (with the ~1.25x overhead
+    # the probe measured) gives an honest sub-shot fill for the bar. The
+    # worker snaps the shot to its span on exit, so undershoot is harmless.
+    _samples_total = int(os.environ["FORGE_SAMPLES"]) if os.environ.get(
+        "FORGE_SAMPLES") else (384 if PRESET.startswith("grand") else 512)
+    _ticks_target = max(8, int(_samples_total * 1.25) + 5)
+    _state = {"ticks": 0, "last": 0.0}
+
+    def _stats_handler(scene_arg, context):
+        _state["ticks"] += 1
+        now = time.time()
+        if now - _state["last"] < 0.4:
+            return
+        _state["last"] = now
+        try:
+            with open(PROGRESS_FILE, "w") as f:
+                json.dump({"shot": PRESET,
+                           "sample": min(_state["ticks"], _ticks_target),
+                           "samples": _ticks_target}, f)
+        except Exception:
+            pass
+
+    bpy.app.handlers.render_stats.append(_stats_handler)
+
 if PRESET == "saveblend":
     # native .blend: one camera at the grand-wide angle for the GUI session
     cam = bpy.data.cameras.new("cam_gui")
@@ -240,7 +275,12 @@ else:
         camc.rotation_euler = di.to_track_quat("-Z", "Y").to_euler()
         cam.dof.focus_distance = di.length
         scene.camera = camc
-        scene.cycles.samples = 384 if nm.startswith("grand") else 512
+        # A forge payload's sample budget overrides the per-shot default;
+        # without it, keep the grand/detail split as rendered before.
+        scene.cycles.samples = (
+            max(16, int(os.environ["FORGE_SAMPLES"]))
+            if os.environ.get("FORGE_SAMPLES")
+            else (384 if nm.startswith("grand") else 512))
         scene.render.filepath = os.path.join(OUTDIR, "bal_%s.png" % nm)
         bpy.ops.render.render(write_still=True)
         print("RENDERED", nm)

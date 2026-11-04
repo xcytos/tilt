@@ -3,10 +3,12 @@
 
 Endpoints (localhost:8765, bearer token in forge/.token):
   GET  /v1/health
+  GET  /v1/handshake          -> bearer for same-machine pages
   GET  /v1/looks               -> colorway/scene look catalog
   POST /v1/scene/fit           -> computeStageSize parity for a footprint
   POST /v1/render.json         -> submit job {scene, size|footprint, shots[], collage}
-  GET  /v1/jobs/{id}           -> job status/artifacts
+  GET  /v1/jobs/{id}           -> job status/artifacts/progress
+  GET  /v1/artifact/{id}/{f}   -> artifact image
 """
 import json
 import mimetypes
@@ -77,6 +79,58 @@ def _jobs_save():
         json.dump(JOBS, f, indent=1)
 
 
+# Shots render_ballroom.py actually knows (mirrors its SHOTS table) -
+# unknown ids would crash the blender script with a KeyError that exits 0.
+VALID_SHOTS = {
+    "grand-wide", "grand-front", "grand-threeQ", "grand-low", "grand-high",
+    "grand-side", "det-rail", "det-drape", "det-joint", "det-chand",
+    "det-table", "det-mood", "debug-top", "debug-front",
+}
+
+
+# The job dict is the realtime source of truth: pollers read progress
+# (0-100), the current shot and a detail line straight out of JOBS.
+def _progress(job, pct, detail=None):
+    job["progress"] = max(0, min(100, int(pct)))
+    if detail:
+        job["detail"] = detail
+    _jobs_save()
+
+
+# Blender's stdout is fully buffered behind a pipe, so nothing streams
+# from there. render_ballroom.py instead writes sample progress into a
+# sidecar json (FORGE_PROGRESS); this watcher drains it into the job at
+# >=0.6s cadence until the render process exits.
+def _run_render(args, env, job, base_pct, span_pct, progress_file):
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace", cwd=RENDER_LAB, env=env)
+
+    def watch():
+        while proc.poll() is None:
+            try:
+                with open(progress_file) as f:
+                    p = json.load(f)
+                s, d = p.get("sample"), p.get("samples")
+                if isinstance(s, int) and isinstance(d, int) and d > 0:
+                    frac = min(1.0, s / d)
+                    job["detail"] = "%s · sample %d/%d" % (job.get("shot") or "", s, d)
+                    job["progress"] = int(base_pct + frac * span_pct)
+                    _jobs_save()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            proc.poll()
+            time.sleep(0.6)
+
+    w = threading.Thread(target=watch, daemon=True, name="job-" + str(job.get("id")))
+    w.start()
+    rc = proc.wait()
+    w.join(timeout=2)
+    _progress(job, base_pct + span_pct)
+    return rc
+
+
 WORKQ = queue.Queue()
 
 
@@ -90,9 +144,14 @@ def worker():
             payload = job["payload"]
             scene = payload.get("scene", "ballroom")
             quality = payload.get("quality", {})
-            shots = payload.get("shots") or ["grand-wide"]
+            wanted = payload.get("shots") or ["grand-wide"]
+            shots = [s for s in wanted if s in VALID_SHOTS] or ["grand-wide"]
+            if len(shots) != len(wanted):
+                job["notice"] = "unknown shots dropped: " + \
+                    ", ".join(s for s in wanted if s not in VALID_SHOTS)
             size = payload.get("size") or compute_stage_size(payload.get("footprint"))
             job["status"] = "reconstructing"
+            _progress(job, 3, "Reconstructing scene…")
             recon_payload = {"scene": scene, "size": size}
             pjson = os.path.join(jdir, "payload.json")
             with open(pjson, "w") as f:
@@ -107,30 +166,39 @@ def worker():
             obj = os.path.join(jdir, "scene.obj")
             data = os.path.join(jdir, "scene_data.json")
             artifacts = []
+            n = max(1, len(shots))
+            job["shots_total"] = n
+            base = 6
+            span = int(90 / n)
             env = dict(os.environ)
             if quality.get("samples"):
                 env["FORGE_SAMPLES"] = str(int(quality["samples"]))
             if quality.get("4k"):
                 env["FORGE_RES_X"], env["FORGE_RES_Y"] = "3840", "2160"
-            for shot in shots:
+            for idx, shot in enumerate(shots):
                 job["status"] = "rendering:" + shot
-                _jobs_save()
-                b = subprocess.run(
+                job["shot"] = shot
+                job["shot_index"] = idx
+                job["detail"] = "Scene build…"
+                _progress(job, base, "Scene build for %s…" % shot)
+                b = _run_render(
                     [BLENDER, "--background", "--factory-startup",
                      "--python", os.path.join(RENDER_LAB, "render_ballroom.py"),
                      "--", obj, jdir, shot, data],
-                    capture_output=True, text=True, cwd=RENDER_LAB, timeout=900, env=env)
+                    env, job, base, span, os.path.join(jdir, "progress.json"))
                 png = os.path.join(jdir, "bal_%s.png" % shot)
-                if b.returncode != 0 or not os.path.exists(png):
+                if b != 0 or not os.path.exists(png):
                     job["status"] = "failed"
-                    job["error"] = ("render %s: " % shot) + (b.stderr or b.stdout)[-800:]
+                    job["error"] = ("render %s: interrupted (exit %s)"
+                                    % (shot, b))[:200]
                     _jobs_save()
                     break
                 artifacts.append(os.path.basename(png))
+                base += span
             else:
                 if payload.get("collage") and artifacts:
                     job["status"] = "collage"
-                    _jobs_save()
+                    _progress(job, 97, "Composing labeled collage…")
                     c = subprocess.run(["python", os.path.join(HERE, "collage.py"), jdir]
                                        + artifacts, capture_output=True, text=True, timeout=300)
                     cpath = os.path.join(jdir, "collage.png")
@@ -138,6 +206,7 @@ def worker():
                         artifacts.append("collage.png")
                 job["status"] = "done"
                 job["artifacts"] = artifacts
+                _progress(job, 100, "Done")
         except Exception as e:
             job["status"] = "failed"
             job["error"] = repr(e)[:500]
@@ -161,7 +230,7 @@ MIME = {".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json"}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "TiltForge/0.2.0"
+    server_version = "TiltForge/0.2.1"
 
     def _cors(self):
         origin = self.headers.get("Origin") or ""
@@ -194,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin") or ""
         local = _local_origin(origin)
         if self.path == "/v1/health":
-            self._send(200, {"service": "tilt-forge", "version": "0.2.0",
+            self._send(200, {"service": "tilt-forge", "version": "0.2.1",
                              "blender": os.path.exists(BLENDER), "jobs": len(JOBS)})
         elif self.path == "/v1/handshake":
             # Browser cannot read forge/.token, so a page served locally gets
