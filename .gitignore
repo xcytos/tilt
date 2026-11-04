@@ -1,4 +1,6 @@
-tests/vendor/
-tests/.tmp/
-data/
-project.json
+render-lab/node_modules/
+render-lab/out/
+forge/.token
+forge/jobs.json
+forge/artifacts/
+forge/node_modules/
