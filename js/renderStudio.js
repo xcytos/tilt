@@ -104,6 +104,13 @@ export async function openRenderStudio(name, opts) {
     // Forge reachable? Everything below is meaningless without it - the
     // token probe doubles as the reachability check.
     const token = await forgeToken();
+    // A render started in a previous modal session (the tab reload, the
+    // scrim got closed) can be reattached: the job id + submit time live
+    // in sessionStorage and the poll resumes from the live job record.
+    const reattachMeta = (() => {
+        try { return JSON.parse(sessionStorage.getItem('tilt-forge-job') || 'null'); }
+        catch { return null; }
+    })();
 
     const scrim = el('div', SHEET_CLS);
     scrim.id = 'render-studio';
@@ -177,12 +184,17 @@ export async function openRenderStudio(name, opts) {
         + 'text-gray-600 dark:text-zinc-300 hover:bg-gray-100 '
         + 'dark:hover:bg-zinc-800', 'Close');
     const go = el('button', 'px-3 py-2 rounded-lg text-sm font-semibold '
-        + 'bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50',
-        'Render current view');
+        + 'bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50 '
+        + 'disabled:cursor-not-allowed', 'Render current view');
     go.type = 'button';
     close.type = 'button';
     actions.append(close, go);
     card.appendChild(actions);
+
+    const cardHint = el('p', 'text-[10px] text-gray-400 dark:text-zinc-500',
+        'You can close this window while a render runs - Forge keeps working, '
+        + 'and reopening the studio reattaches to it.');
+    card.appendChild(cardHint);
 
     // Secondary, demoted lane: fixed camera presets for catalog shots.
     const presets = el('details', 'pt-1 border-t border-gray-100 dark:border-zinc-800');
@@ -207,6 +219,7 @@ export async function openRenderStudio(name, opts) {
     function onKey(e) { if (e.key === 'Escape') close.click(); }
     close.addEventListener('click', () => {
         document.removeEventListener('keydown', onKey, true);
+        stopElapsed();
         scrim.remove();
     });
     document.addEventListener('keydown', onKey, true);
@@ -219,12 +232,43 @@ export async function openRenderStudio(name, opts) {
         return { samples: q.samples, res, '4k': !!fourK.on };
     }
 
+    // One render at a time, regardless of which submit button fired: both
+    // lane buttons lock together so two jobs can never write into the same
+    // sidecar progress lane.
+    const busy = { on: false };
+    function lockBusy(on) {
+        busy.on = on;
+        go.disabled = on;
+        pGo.disabled = on;
+        presets.disabled = on;
+    }
+    let elapsedTimer = 0;
+    const startElapsed = (fromTs) => {
+        const t0 = fromTs || Date.now();
+        stopElapsed();
+        elapsedTimer = setInterval(() => {
+            const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+            if (s >= 5) {
+                const base = status.textContent.replace(/\s*\(\d+s\)\s*$/, '');
+                status.textContent = base + ' (' + s + 's elapsed)';
+            }
+        }, 1000);
+    };
+    function stopElapsed() {
+        if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = 0; }
+    }
+    const elapsedOf = () => {
+        if (!reattachMeta || !reattachMeta.started) return undefined;
+        return (Date.now() - reattachMeta.started) / 1000;
+    };
+
     async function submit(spec, busyBtn) {
-        if (!token) return;
-        busyBtn.disabled = true;
+        if (!token || busy.on) return;
+        lockBusy(true);
         gallery.textContent = '';
         try {
-            status.textContent = 'Sending job to Forge…';
+            status.textContent = 'Sending job to Forge… (view: '
+                + (spec.view ? 'your current camera' : 'studio presets') + ')';
             setBar(1);
             const r = await fetch(FORGE + '/v1/render.json', {
                 method: 'POST',
@@ -236,74 +280,123 @@ export async function openRenderStudio(name, opts) {
             });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const job = await r.json();
-
-            // Status enums mean approximate phases; forge >0.3.0 sends a
-            // numeric progress with sample-level detail, the fallback keeps
-            // the bar honest against older workers.
-            const guess = (data) => {
-                if (typeof data.progress === 'number') return data.progress;
-                if (data.status === 'done') return 100;
-                if (data.status === 'collage') return 95;
-                if (data.status === 'preparing') return 10;
-                if (data.status && data.status.startsWith('rendering:')) return 50;
-                return 2;
-            };
-
-            const poll = setInterval(async () => {
-                let data;
-                try {
-                    const jr = await fetch(FORGE + '/v1/jobs/' + job.id);
-                    data = await jr.json();
-                } catch (e) { return; }
-                setBar(guess(data));
-                const label = (data.detail
-                    ? (data.detail.charAt(0).toUpperCase() + data.detail.slice(1))
-                    : (data.status.startsWith('preparing')
-                        ? 'Building photoreal scene (one-time)…'
-                        : data.status.startsWith('rendering:')
-                            ? 'Rendering ' + data.status.split(':')[1] + '…'
-                            : data.status));
-                status.textContent = label + ' (' + guess(data) + '%)'
-                    + (data.cache ? ' · scene cache: ' + data.cache : '');
-                if (data.status === 'failed') {
-                    clearInterval(poll);
-                    setBar(100, true);
-                    status.textContent = 'Render failed: '
-                        + (data.error || 'unknown');
-                    busyBtn.disabled = false;
-                    return;
-                }
-                if (data.status === 'done') {
-                    clearInterval(poll);
-                    setBar(100);
-                    status.textContent = 'Finished — '
-                        + (data.artifacts || []).length + ' image(s)'
-                        + (typeof data.seconds === 'number'
-                            ? ' in ' + data.seconds.toFixed(1) + 's' : '');
-                    busyBtn.disabled = false;
-                    for (const file of (data.artifacts || [])) {
-                        const cell = el('div', 'rounded-lg overflow-hidden border '
-                            + 'border-gray-200 dark:border-zinc-700 bg-gray-50 '
-                            + 'dark:bg-zinc-800');
-                        const img = document.createElement('img');
-                        img.src = FORGE + '/v1/artifact/' + job.id + '/' + file;
-                        img.alt = file;
-                        img.loading = 'lazy';
-                        img.className = 'w-full h-32 object-cover';
-                        const cap = el('div', 'px-2 py-1 text-[10px] font-semibold '
-                            + 'text-gray-500 dark:text-zinc-400 truncate', file);
-                        cell.append(img, cap);
-                        gallery.appendChild(cell);
-                    }
-                    return;
-                }
-            }, 1200);
+            const started = Date.now();
+            sessionStorage.setItem('tilt-forge-job', JSON.stringify({
+                id: job.id, started, mode: spec.view ? 'view' : 'presets'
+            }));
+            watchJob(job.id, started);
         } catch (err) {
             setBar(100, true);
             status.textContent = 'Could not reach Forge ('
                 + ((err && err.message) || 'offline') + ')';
-            busyBtn.disabled = false;
+            lockBusy(false);
         }
+    }
+
+    // One shared poll loop, also used by reattach: the modal is disposable
+    // (close/reopen) but the job keeps running on Forge, so the poll is the
+    // ONLY source of truth for terminal states and gallery fills.
+    const guess = (data) => {
+        if (typeof data.progress === 'number') return data.progress;
+        if (data.status === 'done') return 100;
+        if (data.status === 'collage') return 95;
+        if (data.status === 'preparing') return 10;
+        if (data.status && data.status.startsWith('rendering:')) return 50;
+        return 2;
+    };
+
+    async function fillGallery(id, artifacts) {
+        gallery.textContent = '';
+        for (const file of artifacts) {
+            const cell = el('div', 'rounded-lg overflow-hidden border '
+                + 'border-gray-200 dark:border-zinc-700 bg-gray-50 '
+                + 'dark:bg-zinc-800');
+            const img = document.createElement('img');
+            img.src = FORGE + '/v1/artifact/' + id + '/' + file;
+            img.alt = file;
+            img.loading = 'lazy';
+            img.className = 'w-full h-32 object-cover';
+            const cap = el('div', 'px-2 py-1 text-[10px] font-semibold '
+                + 'text-gray-500 dark:text-zinc-400 truncate', file);
+            cell.append(img, cap);
+            gallery.appendChild(cell);
+        }
+    }
+
+    function watchJob(id, startedTs) {
+        stopElapsed();
+        startElapsed(startedTs);
+        let poll = setInterval(() => pollTick(), 1200);
+
+        async function pollTick() {
+            let data;
+            try {
+                const jr = await fetch(FORGE + '/v1/jobs/' + id);
+                if (!jr.ok) return;
+                data = await jr.json();
+            } catch (e) { return; }
+            const pct = guess(data);
+            setBar(pct);
+            const label = (data.detail
+                ? (data.detail.charAt(0).toUpperCase() + data.detail.slice(1))
+                : (data.status.startsWith('preparing')
+                    ? 'Building photoreal scene (one-time)…'
+                    : data.status.startsWith('rendering:')
+                        ? 'Rendering ' + data.status.split(':')[1] + '…'
+                        : data.status));
+            status.textContent = label + ' (' + pct + '%)'
+                + (data.cache ? ' · scene cache: ' + data.cache : '');
+            if (data.status === 'failed') {
+                clearInterval(poll); poll = 0;
+                setBar(100, true);
+                stopElapsed();
+                status.textContent = 'Render failed: ' + (data.error || 'unknown');
+                sessionStorage.removeItem('tilt-forge-job');
+                lockBusy(false);
+                return;
+            }
+            if (data.status === 'done') {
+                clearInterval(poll); poll = 0;
+                setBar(100);
+                stopElapsed();
+                status.textContent = 'Finished — '
+                    + (data.artifacts || []).length + ' image(s)'
+                    + (typeof data.seconds === 'number'
+                        ? ' in ' + data.seconds.toFixed(1) + 's' : '');
+                sessionStorage.removeItem('tilt-forge-job');
+                lockBusy(false);
+                fillGallery(id, data.artifacts || []);
+            }
+        }
+    }
+
+    // Reattach on open: a job submitted before the modal closed (or the tab
+    // reloaded) resumes the bar where Forge is now.
+    if (reattachMeta && token) {
+        fetch(FORGE + '/v1/jobs/' + reattachMeta.id)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data || data.status === 'failed') {
+                    sessionStorage.removeItem('tilt-forge-job');
+                    if (data && data.status === 'failed') {
+                        setBar(100, true);
+                        status.textContent = 'Previous render failed: '
+                            + (data.error || 'unknown');
+                    }
+                    return;
+                }
+                if (data.status === 'done') {
+                    sessionStorage.removeItem('tilt-forge-job');
+                    stopElapsed();
+                    status.textContent = 'Previous render finished — '
+                        + (data.artifacts || []).length + ' image(s)';
+                    fillGallery(reattachMeta.id, data.artifacts || []);
+                    return;
+                }
+                status.textContent = 'Reattached to the render started earlier…';
+                watchJob(reattachMeta.id, reattachMeta.started);
+            })
+            .catch(() => { /* forge offline - normal path handles it */ });
     }
 
     // Primary: exact current viewer camera, captured when clicked.
