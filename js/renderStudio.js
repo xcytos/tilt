@@ -232,6 +232,19 @@ export async function openRenderStudio(name, opts) {
         return { samples: q.samples, res, '4k': !!fourK.on };
     }
 
+    // The PNG must crop like the viewer screen does: the render frame keeps
+    // the captured aspect (same vertical fov, same horizontal fov), so a
+    // wide WebGL canvas yields a wide panoramic render instead of a tiny
+    // band inside a tall 16:9 frame.
+    function resFor(aspect, tier) {
+        let a = Math.max(0.5, Math.min(4.5, Number(aspect) || 1.333));
+        const short = { draft: 720, standard: 1152, high: 2160 }[tier || 'draft'] || 720;
+        let w, h;
+        if (a >= 1) { w = Math.round(short * a); h = short; }
+        else { w = short; h = Math.round(short / a); }
+        return [Math.min(3840, Math.max(320, w)), Math.min(2160, Math.max(320, h))];
+    }
+
     // One render at a time, regardless of which submit button fired: both
     // lane buttons lock together so two jobs can never write into the same
     // sidecar progress lane.
@@ -427,13 +440,16 @@ export async function openRenderStudio(name, opts) {
             return;
         }
         const q = qualityOf();
+        const res = fourK.on
+            ? [3840, 2160]
+            : resFor(view.aspect, [...qPick][0]);
         await submit({
             scene: view.scene || 'ballroom',
             view: {
                 position: view.position, target: view.target,
                 fov: view.fov || 45, aspect: view.aspect || 1.333
             },
-            quality: { samples: q.samples, '4k': q['4k'] },
+            quality: { samples: q.samples, '4k': false, res },
             watch: !!watch.on
         }, go);
     });

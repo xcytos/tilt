@@ -225,9 +225,12 @@ def worker():
             env = dict(os.environ)
             if quality.get("samples"):
                 env["FORGE_SAMPLES"] = str(int(quality["samples"]))
-            rx, ry = "3840", "2160"
-            if not quality.get("4k") and isinstance(quality.get("res"), list) \
-                    and len(quality["res"]) == 2:
+            # Standard tier is the default; view jobs may widen it via
+            # quality.res (the modal matches the viewer's aspect there).
+            rx, ry = "2048", "1152"
+            if quality.get("4k"):
+                rx, ry = "3840", "2160"
+            elif isinstance(quality.get("res"), list) and len(quality["res"]) == 2:
                 try:
                     rx, ry = str(int(quality["res"][0])), str(int(quality["res"][1]))
                 except Exception:
