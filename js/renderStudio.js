@@ -416,6 +416,16 @@ export async function openRenderStudio(name, opts) {
                 + 'use Studio presets below.';
             return;
         }
+        // Catch unsupported scenes at capture time: a failed round-trip
+        // tells the same story with worse UX (dead job record, red bar).
+        if ((view.scene || 'ballroom') !== 'ballroom') {
+            status.textContent = '"' + view.scene + '" is WebGL-only for now - '
+                + 'photoreal rendering covers the Ballroom. Switch the scene to '
+                + 'Ballroom and render again, or use Studio presets below.';
+            setBar(0);
+            barWrap.classList.add('hidden');
+            return;
+        }
         const q = qualityOf();
         await submit({
             scene: view.scene || 'ballroom',
