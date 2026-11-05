@@ -2237,7 +2237,21 @@ editor = createEditor({
     onRender: async () => {
         try {
             const studio = await import('./renderStudio.js');
-            await studio.openRenderStudio(projectName);
+            // Live camera capture: the exact-view lane gets the viewer's
+            // real position/target (three.js meters) plus fov/aspect, so
+            // Blender reproduces the view on screen - no manual shots.
+            await studio.openRenderStudio(projectName, {
+                getView: () => {
+                    const cam = viewer.getCameraState();
+                    return {
+                        position: cam.position,
+                        target: cam.target,
+                        fov: viewer.camera && viewer.camera.fov,
+                        aspect: viewer.camera && viewer.camera.aspect,
+                        scene: sceneId
+                    };
+                }
+            });
         } catch (err) {
             console.error('[render-studio]', err);
             if (editor) editor.flash('Could not open the render studio');

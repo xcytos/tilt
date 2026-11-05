@@ -3,17 +3,22 @@
 // when the overflow menu opens the studio, so the main bundle never pays
 // for this. Same-machine origins only; the bearer token comes from
 // /v1/handshake, artifact images from /v1/artifact/{job}/{file}.
+//
+// Primary lane: "Render current view" - the exact WebGL camera (position/
+// target/fov/aspect captured live by app.js through opts.getView) is sent
+// to forge, which loads its cached prepared scene and matches the Blender
+// camera to it (see render-lab/render_from_blend.py exact-view branch).
+// Studio presets stay available as a secondary, clearly demoted lane.
 
 const FORGE = 'http://127.0.0.1:8765';
 
 const QUALITY = [
-    { id: 'draft', label: 'Draft', samples: 128 },
-    { id: 'standard', label: 'Standard', samples: 384 },
-    { id: 'high', label: 'High', samples: 512 }
+    { id: 'draft', label: 'Draft', samples: 128, res: [1280, 720] },
+    { id: 'standard', label: 'Standard', samples: 384, res: [2048, 1152] },
+    { id: 'high', label: 'High', samples: 512, res: [3840, 2160] }
 ];
 
-// Camera presets mirror render-lab/render_ballroom.py SHOTS - unknown ids
-// would crash the blender script (which exits 0 on its own python errors).
+// Secondary lane only: camera presets mirror ballroom_common.py SHOTS.
 const SHOTS = [
     { id: 'grand-wide', label: 'Grand wide' },
     { id: 'grand-front', label: 'Front' },
@@ -95,7 +100,7 @@ function selRow(options, picked, single) {
     return row;
 }
 
-export async function openRenderStudio(name) {
+export async function openRenderStudio(name, opts) {
     // Forge reachable? Everything below is meaningless without it - the
     // token probe doubles as the reachability check.
     const token = await forgeToken();
@@ -110,25 +115,17 @@ export async function openRenderStudio(name) {
     card.appendChild(el('h2', 'text-base font-bold text-gray-900 dark:text-zinc-100',
         'Photoreal render studio'));
     const sub = name
-        ? 'Rendering "' + name + '" on the local Forge (Blender Cycles).'
+        ? 'Ray-traced render of "' + name + '" on the local Forge (Blender Cycles).'
         : 'Ray-traced render on the local Forge (Blender Cycles).';
     card.appendChild(el('p', 'text-[11px] text-gray-500 dark:text-zinc-400', sub));
 
     const qLabel = el('div', 'text-[11px] font-semibold uppercase tracking-wider '
         + 'text-gray-500 dark:text-zinc-400', 'Quality');
     card.appendChild(qLabel);
-    const qPick = new Set(['standard']);
+    const qPick = new Set(['draft']);
     card.appendChild(selRow(QUALITY, qPick, true));
 
-    const sLabel = el('div', 'text-[11px] font-semibold uppercase tracking-wider '
-        + 'text-gray-500 dark:text-zinc-400', 'Shots');
-    card.appendChild(sLabel);
-    const picked = new Set(['grand-wide', 'grand-front']);
-    card.appendChild(selRow(SHOTS, picked, false));
-
-    // Simple state objects: clicking flips the boolean and the helper
-    // repaints, so the submit handler just reads .on.
-    const collage = { on: true };
+    const watch = { on: false };
     const fourK = { on: false };
     const extras = el('div', 'flex flex-wrap gap-2 text-xs');
 
@@ -143,7 +140,7 @@ export async function openRenderStudio(name) {
         });
         return b;
     }
-    extras.appendChild(toggle('Labeled collage', collage));
+    extras.appendChild(toggle('Show Blender window', watch));
     extras.appendChild(toggle('4K resolution', fourK));
     card.appendChild(extras);
 
@@ -153,7 +150,7 @@ export async function openRenderStudio(name) {
 
     // Progress bar. Hidden until a job is submitted; the poll loop drives
     // the fill straight from the forge job's progress field (the worker
-    // streams Blender's sample lines into it), animated by a small CSS
+    // streams Blender's sample ticks into it), animated by a small CSS
     // transition so 1.2s polls still read as continuous motion.
     const barWrap = el('div', 'hidden', '');
     const track = el('div', 'h-2 w-full rounded-full bg-gray-200 '
@@ -179,12 +176,33 @@ export async function openRenderStudio(name) {
     const close = el('button', 'px-3 py-1.5 rounded-lg text-sm font-semibold '
         + 'text-gray-600 dark:text-zinc-300 hover:bg-gray-100 '
         + 'dark:hover:bg-zinc-800', 'Close');
-    const go = el('button', 'px-3 py-1.5 rounded-lg text-sm font-semibold '
-        + 'bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50', 'Render');
+    const go = el('button', 'px-3 py-2 rounded-lg text-sm font-semibold '
+        + 'bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-50',
+        'Render current view');
     go.type = 'button';
     close.type = 'button';
     actions.append(close, go);
     card.appendChild(actions);
+
+    // Secondary, demoted lane: fixed camera presets for catalog shots.
+    const presets = el('details', 'pt-1 border-t border-gray-100 dark:border-zinc-800');
+    const pSum = el('summary', 'text-[11px] font-semibold text-gray-500 '
+        + 'dark:text-zinc-400 cursor-pointer select-none',
+        'Studio presets (fixed cameras)');
+    presets.appendChild(pSum);
+    const pBody = el('div', 'pt-2 space-y-2');
+    const picked = new Set(['grand-wide', 'grand-front']);
+    pBody.appendChild(selRow(SHOTS, picked, false));
+    const collage = { on: false };
+    const pExtras = el('div', 'flex flex-wrap gap-2 text-xs');
+    pExtras.appendChild(toggle('Labeled collage', collage));
+    const pGo = el('button', CHIP_CLS + CHIP_OFF.replace('text-gray-600', 'text-sky-700'),
+        'Render presets');
+    pGo.type = 'button';
+    pBody.appendChild(pExtras);
+    pBody.appendChild(pGo);
+    presets.appendChild(pBody);
+    card.appendChild(presets);
 
     function onKey(e) { if (e.key === 'Escape') close.click(); }
     close.addEventListener('click', () => {
@@ -194,12 +212,17 @@ export async function openRenderStudio(name) {
     document.addEventListener('keydown', onKey, true);
     scrim.addEventListener('click', e => { if (e.target === scrim) close.click(); });
 
-    go.addEventListener('click', async () => {
+    const qualityId = 'draft';
+    function qualityOf() {
+        const q = QUALITY.find(v => v.id === ([...qPick][0] || qualityId)) || QUALITY[0];
+        const res = fourK.on ? [3840, 2160] : q.res;
+        return { samples: q.samples, res, '4k': !!fourK.on };
+    }
+
+    async function submit(spec, busyBtn) {
         if (!token) return;
-        go.disabled = true;
+        busyBtn.disabled = true;
         gallery.textContent = '';
-        const qualityId = [...qPick][0] || 'standard';
-        const samples = (QUALITY.find(q => q.id === qualityId) || QUALITY[1]).samples;
         try {
             status.textContent = 'Sending job to Forge…';
             setBar(1);
@@ -209,31 +232,20 @@ export async function openRenderStudio(name) {
                     'Authorization': 'Bearer ' + token,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    scene: 'ballroom',
-                    shots: SHOTS.filter(s => picked.has(s.id)).map(s => s.id),
-                    quality: { samples, '4k': !!fourK.on },
-                    collage: !!collage.on
-                })
+                body: JSON.stringify(spec)
             });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const job = await r.json();
-            status.textContent = 'Queued as ' + job.id
-                + ' — Forge is reconstructing…';
 
-            // Status enums mean approximate phases; forge >0.2.0 sends a
+            // Status enums mean approximate phases; forge >0.3.0 sends a
             // numeric progress with sample-level detail, the fallback keeps
             // the bar honest against older workers.
             const guess = (data) => {
                 if (typeof data.progress === 'number') return data.progress;
                 if (data.status === 'done') return 100;
                 if (data.status === 'collage') return 95;
-                if (data.status === 'reconstructing') return 5;
-                if (data.status && data.status.startsWith('rendering:')) {
-                    const all = SHOTS.filter(s => picked.has(s.id)).map(s => s.id);
-                    const i = Math.max(0, all.indexOf(data.status.split(':')[1]));
-                    return 10 + Math.round(85 * i / Math.max(1, all.length));
-                }
+                if (data.status === 'preparing') return 10;
+                if (data.status && data.status.startsWith('rendering:')) return 50;
                 return 2;
             };
 
@@ -246,24 +258,29 @@ export async function openRenderStudio(name) {
                 setBar(guess(data));
                 const label = (data.detail
                     ? (data.detail.charAt(0).toUpperCase() + data.detail.slice(1))
-                    : (data.status.startsWith('rendering:')
-                        ? 'Rendering ' + data.status.split(':')[1] + '…'
-                        : data.status));
-                status.textContent = label + ' (' + guess(data) + '%)';
+                    : (data.status.startsWith('preparing')
+                        ? 'Building photoreal scene (one-time)…'
+                        : data.status.startsWith('rendering:')
+                            ? 'Rendering ' + data.status.split(':')[1] + '…'
+                            : data.status));
+                status.textContent = label + ' (' + guess(data) + '%)'
+                    + (data.cache ? ' · scene cache: ' + data.cache : '');
                 if (data.status === 'failed') {
                     clearInterval(poll);
                     setBar(100, true);
                     status.textContent = 'Render failed: '
                         + (data.error || 'unknown');
-                    go.disabled = false;
+                    busyBtn.disabled = false;
                     return;
                 }
                 if (data.status === 'done') {
                     clearInterval(poll);
                     setBar(100);
                     status.textContent = 'Finished — '
-                        + (data.artifacts || []).length + ' image(s)';
-                    go.disabled = false;
+                        + (data.artifacts || []).length + ' image(s)'
+                        + (typeof data.seconds === 'number'
+                            ? ' in ' + data.seconds.toFixed(1) + 's' : '');
+                    busyBtn.disabled = false;
                     for (const file of (data.artifacts || [])) {
                         const cell = el('div', 'rounded-lg overflow-hidden border '
                             + 'border-gray-200 dark:border-zinc-700 bg-gray-50 '
@@ -285,8 +302,50 @@ export async function openRenderStudio(name) {
             setBar(100, true);
             status.textContent = 'Could not reach Forge ('
                 + ((err && err.message) || 'offline') + ')';
-            go.disabled = false;
+            busyBtn.disabled = false;
         }
+    }
+
+    // Primary: exact current viewer camera, captured when clicked.
+    go.addEventListener('click', async () => {
+        if (!token) return;
+        if (typeof (opts && opts.getView) !== 'function') {
+            status.textContent = 'Current-view capture unavailable here - '
+                + 'use Studio presets below.';
+            return;
+        }
+        let view;
+        try {
+            view = opts.getView();
+        } catch (e) { view = null; }
+        if (!view || !view.position || !view.target) {
+            status.textContent = 'Camera state unavailable in this scene - '
+                + 'use Studio presets below.';
+            return;
+        }
+        const q = qualityOf();
+        await submit({
+            scene: view.scene || 'ballroom',
+            view: {
+                position: view.position, target: view.target,
+                fov: view.fov || 45, aspect: view.aspect || 1.333
+            },
+            quality: { samples: q.samples, '4k': q['4k'] },
+            watch: !!watch.on
+        }, go);
+    });
+
+    // Secondary: preset shots (multi), optional labeled collage.
+    pGo.addEventListener('click', async () => {
+        if (!token) return;
+        const q = qualityOf();
+        await submit({
+            scene: 'ballroom',
+            shots: SHOTS.filter(s => picked.has(s.id)).map(s => s.id),
+            quality: { samples: q.samples, res: q.res, '4k': q['4k'] },
+            collage: !!collage.on,
+            watch: !!watch.on
+        }, pGo);
     });
 
     document.body.appendChild(scrim);

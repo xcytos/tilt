@@ -3,4 +3,6 @@ render-lab/out/
 forge/.token
 forge/jobs.json
 forge/artifacts/
+forge/cache/
 forge/node_modules/
+__pycache__/
