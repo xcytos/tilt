@@ -129,13 +129,15 @@ bg.inputs[1].default_value = 0.12
 bpy.context.scene.world = world
 
 # ---------- lights: codebase exact lamps ----------
+# OBJ import lands three.js (x, y, z) feet at blender (x, -z, y) meters, so
+# every authored three-Z below is negated on entry (P-018 geometry audit).
 for i, L in enumerate(BD["lamps"]):
     d = bpy.data.lights.new("lamp%d" % i, type="POINT")
     d.energy = L["watts"] * 6.0
     d.color = hexc("%x" % L["color"])
     d.shadow_soft_size = 0.3
     o = bpy.data.objects.new("lamp%d" % i, d)
-    o.location = (L["x"] * FT, L["z"] * FT, L["y"] * FT)
+    o.location = (L["x"] * FT, -L["z"] * FT, L["y"] * FT)
     bpy.context.collection.objects.link(o)
 
 def add_area_light(name, loc_ft, target_ft, size_ft, watts, rgbhex):
@@ -146,9 +148,9 @@ def add_area_light(name, loc_ft, target_ft, size_ft, watts, rgbhex):
     d.color = hexc(rgbhex)
     o = bpy.data.objects.new(name, d)
     bpy.context.collection.objects.link(o)
-    x, y, z = (loc_ft[0] * FT, loc_ft[2] * FT, loc_ft[1] * FT)
+    x, y, z = (loc_ft[0] * FT, -loc_ft[2] * FT, loc_ft[1] * FT)
     o.location = (x, y, z)
-    tx, ty, tz = (target_ft[0] * FT, target_ft[2] * FT, target_ft[1] * FT)
+    tx, ty, tz = (target_ft[0] * FT, -target_ft[2] * FT, target_ft[1] * FT)
     di = mathutils.Vector((tx - x, ty - y, tz - z))
     o.rotation_euler = di.to_track_quat("-Z", "Y").to_euler()
     return o
@@ -250,8 +252,8 @@ if PRESET == "saveblend":
     camc = bpy.data.objects.new("cam_gui", cam)
     bpy.context.collection.objects.link(camc)
     l = SHOTS["grand-wide"]
-    lx, ly, lz = (l["loc"][0] * FT, l["loc"][2] * FT, l["loc"][1] * FT)
-    tx, ty, tz = (l["look"][0] * FT, l["look"][2] * FT, l["look"][1] * FT)
+    lx, ly, lz = (l["loc"][0] * FT, -l["loc"][2] * FT, l["loc"][1] * FT)
+    tx, ty, tz = (l["look"][0] * FT, -l["look"][2] * FT, l["look"][1] * FT)
     camc.location = (lx, ly, lz)
     di = mathutils.Vector((tx - lx, ty - ly, tz - lz))
     camc.rotation_euler = di.to_track_quat("-Z", "Y").to_euler()
@@ -268,8 +270,8 @@ else:
         cam.dof.aperture_fstop = S["f"]
         camc = bpy.data.objects.new("cam_%s" % nm, cam)
         bpy.context.collection.objects.link(camc)
-        lx, ly, lz = (S["loc"][0] * FT, S["loc"][2] * FT, S["loc"][1] * FT)
-        tx, ty, tz = (S["look"][0] * FT, S["look"][2] * FT, S["look"][1] * FT)
+        lx, ly, lz = (S["loc"][0] * FT, -S["loc"][2] * FT, S["loc"][1] * FT)
+        tx, ty, tz = (S["look"][0] * FT, -S["look"][2] * FT, S["look"][1] * FT)
         camc.location = (lx, ly, lz)
         di = mathutils.Vector((tx - lx, ty - ly, tz - lz))
         camc.rotation_euler = di.to_track_quat("-Z", "Y").to_euler()

@@ -57,17 +57,20 @@ loc = None
 name = "view" if PRESET == "exact-view" else PRESET
 
 if PRESET == "exact-view":
-    # TILT viewer -> Blender cam converter. Viewer reports the camera as
-    # three.js world-space units in METERS (scenes are feet x 0.3048):
-    # basin rule (x, y, z)_three -> (x, z, y)_blender
+    # TILT viewer -> Blender cam converter. The viewer reports raw three.js
+    # world units, which for TILT scenes are FEET (product code builds
+    # ballroom/rig geometry 1 ft == 1 unit). Blender OBJ import lands that
+    # y-up content at blender(x, -z, y) (verified on the chandelier bulb
+    # ring), so the camera must follow (x, -z, y) too and scale feet to
+    # meters or the frame is 3.3x too tight (P-018).
     view = json.load(open(SRC))
     p, t = view.get("position"), view.get("target")
     if not p or not t:
         raise SystemExit("view payload needs position[] and target[]")
     fov = float(view.get("fov") or 45.0)
-    aspect = max(0.2, min(4.0, float(view.get("aspect") or 1.333)))
-    loc = mathutils.Vector((p[0], p[2], p[1]))
-    tgt = mathutils.Vector((t[0], t[2], t[1]))
+    aspect = max(0.15, min(6.0, float(view.get("aspect") or 1.333)))
+    loc = mathutils.Vector((p[0] * FT, -p[2] * FT, p[1] * FT))
+    tgt = mathutils.Vector((t[0] * FT, -t[2] * FT, t[1] * FT))
     hfov = 2 * math.atan(math.tan(math.radians(fov) / 2) * aspect)
     camc.lens = max(8, min(1000, 18 / math.tan(hfov / 2)))  # 36mm AUTO fit
     camc.dof.use_dof = True
@@ -77,8 +80,9 @@ if PRESET == "exact-view":
           % (tuple(loc), tuple(tgt), math.degrees(hfov), camc.lens))
 elif PRESET in SHOTS:
     S = SHOTS[PRESET]
-    loc = mathutils.Vector((S["loc"][0] * FT, S["loc"][2] * FT, S["loc"][1] * FT))
-    tgt = mathutils.Vector((S["look"][0] * FT, S["look"][2] * FT, S["look"][1] * FT))
+    # SHOTS are authored in three.js feet; import lands at (x, -z, y).
+    loc = mathutils.Vector((S["loc"][0] * FT, -S["loc"][2] * FT, S["loc"][1] * FT))
+    tgt = mathutils.Vector((S["look"][0] * FT, -S["look"][2] * FT, S["look"][1] * FT))
     camc.lens = S["lens"]
     camc.dof.use_dof = True
     camc.dof.focus_distance = max(0.1, (tgt - loc).length)

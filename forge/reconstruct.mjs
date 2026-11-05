@@ -69,6 +69,11 @@ root.traverse((o) => {
     }
 });
 
+// OBJExporter bakes vertices with mesh.matrixWorld: the rig got its world
+// matrices from its own updateMatrixWorld, but ballroom dressing added to
+// root after that still has identity matrices - without this refresh every
+// room part exports collapsed at the origin (P-018).
+root.updateMatrixWorld(true);
 const obj = new OBJExporter().parse(root);
 const objPath = outDir.endsWith('/') ? outDir + 'scene.obj' : outDir + '\\scene.obj';
 fs.writeFileSync(objPath, obj, 'utf8');
