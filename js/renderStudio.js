@@ -440,9 +440,14 @@ export async function openRenderStudio(name, opts) {
             return;
         }
         const q = qualityOf();
+        // ONE clamped aspect for both the pixel size and the lens math, so
+        // width and fov stay coupled: an unclamped 5.25:1 canvas rendered at
+        // resFor's 4.5:1 would frame narrower than the viewer screen. Same
+        // 0.5-4.5 window resFor uses defensively as a second layer.
+        const aspect = Math.max(0.5, Math.min(4.5, Number(view.aspect) || 1.333));
         const res = fourK.on
             ? [3840, 2160]
-            : resFor(view.aspect, [...qPick][0]);
+            : resFor(aspect, [...qPick][0]);
         const rig = (() => {
             try {
                 return typeof (opts && opts.getRig) === 'function'
@@ -453,7 +458,7 @@ export async function openRenderStudio(name, opts) {
             scene: view.scene || 'ballroom',
             view: {
                 position: view.position, target: view.target,
-                fov: view.fov || 45, aspect: view.aspect || 1.333
+                fov: view.fov || 45, aspect
             },
             quality: { samples: q.samples, '4k': false, res },
             watch: !!watch.on

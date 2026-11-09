@@ -73,6 +73,11 @@ if PRESET == "exact-view":
     tgt = mathutils.Vector((t[0] * FT, -t[2] * FT, t[1] * FT))
     hfov = 2 * math.atan(math.tan(math.radians(fov) / 2) * aspect)
     camc.lens = max(8, min(1000, 18 / math.tan(hfov / 2)))  # 36mm AUTO fit
+    # The lens above is derived from the HORIZONTAL fov; Blender's auto fit
+    # would switch to the sensor height on portrait renders (rx < ry) and
+    # then the same lens pinches the fov ~aspect-fold too tight vertically.
+    # Pinning the fit to horizontal keeps viewer == render at every aspect.
+    camc.sensor_fit = 'HORIZONTAL'
     camc.dof.use_dof = True
     camc.dof.focus_distance = max(0.1, (tgt - loc).length)
     camc.dof.aperture_fstop = 4.5
