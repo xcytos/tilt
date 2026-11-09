@@ -267,8 +267,11 @@ export function createObjectChip(ctx) {
     function attachPreview(tile, btn, pkey) {
         const p = ctx.preview;
         if (typeof p.ok === 'function' && !p.ok()) return;
-        const put = url => {
-            if (!url || !tile.isConnected) return;
+        // cardEl runs before grid.appendChild, so a cached hit lands while
+        // the tile is still detached - only the async path may gate on
+        // isConnected (to skip cards the tray discarded meanwhile).
+        const paint = url => {
+            if (!url) return;
             const img = document.createElement('img');
             img.alt = '';
             img.src = url;
@@ -276,11 +279,14 @@ export function createObjectChip(ctx) {
             tile.appendChild(img);
         };
         const hit = p.cached(pkey);
-        if (hit !== undefined) { put(hit); return; }
+        if (hit !== undefined) { paint(hit); return; }
         const io = new IntersectionObserver(entries => {
             if (!entries.some(e => e.isIntersecting)) return;
             io.disconnect();
-            Promise.resolve(p.request(pkey)).then(put);
+            Promise.resolve(p.request(pkey)).then(url => {
+                if (!url || !tile.isConnected) return;
+                paint(url);
+            });
         }, { rootMargin: '160px' });
         io.observe(btn);
     }

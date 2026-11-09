@@ -430,6 +430,14 @@ check('cards paint a cached PNG first and keep the glyph as fallback',
   && /p\.cached\(pkey\)/.test(objchipSrc)
   && /attachPreview\(tile, b, card\.previewKey \|\| card\.key\)/.test(objchipSrc)
   && /objcard-tile img/.test(shell));
+// cardEl attaches previews before grid.appendChild: a click-triggered
+// refresh must still repaint from cache on a detached tile, or every
+// thumbnail silently reverts to the glyph until a reload empties the cache.
+const attachSrc = (objchipSrc.match(/function attachPreview[\s\S]*?\n    \}/) || [''])[0];
+check('a cached thumbnail paints even before the card reaches the DOM',
+  /if \(hit !== undefined\) \{ paint\(hit\); return; \}/.test(attachSrc)
+  && attachSrc.indexOf('paint(hit)') < attachSrc.indexOf('!tile.isConnected')
+  && /!url \|\| !tile\.isConnected/.test(attachSrc));
 check('an edited arrangement re-renders through a settings rev',
   /previewKey: 'flower:' \+ a\.id \+ ':' \+ revOf/.test(panelSrc)
   && /lastIndexOf\(':'\)/.test(appSrc));
