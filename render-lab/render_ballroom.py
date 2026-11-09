@@ -108,7 +108,21 @@ MATSET = {
     "strand": emission("strand", hexc("ffedc8"), 16.0, base_rgb=hexc("fff8ea")),
 }
 
+import re as _re
+
+_fab_cache = {}
 for o in meshes:
+    base = o.name.lower().split('-')[0]
+    # The client colorway names fabric meshes by their own 6-hex prefix
+    # (e.g. "d4a9a0-3"): anything hex-shaped that is not one of the fixed
+    # materials gets a full sheen cloth material in that actual colour,
+    # so every palette the user picks stays the colour they picked.
+    if _re.fullmatch(r'[0-9a-f]{6}', base) and base not in MATSET:
+        if base not in _fab_cache:
+            _fab_cache[base] = principled("cloth_" + base, hexc(base), 0.82, 0.0, sheen=0.55)
+        o.data.materials.clear()
+        o.data.materials.append(_fab_cache[base])
+        continue
     key = None
     for k in MATSET:
         if o.name.lower().startswith(k):

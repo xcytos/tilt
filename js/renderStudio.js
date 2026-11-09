@@ -443,7 +443,13 @@ export async function openRenderStudio(name, opts) {
         const res = fourK.on
             ? [3840, 2160]
             : resFor(view.aspect, [...qPick][0]);
-        await submit({
+        const rig = (() => {
+            try {
+                return typeof (opts && opts.getRig) === 'function'
+                    ? opts.getRig() : null;
+            } catch { return null; }
+        })();
+        const payload = {
             scene: view.scene || 'ballroom',
             view: {
                 position: view.position, target: view.target,
@@ -451,20 +457,30 @@ export async function openRenderStudio(name, opts) {
             },
             quality: { samples: q.samples, '4k': false, res },
             watch: !!watch.on
-        }, go);
+        };
+        if (rig) payload.rig = rig;
+        await submit(payload, go);
     });
 
     // Secondary: preset shots (multi), optional labeled collage.
     pGo.addEventListener('click', async () => {
         if (!token) return;
         const q = qualityOf();
-        await submit({
+        const rig = (() => {
+            try {
+                return typeof (opts && opts.getRig) === 'function'
+                    ? opts.getRig() : null;
+            } catch { return null; }
+        })();
+        const payload = {
             scene: 'ballroom',
             shots: SHOTS.filter(s => picked.has(s.id)).map(s => s.id),
             quality: { samples: q.samples, res: q.res, '4k': q['4k'] },
             collage: !!collage.on,
             watch: !!watch.on
-        }, pGo);
+        };
+        if (rig) payload.rig = rig;
+        await submit(payload, pGo);
     });
 
     document.body.appendChild(scrim);

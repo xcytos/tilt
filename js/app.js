@@ -74,6 +74,31 @@ function fabricHex() {
     const hit = colorwayById(colorwayId);
     return hit ? hit.fabric : null;
 }
+
+// Live spec for the photoreal forge: each mounted frame's own params state
+// plus its placed spot on the ballroom floor. The forge rebuilds exactly
+// this client-side truth instead of a default prop - colors, curtain
+// toggles and set shapes all travel with it. Pillar/flower/light mounts
+// ride along later (forge covers frames today).
+function rigSpec() {
+    const frames = [];
+    for (const [key, models] of mounted) {
+        if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
+        for (const m of models) {
+            const o = m.object3D;
+            frames.push({
+                state: Object.assign({}, m.state),
+                x: o.position.x, z: o.position.z, ry: o.rotation.y
+            });
+        }
+    }
+    if (!frames.length) return null;
+    return {
+        frames,
+        fabric: fabricHex(),
+        theme: viewer.isDark ? 'dark' : 'light'
+    };
+}
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
 // coordinates that are yours - one entry per instance, per group - for the
 // frames. Pillars have no coordinates of their own: `framePillars` holds
@@ -2250,7 +2275,8 @@ editor = createEditor({
                         aspect: viewer.camera && viewer.camera.aspect,
                         scene: sceneId
                     };
-                }
+                },
+                getRig: rigSpec
             });
         } catch (err) {
             console.error('[render-studio]', err);

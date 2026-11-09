@@ -163,14 +163,68 @@ SUPPORTED_SCENES = {"ballroom"}
 
 
 # A prepared blend is the cached scene (geometry + materials + lamps) keyed
-# by scene+size: the first job pays the reconstruct/import/material build
-# once, every later job only swaps the camera and renders.
-def _sig(scene, size):
-    return hashlib.md5(json.dumps([scene, size], sort_keys=True).encode()).hexdigest()[:12]
+# by scene + room size + the live rig spec (frames' params/positions/colors):
+# the first job pays the reconstruct/import/material build once, every later
+# job only swaps the camera and renders. The rig rides in the payload so
+# edited designs get their own cache entry instead of the default prop.
+RIG_ENV_KEYS = ("frames", "fabric", "theme")
 
 
-def _ensure_prepared(job, scene, size):
-    cdir = os.path.join(CACHE, _sig(scene, size))
+def _clean_rig(rig):
+    if not isinstance(rig, dict):
+        return None
+    out = {}
+    frames = rig.get("frames")
+    if isinstance(frames, list) and frames:
+        clean = []
+        for fr in frames:
+            if not isinstance(fr, dict):
+                continue
+            state = fr.get("state")
+            clean.append({
+                "state": state if isinstance(state, dict) else {},
+                "x": fr.get("x", 0), "z": fr.get("z", 0), "ry": fr.get("ry", 0)
+            })
+        if clean:
+            out["frames"] = clean
+    if isinstance(rig.get("fabric"), (str, int)):
+        out["fabric"] = rig["fabric"]
+    if rig.get("theme") in ("light", "dark"):
+        out["theme"] = rig["theme"]
+    return out or None
+
+
+def _sig(scene, size, rig=None):
+    return hashlib.md5(json.dumps(
+        {"scene": scene, "size": size, "rig": rig}, sort_keys=True
+    ).encode()).hexdigest()[:12]
+
+
+# Cache hygiene: keep the newest N prepared scenes; rig edits would
+# otherwise leave every revision's blend on disk forever.
+def _prune_cache(keep=8):
+    try:
+        dirs = [os.path.join(CACHE, d) for d in os.listdir(CACHE)]
+        dirs = [(os.path.getmtime(d), d) for d in dirs
+                if os.path.isdir(d)]
+        for _, d in sorted(dirs)[:-keep]:
+            for name in ("prepared.blend", "scene.obj",
+                         "scene_data.json", "payload.json",
+                         "ballroom_scene.blend"):
+                try:
+                    os.remove(os.path.join(d, name))
+                except OSError:
+                    pass
+            try:
+                os.rmdir(d)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _ensure_prepared(job, scene, size, rig=None):
+    cdir = os.path.join(CACHE, _sig(scene, size, rig))
     prepared = os.path.join(cdir, "prepared.blend")
     if os.path.exists(prepared):
         job["cache"] = "hit"
@@ -183,7 +237,7 @@ def _ensure_prepared(job, scene, size):
         os.makedirs(cdir, exist_ok=True)
         pjson = os.path.join(cdir, "payload.json")
         with open(pjson, "w") as f:
-            json.dump({"scene": scene, "size": size}, f)
+            json.dump({"scene": scene, "size": size, "rig": rig}, f)
         r = subprocess.run(["node", os.path.join(HERE, "reconstruct.mjs"), pjson, cdir],
                            capture_output=True, text=True, cwd=RENDER_LAB, timeout=180)
         if r.returncode != 0:
@@ -203,6 +257,7 @@ def _ensure_prepared(job, scene, size):
                 "prepared blend build failed (rc=%s): %s"
                 % (b.returncode, ((b.stderr or b.stdout) or "no output")[-400:]))
         os.replace(blend, prepared)
+        _prune_cache()
         _progress(job, 45, "Scene cache ready")
         return prepared
     except Exception as e:
@@ -247,7 +302,8 @@ def worker():
                 continue
 
             prepared = _ensure_prepared(job, scene,
-                                        payload.get("size") or compute_stage_size(payload.get("footprint")))
+                                        payload.get("size") or compute_stage_size(payload.get("footprint")),
+                                        _clean_rig(payload.get("rig")))
             if not prepared:
                 continue
 
