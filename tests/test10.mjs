@@ -411,6 +411,31 @@ check('an empty input is an empty tray, not a crash',
   buildObjectCards(null).cards.length === 0
   && buildObjectCards(null).categories.length === 1);
 
+// Card thumbnails: the tray reuses the models page's preview pipeline.
+const previewSrc = read('js/preview.js');
+check('the tray previews ride the shared hub, bundled before the app',
+  orderList.includes('js/preview.js')
+  && orderList.indexOf('js/preview.js') < orderList.indexOf('js/app.js')
+  && /export function createPreviewHub/.test(previewSrc)
+  && /from '\.\/preview\.js'/.test(appSrc)
+  && /previews: trayPreviews/.test(appSrc)
+  && /preview: opts\.previews/.test(panelSrc));
+check('tray card keys map onto the hub build callback',
+  /key\.startsWith\('frame:'\)/.test(appSrc)
+  && /key === PILLAR_ID \|\| key\.startsWith\('light:'\)/.test(appSrc)
+  && /key\.startsWith\('flower:'\)/.test(appSrc)
+  && /PREVIEW_INIT\[type\]/.test(appSrc));
+check('cards paint a cached PNG first and keep the glyph as fallback',
+  /new IntersectionObserver/.test(objchipSrc)
+  && /p\.cached\(pkey\)/.test(objchipSrc)
+  && /attachPreview\(tile, b, card\.previewKey \|\| card\.key\)/.test(objchipSrc)
+  && /objcard-tile img/.test(shell));
+check('an edited arrangement re-renders through a settings rev',
+  /previewKey: 'flower:' \+ a\.id \+ ':' \+ revOf/.test(panelSrc)
+  && /lastIndexOf\(':'\)/.test(appSrc));
+check('the hub lets go of its GL context when the page goes away',
+  /trayPreviews\.dispose\(\)/.test(appSrc));
+
 // -------------------------------------------------------------- 6. mobile
 console.log('\nmobile: the editor on a phone');
 const media = shell.match(/@media[^{]+\{/g) || [];

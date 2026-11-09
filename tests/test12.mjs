@@ -27,6 +27,9 @@ check('home/assetlib.js is present', fs.existsSync(path.join(DECOR, 'home', 'ass
 
 const modelsHtml = read('models.html');
 const modelsJs = read('home/models.js');
+// The preview pipeline moved into the shared hub (used by the editor's
+// Objects tray too) - framing/dispose pins now read that source.
+const previewJs = read('js/preview.js');
 const assetlibSrc = read('home/assetlib.js');
 const modelsCss = read('home/models.css');
 const serveSrc = read('tools/serve.mjs');
@@ -265,9 +268,10 @@ check('dynamic names go in through textContent, never interpolated innerHTML',
   && !/innerHTML\s*=[^\n]*\$\{/.test(modelsJs)
   && (modelsJs.match(/\.textContent\s*=/g) || []).length >= 8);
 check('previews render lazily through an IntersectionObserver',
-  /new IntersectionObserver/.test(modelsJs) && /enqueuePreview/.test(modelsJs));
+  /new IntersectionObserver/.test(modelsJs) && /enqueuePreview/.test(modelsJs)
+  && /from '\.\.\/js\/preview\.js'/.test(modelsJs));
 check('preview geometry is disposed after every render',
-  /disposeTree\(/.test(modelsJs) && /geometry\.dispose\(\)/.test(modelsJs));
+  /disposeTree\(/.test(modelsJs) && /geometry\.dispose\(\)/.test(previewJs));
 check('the GL context is released when the page leaves',
   /pagehide/.test(modelsJs) && /forceContextLoss|dispose\(\)/.test(modelsJs));
 check('a dead preview falls back to a labelled placeholder',
@@ -290,9 +294,9 @@ check('the search refilters the chips too, not just the grid',
 console.log('\nmodels page: the PAR reads big and card clicks open live 3d');
 check('the PAR beam cone is kept out of preview framing',
   /userData\.noFraming = true/.test(lightSrc)
-  && /function fitBox\(/.test(modelsJs) && /noFraming/.test(modelsJs));
+  && /function fitBox\(/.test(previewJs) && /noFraming/.test(previewJs));
 check('fitting ignores noFraming meshes instead of the whole subtree',
-  /!o\.isMesh \|\| !o\.geometry \|\| \(o\.userData && o\.userData\.noFraming\)/.test(modelsJs));
+  /!o\.isMesh \|\| !o\.geometry \|\| \(o\.userData && o\.userData\.noFraming\)/.test(previewJs));
 check('the inspect sheet mounts a live 3d canvas, not a still image',
   /attachLive\(hero, asset\)/.test(modelsJs)
   && /className = 'sheet-3d'/.test(modelsJs)
@@ -317,17 +321,17 @@ check('the close button stays above the canvas',
 
 console.log('\nmodels page: card sizes follow the real spans, phones can gesture');
 check('preview scale compresses the real span, log-wise, not to one depth',
-  /SPAN_MIN = 0\.5, SPAN_MAX = 30/.test(modelsJs)
-  && /Math\.log\(span \/ SPAN_MIN\) \/ Math\.log\(SPAN_MAX \/ SPAN_MIN\)/.test(modelsJs)
-  && /FILL_MIN = 0\.65, FILL_MAX = 1/.test(modelsJs)
-  && !/2\.6 \/ maxDim\)/.test(modelsJs));
+  /SPAN_MIN = 0\.5, SPAN_MAX = 30/.test(previewJs)
+  && /Math\.log\(span \/ SPAN_MIN\) \/ Math\.log\(SPAN_MAX \/ SPAN_MIN\)/.test(previewJs)
+  && /FILL_MIN = 0\.65, FILL_MAX = 1/.test(previewJs)
+  && !/2\.6 \/ maxDim\)/.test(previewJs));
 check('sub-half-foot blooms drop below the light floor, ordered by size',
-  /TINY_MIN = 0\.05, TINY_FILL = 0\.2/.test(modelsJs)
-  && /if \(span >= SPAN_MIN\)/.test(modelsJs)
-  && /Math\.max\(TINY_MIN, maxDim\)/.test(modelsJs)
-  && /TINY_FILL \+ \(FILL_MIN - TINY_FILL\) \* t/.test(modelsJs));
+  /TINY_MIN = 0\.05, TINY_FILL = 0\.2/.test(previewJs)
+  && /if \(span >= SPAN_MIN\)/.test(previewJs)
+  && /Math\.max\(TINY_MIN, maxDim\)/.test(previewJs)
+  && /TINY_FILL \+ \(FILL_MIN - TINY_FILL\) \* t/.test(previewJs));
 check('re-framing starts from unit scale, so resize and pinch stay put',
-  /group\.scale\.setScalar\(1\);[\s\S]{0,80}fitBox\(group\)/.test(modelsJs));
+  /group\.scale\.setScalar\(1\);[\s\S]{0,80}fitBox\(group\)/.test(previewJs));
 check('two fingers pinch-zoom the live preview, clamped',
   /pinch\.zoom0 \* \(d \/ pinch\.d0\)/.test(modelsJs)
   && /Math\.min\(2\.4, Math\.max\(0\.45,/.test(modelsJs)
@@ -353,8 +357,8 @@ check('the sprig is compact - blooms about one bloom-width apart',
   /\{ x: 0, y: 0\.08, seed: 11[\s\S]{0,200}\{ x: 0\.3, y: -0\.08[\s\S]{0,200}\{ x: -0\.28, y: -0\.12/.test(modelsJs)
   && !/x: 0\.85, y: 0\.35/.test(modelsJs));
 check('floor uplights are built aimed up, not at the ground',
-  /init\.tilt = -45/.test(modelsJs) && /init\.tilt = -55/.test(modelsJs)
-  && /reg\.factory\(init\)/.test(modelsJs));
+  /'light-par': \{ tilt: -45 \}/.test(previewJs) && /'light-led': \{ tilt: -55 \}/.test(previewJs)
+  && /PREVIEW_INIT\[asset\.id\]/.test(modelsJs) && /reg\.factory\(init\)/.test(modelsJs));
 check('the phone filter bar is one-line rails, not a wrapped stack',
   /\.chips \{[\s\S]{0,200}flex-wrap: nowrap[\s\S]{0,80}overflow-x: auto/.test(modelsCss)
   && /\.sort > span \{ display: none; \}/.test(modelsCss)

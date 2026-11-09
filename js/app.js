@@ -2,6 +2,8 @@ import { Viewer } from './viewer.js';
 import { createPanel } from './panel.js';
 import { createEditor } from './editor.js';
 import { Registry } from './registry.js';
+import { createPreviewHub, PREVIEW_INIT } from './preview.js';
+import * as THREE from 'three';
 import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
 import { LAYOUTS, LAYOUT_IDS, layoutById } from './layouts.js';
 import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
@@ -2001,6 +2003,48 @@ if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
+// The Objects tray's card thumbnails: the shared preview hub (same
+// pipeline as the models page) with a build callback that turns a tray
+// card key into a group - presets by id, fixtures through their registered
+// factories, arrangements with their own settings.
+const trayPreviews = createPreviewHub({ build: buildTrayGroup, tag: 'objects' });
+
+async function buildTrayGroup(key) {
+    const wrap = model => {
+        const group = new THREE.Group();
+        if (model && model.object3D) group.add(model.object3D);
+        else if (model && model.isObject3D) group.add(model);
+        else throw new Error('no object3D for ' + key);
+        return group;
+    };
+    if (key.startsWith('frame:')) {
+        const def = await registry.load(key.slice('frame:'.length));
+        const { models } = await registry.instantiate(def);
+        const group = new THREE.Group();
+        for (const m of models) if (m && m.object3D) group.add(m.object3D);
+        return group;
+    }
+    if (key === PILLAR_ID || key.startsWith('light:')) {
+        const type = key === PILLAR_ID ? PILLAR_ID : key.slice('light:'.length);
+        const reg = registry.types.get(type);
+        if (!reg) throw new Error('no factory for ' + type);
+        return wrap(reg.factory({ ...(PREVIEW_INIT[type] || {}) }));
+    }
+    if (key.startsWith('flower:')) {
+        // Keys carry a settings rev (`flower:<id>:<rev>`) so an edited
+        // arrangement re-renders; the id is everything before the last colon.
+        const rest = key.slice('flower:'.length);
+        const cut = rest.lastIndexOf(':');
+        const id = cut < 0 ? rest : rest.slice(0, cut);
+        const arr = studioArrangements().find(a => a && a.id === id);
+        if (!arr) throw new Error('no arrangement ' + id);
+        const model = createFlowerPanelModel({ settings: arr.settings });
+        if (model.build) model.build();
+        return wrap(model);
+    }
+    throw new Error('unknown preview key ' + key);
+}
+
 const firstGroup = groups()[0];
 
 panel = createPanel({
@@ -2052,6 +2096,7 @@ panel = createPanel({
     flowerArrangements: studioArrangements(),
     flowerMounted: mountedFlowersPlain(),
     flowerQuality,
+    previews: trayPreviews,
     onFlowerMount: guard(arr => mountArrangement(arr)),
     onFlowerMove: (id, patch) => setFlowerPlace(id, patch),
     onFlowerEnabled: (id, on) => setFlowerEnabled(id, on),
@@ -2244,6 +2289,7 @@ stage('editor');
 
 // The last write before the tab goes away; nothing else will save after this.
 window.addEventListener('pagehide', () => {
+    trayPreviews.dispose();
     if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = 0;

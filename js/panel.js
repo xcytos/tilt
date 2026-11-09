@@ -305,11 +305,22 @@ export function createPanel(opts) {
                     id: a.id,
                     name: s.name || a.id,
                     meta: `${s.width || 0} \u00d7 ${s.height || 0} ft \u00b7 `
-                        + `${nColors} colour${nColors === 1 ? '' : 's'}`
+                        + `${nColors} colour${nColors === 1 ? '' : 's'}`,
+                    // The tray renders this arrangement's own settings; the
+                    // rev puts that state in the cache key, so a Studio
+                    // edit re-renders the card instead of serving a stale PNG.
+                    previewKey: 'flower:' + a.id + ':' + revOf(JSON.stringify(s))
                 };
             }),
             decor: []
         };
+    }
+
+    // Tiny stable string hash (djb2) - only ever used to key preview caches.
+    function revOf(str) {
+        let h = 5381;
+        for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+        return (h >>> 0).toString(36);
     }
 
     // A tray card was tapped. Every kind lands on a callback the panel
@@ -550,6 +561,7 @@ export function createPanel(opts) {
         icon,
         getCardsInput: objectCardsInput,
         onAction: handleObjectAction,
+        preview: opts.previews,
         getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
         onStageAction: (verb, row) => {
             if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);

@@ -106,6 +106,7 @@ export function buildObjectCards(input) {
     for (const fl of (in_.flowers || [])) {
         cards.push({
             key: 'flower:' + fl.id,
+            previewKey: fl.previewKey || 'flower:' + fl.id,
             category: 'flowers',
             name: fl.name || fl.id,
             sub: fl.meta || 'Studio arrangement',
@@ -241,6 +242,13 @@ export function createObjectChip(ctx) {
             b.appendChild(badge);
         }
 
+        // Real 3D thumbnail through the shared preview hub; the glyph above
+        // is the loading state and the permanent fallback when there is no
+        // WebGL or the render fails.
+        if (ctx.preview && ctx.preview.request) {
+            attachPreview(tile, b, card.previewKey || card.key);
+        }
+
         b.addEventListener('click', () => {
             if (ctx.onAction) ctx.onAction(card.action);
             tile.classList.add('is-added');
@@ -251,6 +259,30 @@ export function createObjectChip(ctx) {
         });
         if (ctx.live) ctx.live.buttons.push(b);
         return b;
+    }
+
+    // Cached hit paints immediately; a miss observes the card (the tray may
+    // be closed and rebuilt often, so the cache does the heavy lifting) and
+    // swaps the glyph for the PNG once it renders.
+    function attachPreview(tile, btn, pkey) {
+        const p = ctx.preview;
+        if (typeof p.ok === 'function' && !p.ok()) return;
+        const put = url => {
+            if (!url || !tile.isConnected) return;
+            const img = document.createElement('img');
+            img.alt = '';
+            img.src = url;
+            tile.textContent = '';
+            tile.appendChild(img);
+        };
+        const hit = p.cached(pkey);
+        if (hit !== undefined) { put(hit); return; }
+        const io = new IntersectionObserver(entries => {
+            if (!entries.some(e => e.isIntersecting)) return;
+            io.disconnect();
+            Promise.resolve(p.request(pkey)).then(put);
+        }, { rootMargin: '160px' });
+        io.observe(btn);
     }
 
     function stageEl(row) {

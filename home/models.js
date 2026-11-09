@@ -11,6 +11,7 @@ import { createFlowerPanelModel, FLOWERPANEL_ID, FLOWERPANEL_NAME, FLOWERPANEL_S
 import { createLightModel, LIGHT_TYPES, LIGHT_NAMES, LIGHT_PARAMS } from '../js/elements/light.js';
 import { FlowerEngine } from '../js/flowers/flower-factory.js';
 import { GreeneryEngine } from '../js/greenery/greenery-factory.js';
+import { createPreviewHub, disposeTree, frameTile as frameCamera, PREVIEW_INIT } from '../js/preview.js';
 import { buildCatalog, filterAssets, facetCounts, ASSET_TYPES } from './assetlib.js';
 
 const $ = sel => document.querySelector(sel);
@@ -90,48 +91,19 @@ async function loadSources() {
 }
 
 /* ------------------------------------------------------------- previews */
-// One shared renderer for the whole page: cards render on demand into a
-// data URL, the GL context is never multiplied per card, and everything is
+// The rendering pipeline itself lives in js/preview.js (shared with the
+// editor's Objects tray): one WebGL context renders on demand into a data
+// URL, the GL context is never multiplied per card, and everything is
 // disposed on pagehide. No WebGL (or a failed build) degrades to a labelled
 // placeholder - the catalog stays browsable either way.
-const previews = {
-    renderer: null,
-    scene: null,
-    camera: null,
-    ok: false,
-    queue: [],
-    running: false,
-    cache: new Map()
-};
-
-function initPreviews() {
-    try {
-        const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-        if (!gl) return;
-        previews.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-        previews.renderer.setSize(480, 360, false);
-        previews.renderer.setPixelRatio(1);
-        previews.renderer.setClearColor(0x000000, 0);
-        previews.scene = new THREE.Scene();
-        previews.camera = new THREE.PerspectiveCamera(32, 4 / 3, 0.05, 200);
-        const hemi = new THREE.HemisphereLight(0xffffff, 0x9aa3b2, 1.15);
-        const key = new THREE.DirectionalLight(0xffffff, 1.35);
-        key.position.set(3, 6, 4);
-        const rim = new THREE.DirectionalLight(0xdbeafe, 0.5);
-        rim.position.set(-4, 2, -3);
-        previews.scene.add(hemi, key, rim);
-        previews.ok = true;
-    } catch (err) {
-        console.warn('[models] preview renderer unavailable:', err);
-        previews.ok = false;
-    }
-}
-
-function disposeTree(root) {
-    root.traverse(o => {
-        if (o.geometry) o.geometry.dispose();
-    });
+const hub = createPreviewHub({ build: key => buildAssetGroup(assetFor(key)), tag: 'models' });
+// Set once the registries are loaded; the build callback reads it.
+let assetRegistry = null;
+// enqueuePreview composes keys as `<id>@<width>`; the build callback only
+// gets the key, so remember which asset each one came from.
+const keyAssets = new Map();
+function assetFor(key) {
+    return keyAssets.get(key) || null;
 }
 
 // Species previews: a handful of blooms / a few stems, built by the very
@@ -175,23 +147,22 @@ function buildSpecies(asset) {
 }
 
 async function buildAssetGroup(asset) {
+    if (!asset) throw new Error('unknown preview key');
     if (asset.id.startsWith('flower:') || asset.id.startsWith('greenery:')) {
         return buildSpecies(asset);
     }
     if (asset.assetType === 'model') {
-        const def = await previews.registry.load(asset.id);
-        const { models } = await previews.registry.instantiate(def);
+        const def = await assetRegistry.load(asset.id);
+        const { models } = await assetRegistry.instantiate(def);
         const group = new THREE.Group();
         for (const m of models) if (m && m.object3D) group.add(m.object3D);
         return group;
     }
-    const reg = previews.registry.types.get(asset.id);
+    const reg = assetRegistry.types.get(asset.id);
     if (!reg) throw new Error('no factory for ' + asset.id);
-    // Floor uplights stand aimed AT the fabric, never at the ground (the
-    // entrance rig's own rule); the bare schema defaults point down.
-    const init = {};
-    if (asset.id === 'light-par') init.tilt = -45;
-    else if (asset.id === 'light-led') init.tilt = -55;
+    // Floor uplights stand aimed AT the fabric, never at the ground - the
+    // shared PREVIEW_INIT carries the entrance rig's own tilts.
+    const init = { ...(PREVIEW_INIT[asset.id] || {}) };
     const model = reg.factory(init);
     const group = new THREE.Group();
     if (model && model.object3D) group.add(model.object3D);
@@ -199,123 +170,18 @@ async function buildAssetGroup(asset) {
     return group;
 }
 
-// Framing box: geometry only, skipping helpers flagged userData.noFraming
-// (the PAR's 6.5 ft beam cone) - without that the beam would own the box
-// and the fixture itself would shrink to a speck in the corner of the tile.
-function fitBox(root) {
-    root.updateWorldMatrix(true, true);
-    const box = new THREE.Box3();
-    const part = new THREE.Box3();
-    root.traverse(o => {
-        if (!o.isMesh || !o.geometry || (o.userData && o.userData.noFraming)) return;
-        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-        if (!o.geometry.boundingBox) return;
-        part.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-        box.union(part);
-    });
-    return box;
-}
-
-// Normalize scale so a PAR fixture and a full S-curve frame read at a
-// comparable size, then frame the box on the given camera.
-function frameCamera(camera, group) {
-    // Reset first so a re-frame (resize, pinch) measures the original
-    // geometry instead of the already-scaled box - keeps this idempotent.
-    group.scale.setScalar(1);
-    let box = fitBox(group);
-    if (box.isEmpty()) throw new Error('empty bounds');
-    let size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z) || 1;
-
-    // Real spans run from a ~0.06 ft bloom (measured: dahlia 0.06, marigold
-    // 0.10, rose 0.18) to a 28 ft set (par 0.62, strip 6, panel 8, set 28).
-    // Above half a foot, compress through a log scale onto the fill depth -
-    // card sizes keep the catalogue's ordering while staying legible.
-    const SPAN_MIN = 0.5, SPAN_MAX = 30; // feet, main curve
-    const FILL_MIN = 0.65, FILL_MAX = 1;  // fraction of the fit depth
-    // Below that, come down steeply: the old 0.65 floor made a 2 inch rose
-    // read as big as a PAR. Blooms land at ~17-26% of the tile instead.
-    const TINY_MIN = 0.05, TINY_FILL = 0.2;
-    const span = Math.min(SPAN_MAX, Math.max(TINY_MIN, maxDim));
-    let fill;
-    if (span >= SPAN_MIN) {
-        const t = Math.log(span / SPAN_MIN) / Math.log(SPAN_MAX / SPAN_MIN);
-        fill = FILL_MIN + (FILL_MAX - FILL_MIN) * t;
-    } else {
-        const t = (span - TINY_MIN) / (SPAN_MIN - TINY_MIN);
-        fill = TINY_FILL + (FILL_MIN - TINY_FILL) * t;
-    }
-    group.scale.setScalar((2.6 * fill) / maxDim);
-
-    box = fitBox(group);
-    const center = box.getCenter(new THREE.Vector3());
-    size = box.getSize(new THREE.Vector3());
-
-    const fov = camera.fov * Math.PI / 180;
-    const fit = Math.max(size.y / (2 * Math.tan(fov / 2)),
-                         size.x / (2 * Math.tan(fov / 2) * camera.aspect)) * 1.25 + 0.2;
-    const dir = group.userData.face
-        ? new THREE.Vector3(0.35, 0.25, 1).normalize()
-        : new THREE.Vector3(0.65, 0.45, 1).normalize();
-    camera.position.copy(center).addScaledVector(dir, fit);
-    camera.lookAt(center);
-    camera.updateProjectionMatrix();
-    // Base pose for pinch zoom: zoom scales the offset, never the framing.
-    camera.userData.target = center;
-    camera.userData.basePos = camera.position.clone();
-}
-
-function renderGroup(group, w, h) {
-    previews.renderer.setSize(w, h, false);
-    previews.camera.aspect = w / h;
-    previews.scene.add(group);
-    try {
-        previews.renderer.render(previews.scene, previews.camera);
-        return previews.renderer.domElement.toDataURL('image/png');
-    } finally {
-        previews.scene.remove(group);
-    }
-}
-
+// The renderer, queue, cache and log-span framing live in js/preview.js;
+// this is the models-page edge: remember which asset a key stands for and
+// hand the key to the shared hub.
 function enqueuePreview(asset, w, h) {
     const key = asset.id + '@' + w;
-    if (previews.cache.has(key)) return Promise.resolve(previews.cache.get(key));
-    return new Promise(resolve => {
-        previews.queue.push({ asset, w, h, key, resolve });
-        pumpQueue();
-    });
-}
-
-async function pumpQueue() {
-    if (previews.running || !previews.ok) return;
-    previews.running = true;
-    while (previews.queue.length) {
-        const job = previews.queue.shift();
-        let url = null;
-        try {
-            const group = await buildAssetGroup(job.asset);
-            frameCamera(previews.camera, group);
-            url = renderGroup(group, job.w, job.h);
-            disposeTree(group);
-        } catch (err) {
-            console.warn('[models] preview failed for', job.asset.id, err);
-        }
-        previews.cache.set(job.key, url);
-        job.resolve(url);
-        // One frame between jobs keeps the page responsive while the queue drains.
-        await new Promise(r => setTimeout(r, 0));
-    }
-    previews.running = false;
+    keyAssets.set(key, asset);
+    return hub.request(key, w, h);
 }
 
 window.addEventListener('pagehide', () => {
     liveStop();
-    if (previews.renderer) {
-        previews.renderer.dispose();
-        previews.renderer.forceContextLoss && previews.renderer.forceContextLoss();
-    }
-    previews.renderer = null;
-    previews.ok = false;
+    hub.dispose();
 });
 
 /* -------------------------------------------------------------------- UI */
@@ -408,7 +274,7 @@ function renderGrid() {
 
         const thumb = document.createElement('div');
         thumb.className = 'thumb';
-        if (previews.ok) {
+        if (hub.ok()) {
             const spin = document.createElement('span');
             spin.className = 'spin';
             spin.textContent = 'loading';
@@ -602,7 +468,7 @@ function liveTick(now) {
 }
 
 function staticPreview(hero, asset) {
-    if (!previews.ok) { hero.appendChild(placeholder('Preview unavailable')); return; }
+    if (!hub.ok()) { hero.appendChild(placeholder('Preview unavailable')); return; }
     const spin = document.createElement('div');
     spin.className = 'ph';
     spin.textContent = 'Rendering…';
@@ -619,7 +485,7 @@ function staticPreview(hero, asset) {
 }
 
 async function attachLive(hero, asset) {
-    if (!previews.ok) { hero.appendChild(placeholder('Preview unavailable')); return; }
+    if (!hub.ok()) { hero.appendChild(placeholder('Preview unavailable')); return; }
     const spin = document.createElement('div');
     spin.className = 'ph';
     spin.textContent = 'Building 3D preview…';
@@ -845,8 +711,8 @@ async function boot() {
     }
 
     state.catalog = sources.catalog;
-    previews.registry = sources.registry;
-    initPreviews();
+    assetRegistry = sources.registry;
+    hub.ready();
 
     const s = sources.catalog.stats;
     $('#counts').textContent = sources.manifestFailed
