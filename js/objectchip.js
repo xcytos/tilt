@@ -321,6 +321,9 @@ export function createObjectChip(ctx) {
         active = true;
         refresh();
         host.hidden = false;
+        // Raises the project bar above the scrim (TILT.html) so the
+        // diagnostics badge on the ⋮ stays reachable while the tray is up.
+        document.body.classList.add('objpick-open');
         if (closeBtn) closeBtn.focus({ preventScroll: true });
     }
 
@@ -328,6 +331,7 @@ export function createObjectChip(ctx) {
         if (!active) return;
         active = false;
         if (host) host.hidden = true;
+        document.body.classList.remove('objpick-open');
         if (lastFocus && typeof lastFocus.focus === 'function') {
             try { lastFocus.focus({ preventScroll: true }); } catch (e) { /* gone */ }
         }

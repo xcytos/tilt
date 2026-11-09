@@ -369,6 +369,15 @@ check('tapping another chip closes the tray first',
   /objectChip\.close\(\);\s*\n\s*if \(activeTool === t\.id\)/.test(panelSrc));
 check('the tray repaints its live counts on every structural render',
   /if \(objectChip\.isOpen\(\)\) objectChip\.refresh\(\)/.test(panelSrc));
+check('the self-check does not cry wolf over an open modal',
+  /closest\('#objpick, #sheet'\)/.test(shell)
+  && /m && !m\.hidden\) return id \+ '=ok'/.test(shell));
+check('the project bar stays above the tray so the badge is reachable',
+  /body\.objpick-open #topbar \{ z-index: 50; \}/.test(shell)
+  && /body\.objpick-open #overflow \{ z-index: 51; \}/.test(shell)
+  && /body\.objpick-open #sheet \{ z-index: 46; \}/.test(shell)
+  && /classList\.add\('objpick-open'\)/.test(objchipSrc)
+  && /classList\.remove\('objpick-open'\)/.test(objchipSrc));
 
 // The card builder is pure data - pinned directly, no DOM, no server.
 const built = buildObjectCards({

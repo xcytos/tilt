@@ -330,6 +330,15 @@
             #objpick .objcard-tile { transition: none; }
         }
 
+        /* The tray is modal over the stage, but the project bar stays
+           reachable above its scrim: the diagnostics badge lives on the ⋮
+           button, and issues found while the tray is open must stay
+           readable without closing it first. */
+        body.objpick-open #topbar { z-index: 50; }
+        body.objpick-open #overflow { z-index: 51; }
+        /* Rename opened from the raised bar must still stack over the tray. */
+        body.objpick-open #sheet { z-index: 46; }
+
         /* ---- phones: the shelf is already the bottom dock; it just gets
                a little more room and tighter rhythm on small screens. ---- */
         @media (max-width: 640px) {
@@ -555,6 +564,11 @@
                     hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
                 } catch (e) { return id + '=probe failed'; }
                 if (hit === el || el.contains(hit)) return id + '=ok';
+                // An open modal (the Objects tray, the rename sheet) covers
+                // the bar on purpose - that is expected, not a fault, so the
+                // badge must not cry wolf while one is up.
+                var m = hit && hit.closest ? hit.closest('#objpick, #sheet') : null;
+                if (m && !m.hidden) return id + '=ok';
                 return id + '=covered by ' + describe(hit);
             }
             function probe() {
@@ -6331,6 +6345,9 @@ function createObjectChip(ctx) {
         active = true;
         refresh();
         host.hidden = false;
+        // Raises the project bar above the scrim (TILT.html) so the
+        // diagnostics badge on the ⋮ stays reachable while the tray is up.
+        document.body.classList.add('objpick-open');
         if (closeBtn) closeBtn.focus({ preventScroll: true });
     }
 
@@ -6338,6 +6355,7 @@ function createObjectChip(ctx) {
         if (!active) return;
         active = false;
         if (host) host.hidden = true;
+        document.body.classList.remove('objpick-open');
         if (lastFocus && typeof lastFocus.focus === 'function') {
             try { lastFocus.focus({ preventScroll: true }); } catch (e) { /* gone */ }
         }
