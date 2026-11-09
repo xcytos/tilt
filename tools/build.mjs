@@ -33,6 +33,7 @@ export const ORDER = [
     'js/flowers/scene.js',
     'js/objects/flowerpanel.js',
     'js/objects/flowerchip.js',
+    'js/objectchip.js',
     'js/registry.js',
     'js/objects/o2tilt.js',
     'js/objects/pillar.js',

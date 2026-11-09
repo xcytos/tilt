@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { buildObjectCards } from '../js/objectchip.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DECOR = path.resolve(HERE, '..');
@@ -338,6 +339,68 @@ const standalone = read('TILT.standalone.html');
 check('the standalone build carries the bar too',
   standalone.includes('id="topbar"') && standalone.includes('createEditor')
   && /<title>TILT<\/title>/.test(standalone));
+
+// ------------------------------------------------- 5b. the Objects tray
+console.log('\neditor: the Objects chip and its CapCut tray');
+const objchipSrc = read('js/objectchip.js');
+check('the tray ships as its own module, bundled before the panel',
+  /export function buildObjectCards\(/.test(objchipSrc)
+  && /export function createObjectChip\(/.test(objchipSrc)
+  && orderList.includes('js/objectchip.js')
+  && orderList.indexOf('js/objectchip.js') < orderList.indexOf('js/panel.js'));
+check('the chip splices in after Sets and never steals the shelf',
+  /TOOLS\.splice\(TOOLS\.findIndex\(t => t\.id === 'sets'\) \+ 1, 0, objectChip\.chip\)/.test(panelSrc)
+  && /t\.id === OBJECT_CHIP_ID/.test(panelSrc)
+  && /objectChip\.toggle\(\)/.test(panelSrc)
+  && !/activeTool = 'objects'/.test(panelSrc));
+check('the tray is a modal dialog sheet, styled in the shell',
+  /id = 'objpick'/.test(objchipSrc)
+  && /setAttribute\('role', 'dialog'\)/.test(objchipSrc)
+  && /setAttribute\('aria-modal', 'true'\)/.test(objchipSrc)
+  && /#objpick \{[^}]*position: fixed/.test(shell)
+  && /#objpick \.objpick-grid/.test(shell));
+check('every tray card lands on a callback the panel already had',
+  /opts\.onSelect\(action\.id\)/.test(panelSrc)
+  && /opts\.onToggle\(action\.id, true\)/.test(panelSrc)
+  && /opts\.onFramePillarsChange\(fid, \{ count: cur \+ 1 \}\)/.test(panelSrc)
+  && /opts\.onElementAdd\(fid, action\.type\)/.test(panelSrc)
+  && /opts\.onFlowerMount\(arr\)/.test(panelSrc));
+check('tapping another chip closes the tray first',
+  /objectChip\.close\(\);\s*\n\s*if \(activeTool === t\.id\)/.test(panelSrc));
+check('the tray repaints its live counts on every structural render',
+  /if \(objectChip\.isOpen\(\)\) objectChip\.refresh\(\)/.test(panelSrc));
+
+// The card builder is pure data - pinned directly, no DOM, no server.
+const built = buildObjectCards({
+  frames: [
+    { id: 'o2tilt', name: 'S Curve', subtitle: 'Modular Control', onStage: true },
+    { id: 'hoop', name: 'Hoop', subtitle: '', onStage: false }
+  ],
+  pillars: { frameId: 'o2tilt', frameName: 'S Curve', count: 1, max: 2 },
+  lights: { frameId: 'o2tilt', frameName: 'S Curve',
+    counts: { 'light-par': 3, 'light-strip': 2 } },
+  flowers: [{ id: 'a', name: 'Garland', meta: '6 × 8 ft · 3 colours' }],
+  decor: [{ assetId: 'pillar_rail_large', name: 'Pillar Rail - Large',
+    category: 'pillars', qty: 2, placed: 1 }]
+});
+check('cards cover frames, pillars, lights, flowers and decor',
+  built.cards.length === 8
+  && built.cards.map(c => c.category).join(',')
+    === 'frames,frames,pillars,lights,lights,lights,flowers,pillars');
+check('tabs only appear when their category has cards',
+  built.categories.map(c => c.id).join(',') === 'all,frames,pillars,lights,flowers'
+  && buildObjectCards({ frames: [{ id: 'x', name: 'X' }] }).categories
+    .map(c => c.id).join(',') === 'all,frames');
+check('badges carry the live counts',
+  built.cards.find(c => c.key === 'pillar').badge === '1/2'
+  && built.cards.find(c => c.key === 'light:light-par').badge === '3'
+  && built.cards.find(c => c.key === 'light:light-led').badge === 'Add'
+  && built.cards.find(c => c.key === 'decor:pillar_rail_large').badge === '1'
+  && built.cards.find(c => c.key === 'frame:hoop').badge === ''
+  && built.cards.find(c => c.key === 'frame:o2tilt').badge === 'On stage');
+check('an empty input is an empty tray, not a crash',
+  buildObjectCards(null).cards.length === 0
+  && buildObjectCards(null).categories.length === 1);
 
 // -------------------------------------------------------------- 6. mobile
 console.log('\nmobile: the editor on a phone');

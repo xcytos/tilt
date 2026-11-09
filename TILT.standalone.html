@@ -224,6 +224,112 @@
         .sheet-actions .btn.primary { background: #0284c7; border-color: #0284c7; color: #fff; }
         .sheet-actions .btn.primary:active { background: #0369a1; }
 
+        /* ---- the Objects tray: CapCut-style bottom sheet over the stage,
+               a category tab bar above a grid of add-cards. ---- */
+        #objpick {
+            position: fixed; inset: 0; z-index: 45;
+            display: flex; align-items: flex-end; justify-content: center;
+        }
+        #objpick[hidden] { display: none; }
+        #objpick .objpick-scrim { position: absolute; inset: 0; background: rgba(15,23,42,0.5); }
+        .dark #objpick .objpick-scrim { background: rgba(0,0,0,0.6); }
+        #objpick .objpick-sheet {
+            position: relative; display: flex; flex-direction: column;
+            width: min(720px, 100vw); max-height: min(74vh, 660px);
+            border-radius: 18px 18px 0 0; background: #fff;
+            box-shadow: 0 -12px 40px rgba(0,0,0,0.35);
+            padding-bottom: env(safe-area-inset-bottom, 0);
+        }
+        .dark #objpick .objpick-sheet { background: #18181b; }
+        #objpick .objpick-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.9rem 1rem 0.35rem;
+        }
+        #objpick .objpick-head h2 {
+            margin: 0; font-size: 13px; font-weight: 700;
+            letter-spacing: 0.06em; text-transform: uppercase; color: #0f172a;
+        }
+        .dark #objpick .objpick-head h2 { color: #f4f4f5; }
+        #objpick .objpick-close {
+            min-width: 44px; min-height: 44px; border: 0; background: transparent;
+            font-size: 22px; line-height: 1; color: #64748b; cursor: pointer;
+        }
+        #objpick .objpick-close:hover { color: #0f172a; }
+        .dark #objpick .objpick-close { color: #a1a1aa; }
+        .dark #objpick .objpick-close:hover { color: #f4f4f5; }
+        #objpick .objpick-tabs {
+            display: flex; gap: 6px; padding: 0.15rem 1rem 0.6rem;
+            overflow-x: auto; scrollbar-width: none;
+        }
+        #objpick .objpick-tabs::-webkit-scrollbar { display: none; }
+        #objpick .objtab {
+            flex: none; min-height: 34px; padding: 0 12px; border-radius: 999px;
+            border: 1px solid #cbd5e1; background: transparent;
+            font: 600 12px/1 system-ui, sans-serif; color: #475569; cursor: pointer;
+        }
+        #objpick .objtab.is-on { background: #0284c7; border-color: #0284c7; color: #fff; }
+        .dark #objpick .objtab { border-color: #3f3f46; color: #a1a1aa; }
+        .dark #objpick .objtab.is-on { background: #0284c7; border-color: #0284c7; color: #fff; }
+        #objpick .objpick-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px; padding: 0 1rem 1rem; overflow-y: auto; overscroll-behavior: contain;
+        }
+        #objpick .objpick-empty { grid-column: 1 / -1; margin: 0.5rem 0; font-size: 13px; color: #64748b; }
+        #objpick .objcard {
+            position: relative; display: flex; flex-direction: column; gap: 2px;
+            padding: 10px; border-radius: 12px; border: 1px solid #e2e8f0;
+            background: #f8fafc; text-align: left; font: inherit; cursor: pointer;
+        }
+        #objpick .objcard.is-on { border-color: #0284c7; box-shadow: inset 0 0 0 1px #0284c7; }
+        .dark #objpick .objcard { border-color: #27272a; background: #232327; }
+        .dark #objpick .objcard.is-on { border-color: #0284c7; }
+        #objpick .objcard-tile {
+            display: flex; align-items: center; justify-content: center;
+            width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; margin-bottom: 4px;
+            background: linear-gradient(160deg, #e0f2fe, #f8fafc 60%);
+            color: #0284c7; transition: transform 0.15s ease;
+        }
+        #objpick .objcard-tile svg { width: 34px; height: 34px; }
+        .dark #objpick .objcard-tile {
+            background: linear-gradient(160deg, #0c4a6e, #18181b 70%); color: #7dd3fc;
+        }
+        #objpick .objcard-tile.is-added { transform: scale(1.08); }
+        #objpick .objcard-name { font: 600 12px/1.25 system-ui, sans-serif; color: #0f172a; }
+        .dark #objpick .objcard-name { color: #f4f4f5; }
+        #objpick .objcard-sub { font: 11px/1.3 system-ui, sans-serif; color: #64748b; }
+        .dark #objpick .objcard-sub { color: #a1a1aa; }
+        #objpick .objcard-badge {
+            position: absolute; top: 6px; right: 6px; padding: 2px 7px;
+            border-radius: 999px; background: #0284c7; color: #fff;
+            font: 700 10px/1.5 system-ui, sans-serif;
+        }
+        #objpick .objcard:not(.is-on) .objcard-badge { background: #cbd5e1; color: #334155; }
+        .dark #objpick .objcard:not(.is-on) .objcard-badge { background: #3f3f46; color: #d4d4d8; }
+        #objpick .objpick-stage {
+            border-top: 1px dashed #cbd5e1; padding: 0.6rem 1rem 0.9rem;
+            overflow-y: auto; max-height: 34%;
+        }
+        .dark #objpick .objpick-stage { border-top-color: #3f3f46; }
+        #objpick .objpick-stage-title {
+            font: 700 10px/1 system-ui, sans-serif; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #64748b; margin-bottom: 6px;
+        }
+        #objpick .objpick-stage-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; padding: 6px 8px; border-radius: 8px; background: #f8fafc;
+            font: 600 12px/1.3 system-ui, sans-serif; color: #0f172a; margin-bottom: 4px;
+        }
+        .dark #objpick .objpick-stage-row { background: #232327; color: #f4f4f5; }
+        #objpick .objpick-stage-rm {
+            min-height: 30px; padding: 0 10px; border-radius: 999px;
+            border: 1px solid #cbd5e1; background: transparent;
+            font: 600 11px/1 system-ui, sans-serif; color: #475569; cursor: pointer;
+        }
+        .dark #objpick .objpick-stage-rm { border-color: #3f3f46; color: #a1a1aa; }
+        @media (prefers-reduced-motion: reduce) {
+            #objpick .objcard-tile { transition: none; }
+        }
+
         /* ---- phones: the shelf is already the bottom dock; it just gets
                a little more room and tighter rhythm on small screens. ---- */
         @media (max-width: 640px) {
@@ -5901,6 +6007,359 @@ function createFlowerChip(ctx) {
     return { chip, block, setQuality };
 }
 
+// ---- js/objectchip.js ----
+// The Objects chip - a CapCut-style add tray: a category tab bar over a
+// grid of cards, one tap drops the object on stage. It ships as its own
+// module (the way objects/flowerchip.js does) so panel.js only wires it
+// in: the chip splices into the toolbar after Sets, and a tap opens this
+// overlay instead of swapping the shelf's content.
+//
+// buildObjectCards(input) is pure data with no DOM - tests pin it directly.
+// createObjectChip(ctx) owns the overlay's DOM and calls back on taps.
+//
+// ctx: {
+//   icon(paths)        - the panel.js inline-SVG helper
+//   getCardsInput()    - live input for buildObjectCards
+//   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
+//                        each kind onto its existing add callbacks)
+//   getStageRows()     - optional: instances already on stage for the
+//                        "On stage" strip [{ key, name, x, z, ry }]
+//   onStageAction(...) - optional: placement / remove for one instance
+//   live               - the panel's button registry (busy dimming)
+// }
+
+const OBJECT_CHIP_ID = 'objects';
+
+// One path per card category - tiny inline glyphs, no icon font.
+const GLYPHS = {
+    all: 'M4 7l8-4 8 4v10l-8 4-8-4V7z',
+    frames: 'M4 5h16M7 5v14M17 5v14',
+    pillars: 'M6 21V7M12 21V7M18 21V7M4 7h16',
+    lights: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2'
+        + 'M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2'
+        + 'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+    flowers: 'M12 21c-4-3-7-6-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 4-3 7-7 10z',
+    panels: 'M5 21V10a7 7 0 0 1 14 0v11'
+};
+
+// Tab order and labels. A category only appears when it has cards, so an
+// empty Flowers library never shows a dead tab.
+const CATEGORY_ORDER = ['all', 'frames', 'pillars', 'lights', 'flowers', 'panels'];
+const CATEGORY_LABELS = {
+    all: 'All', frames: 'Frames', pillars: 'Pillars',
+    lights: 'Lighting', flowers: 'Flowers', panels: 'Panels'
+};
+
+// The three fixture cards. Kept here (not imported from elements/light.js)
+// so this module stays pure data + DOM - no three.js on its import graph.
+const LIGHT_CHOICES = [
+    { type: 'light-par', short: 'PAR' },
+    { type: 'light-led', short: 'LED' },
+    { type: 'light-strip', short: 'Strip' }
+];
+
+// input: {
+//   frames:   [{ id, name, subtitle, onStage }],
+//   pillars:  { frameId, frameName, count, max } | null,
+//   lights:   { frameId, frameName, counts: { type: n } } | null,
+//   flowers:  [{ id, name, meta }],
+//   decor:    [{ assetId, name, category, sub, qty, placed }]  (loop 2)
+// }
+// returns { categories: [{ id, label, count }], cards: [...] }
+function buildObjectCards(input) {
+    const in_ = input || {};
+    const cards = [];
+
+    for (const f of (in_.frames || [])) {
+        cards.push({
+            key: 'frame:' + f.id,
+            category: 'frames',
+            name: f.name || f.id,
+            sub: f.subtitle || 'Curtain frame',
+            badge: f.onStage ? 'On stage' : '',
+            on: !!f.onStage,
+            action: { kind: 'frame', id: f.id }
+        });
+    }
+
+    const p = in_.pillars;
+    if (p && p.frameId) {
+        const n = p.count || 0;
+        cards.push({
+            key: 'pillar',
+            category: 'pillars',
+            name: 'Pillars',
+            sub: n ? `${n} standing by ${p.frameName || 'the frame'}`
+                : 'A pair beside the frame',
+            badge: n ? `${n}/${p.max || 2}` : 'Add',
+            on: n > 0,
+            action: { kind: 'pillar' }
+        });
+    }
+
+    const l = in_.lights;
+    if (l && l.frameId) {
+        for (const choice of LIGHT_CHOICES) {
+            const n = (l.counts && l.counts[choice.type]) || 0;
+            cards.push({
+                key: 'light:' + choice.type,
+                category: 'lights',
+                name: choice.short,
+                sub: `On ${l.frameName || 'the frame'}`,
+                badge: n ? String(n) : 'Add',
+                on: n > 0,
+                action: { kind: 'light', type: choice.type }
+            });
+        }
+    }
+
+    for (const fl of (in_.flowers || [])) {
+        cards.push({
+            key: 'flower:' + fl.id,
+            category: 'flowers',
+            name: fl.name || fl.id,
+            sub: fl.meta || 'Studio arrangement',
+            badge: '',
+            on: false,
+            action: { kind: 'flower', id: fl.id }
+        });
+    }
+
+    for (const d of (in_.decor || [])) {
+        cards.push({
+            key: 'decor:' + d.assetId,
+            category: d.category || 'panels',
+            name: d.name || d.assetId,
+            sub: d.sub || '',
+            badge: d.placed ? String(d.placed) : (d.qty ? 'x' + d.qty : 'Add'),
+            on: !!d.placed,
+            action: { kind: 'decor', assetId: d.assetId }
+        });
+    }
+
+    const present = new Set(cards.map(c => c.category));
+    const categories = [{ id: 'all', label: CATEGORY_LABELS.all, count: cards.length }];
+    for (const id of CATEGORY_ORDER) {
+        if (id === 'all' || !present.has(id)) continue;
+        categories.push({
+            id,
+            label: CATEGORY_LABELS[id] || id,
+            count: cards.filter(c => c.category === id).length
+        });
+    }
+    return { categories, cards };
+}
+
+function createObjectChip(ctx) {
+    let active = false;
+    let host = null;
+    let closeBtn = null;
+    let tabRow = null;
+    let grid = null;
+    let stage = null;
+    let activeCat = 'all';
+    let lastFocus = null;
+
+    const chip = {
+        id: OBJECT_CHIP_ID,
+        label: 'Objects',
+        icon: ctx.icon(GLYPHS.all),
+        // Always shown: adding things is the first move a session makes,
+        // and the tray explains itself when a category is empty.
+        show: () => true
+    };
+
+    function ensure() {
+        if (host) return;
+        host = document.createElement('div');
+        host.id = 'objpick';
+        host.hidden = true;
+
+        const scrim = document.createElement('div');
+        scrim.className = 'objpick-scrim';
+
+        const sheet = document.createElement('div');
+        sheet.className = 'objpick-sheet';
+        sheet.setAttribute('role', 'dialog');
+        sheet.setAttribute('aria-modal', 'true');
+        sheet.setAttribute('aria-labelledby', 'objpick-title');
+
+        const head = document.createElement('div');
+        head.className = 'objpick-head';
+        const title = document.createElement('h2');
+        title.id = 'objpick-title';
+        title.textContent = 'Add object';
+        closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'objpick-close';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.textContent = 'x';
+        head.append(title, closeBtn);
+
+        tabRow = document.createElement('div');
+        tabRow.className = 'objpick-tabs';
+        tabRow.setAttribute('role', 'group');
+        tabRow.setAttribute('aria-label', 'Categories');
+
+        grid = document.createElement('div');
+        grid.className = 'objpick-grid';
+
+        stage = document.createElement('div');
+        stage.className = 'objpick-stage';
+        stage.hidden = true;
+
+        sheet.append(head, tabRow, grid, stage);
+        host.append(scrim, sheet);
+        document.body.appendChild(host);
+
+        scrim.addEventListener('click', close);
+        closeBtn.addEventListener('click', close);
+        document.addEventListener('keydown', e => {
+            if (!active) return;
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                e.preventDefault();
+                close();
+            }
+        }, true);
+    }
+
+    function cardEl(card) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'objcard' + (card.on ? ' is-on' : '');
+        b.setAttribute('aria-pressed', card.on ? 'true' : 'false');
+
+        const tile = document.createElement('span');
+        tile.className = 'objcard-tile';
+        tile.appendChild(ctx.icon(GLYPHS[card.category] || GLYPHS.all));
+
+        const name = document.createElement('span');
+        name.className = 'objcard-name';
+        name.textContent = card.name;
+
+        const sub = document.createElement('span');
+        sub.className = 'objcard-sub';
+        sub.textContent = card.sub || '';
+
+        b.append(tile, name, sub);
+
+        if (card.badge) {
+            const badge = document.createElement('span');
+            badge.className = 'objcard-badge';
+            badge.textContent = card.badge;
+            b.appendChild(badge);
+        }
+
+        b.addEventListener('click', () => {
+            if (ctx.onAction) ctx.onAction(card.action);
+            tile.classList.add('is-added');
+            setTimeout(() => tile.classList.remove('is-added'), 600);
+            // Repaint badges from live state right away; panel.render()
+            // refreshes again once the scene sync lands.
+            refresh();
+        });
+        if (ctx.live) ctx.live.buttons.push(b);
+        return b;
+    }
+
+    function stageEl(row) {
+        const card = document.createElement('div');
+        card.className = 'objpick-stage-row';
+        const name = document.createElement('strong');
+        name.textContent = row.name || row.key;
+        card.appendChild(name);
+        if (ctx.onStageAction) {
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'objpick-stage-rm';
+            rm.textContent = 'Remove';
+            rm.title = 'Take this off the stage';
+            rm.addEventListener('click', () => ctx.onStageAction('remove', row));
+            if (ctx.live) ctx.live.buttons.push(rm);
+            card.appendChild(rm);
+        }
+        return card;
+    }
+
+    function refresh() {
+        ensure();
+        const { categories, cards } = buildObjectCards(ctx.getCardsInput ? ctx.getCardsInput() : {});
+        if (!categories.some(c => c.id === activeCat)) activeCat = 'all';
+
+        tabRow.textContent = '';
+        for (const c of categories) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'objtab' + (c.id === activeCat ? ' is-on' : '');
+            b.setAttribute('aria-pressed', c.id === activeCat ? 'true' : 'false');
+            b.textContent = `${c.label} ${c.count}`;
+            b.addEventListener('click', () => {
+                activeCat = c.id;
+                refresh();
+            });
+            if (ctx.live) ctx.live.buttons.push(b);
+            tabRow.appendChild(b);
+        }
+
+        grid.textContent = '';
+        const shown = cards.filter(c => activeCat === 'all' || c.category === activeCat);
+        if (!shown.length) {
+            const empty = document.createElement('p');
+            empty.className = 'objpick-empty';
+            empty.textContent = 'Nothing here yet.';
+            grid.appendChild(empty);
+        }
+        for (const card of shown) grid.appendChild(cardEl(card));
+
+        const rows = ctx.getStageRows ? (ctx.getStageRows() || []) : [];
+        stage.textContent = '';
+        stage.hidden = !rows.length;
+        if (rows.length) {
+            const title = document.createElement('div');
+            title.className = 'objpick-stage-title';
+            title.textContent = 'On stage';
+            stage.appendChild(title);
+            for (const row of rows) stage.appendChild(stageEl(row));
+        }
+    }
+
+    function open() {
+        if (active) return;
+        ensure();
+        lastFocus = document.activeElement;
+        active = true;
+        refresh();
+        host.hidden = false;
+        if (closeBtn) closeBtn.focus({ preventScroll: true });
+    }
+
+    function close() {
+        if (!active) return;
+        active = false;
+        if (host) host.hidden = true;
+        if (lastFocus && typeof lastFocus.focus === 'function') {
+            try { lastFocus.focus({ preventScroll: true }); } catch (e) { /* gone */ }
+        }
+        lastFocus = null;
+    }
+
+    function toggle() {
+        if (active) close();
+        else open();
+        return active;
+    }
+
+    return {
+        chip,
+        open,
+        close,
+        toggle,
+        isOpen: () => active,
+        refresh
+    };
+}
+
 // ---- js/registry.js ----
 const MANIFEST_FILE = 'manifest.json';
 
@@ -8455,12 +8914,24 @@ function createPanel(opts) {
         if (!live0.some(t => t.id === activeTool)) activeTool = 'shape';
         toolbarEl.textContent = '';
         for (const t of live0) {
+            // The Objects chip's pressed state comes from its own overlay,
+            // not from activeTool - it never takes over the shelf.
+            const isObjectChip = t.id === OBJECT_CHIP_ID;
+            const pressed = isObjectChip ? objectChip.isOpen() : t.id === activeTool;
             const chip = document.createElement('button');
             chip.type = 'button';
-            chip.className = CHIP_CLS + ' ' + (t.id === activeTool ? CHIP_ON : CHIP_OFF);
-            chip.setAttribute('aria-pressed', t.id === activeTool ? 'true' : 'false');
+            chip.className = CHIP_CLS + ' ' + (pressed ? CHIP_ON : CHIP_OFF);
+            chip.setAttribute('aria-pressed', pressed ? 'true' : 'false');
             chip.append(t.icon, document.createTextNode(t.label));
             chip.addEventListener('click', () => {
+                if (isObjectChip) {
+                    const open = objectChip.toggle();
+                    chip.className = CHIP_CLS + ' ' + (open ? CHIP_ON : CHIP_OFF);
+                    chip.setAttribute('aria-pressed', open ? 'true' : 'false');
+                    return;
+                }
+                // Any other chip taps close the tray before they act.
+                objectChip.close();
                 if (activeTool === t.id) {
                     setShelfOpen(false);
                     return;
@@ -8476,6 +8947,95 @@ function createPanel(opts) {
 
     function frameGroupsOf() {
         return currentGroups.filter(g => g.id !== PILLAR_ID && !g.owner);
+    }
+
+    // The frame the Objects tray adds to: whatever is active when it is a
+    // frame, otherwise the first frame on stage. null when none - the tray
+    // then simply shows no pillar/light cards (buildObjectCards drops them).
+    function activeFrameId() {
+        const frames = frameGroupsOf();
+        if (activeId_ && frames.some(g => g.id === activeId_)) return activeId_;
+        return frames.length ? frames[0].id : null;
+    }
+
+    // Live input for buildObjectCards (objectchip.js). Frames come from the
+    // whole catalog so a tap can switch to a preset that is not up yet;
+    // everything else describes the active frame's live counts.
+    function objectCardsInput() {
+        const fid = activeFrameId();
+        const fg = fid ? currentGroups.find(g => g.id === fid) : null;
+        const fname = (fg && fg.models && fg.models[0] && fg.models[0].name) || '';
+        const cfg = fid ? (currentFramePillars[fid] || null) : null;
+        const els = fid ? (currentFrameElements[fid] || []) : [];
+        const counts = {};
+        for (const e of els) if (e && e.type) counts[e.type] = (counts[e.type] || 0) + 1;
+        const onStage = new Set(currentGroups.map(g => g.id));
+        return {
+            frames: catalog.map(entry => {
+                const g = currentGroups.find(x => x.id === entry.id);
+                const m = g && g.models && g.models[0];
+                return {
+                    id: entry.id,
+                    name: entry.name || entry.id,
+                    subtitle: (m && m.subtitle) || '',
+                    onStage: onStage.has(entry.id)
+                };
+            }),
+            pillars: fid ? {
+                frameId: fid, frameName: fname,
+                count: (cfg && cfg.count) || 0, max: 2
+            } : null,
+            lights: fid ? { frameId: fid, frameName: fname, counts } : null,
+            flowers: flowerList.map(a => {
+                const s = (a && a.settings) || {};
+                const nColors = (s.colors && s.colors.length) || 0;
+                return {
+                    id: a.id,
+                    name: s.name || a.id,
+                    meta: `${s.width || 0} \u00d7 ${s.height || 0} ft \u00b7 `
+                        + `${nColors} colour${nColors === 1 ? '' : 's'}`
+                };
+            }),
+            decor: []
+        };
+    }
+
+    // A tray card was tapped. Every kind lands on a callback the panel
+    // already had - the tray adds no mutation path of its own. app.js
+    // clamps (pillars cap at 2, lights at the frame's anchor rules).
+    function handleObjectAction(action) {
+        if (!action) return;
+        switch (action.kind) {
+            case 'frame': {
+                if (!action.id) return;
+                if (currentMode === 'overlay') {
+                    const on = currentGroups.some(g => g.id === action.id);
+                    if (!on && opts.onToggle) opts.onToggle(action.id, true);
+                } else if (opts.onSelect) {
+                    opts.onSelect(action.id);
+                }
+                break;
+            }
+            case 'pillar': {
+                const fid = activeFrameId();
+                if (!fid || !opts.onFramePillarsChange) return;
+                const cur = (currentFramePillars[fid] && currentFramePillars[fid].count) || 0;
+                opts.onFramePillarsChange(fid, { count: cur + 1 });
+                break;
+            }
+            case 'light': {
+                const fid = activeFrameId();
+                if (!fid || !opts.onElementAdd) return;
+                opts.onElementAdd(fid, action.type);
+                break;
+            }
+            case 'flower': {
+                const arr = flowerList.find(a => a && a.id === action.id);
+                if (arr && opts.onFlowerMount) opts.onFlowerMount(arr);
+                break;
+            }
+            default: break;
+        }
     }
 
     function emptyNote(text) {
@@ -8670,6 +9230,21 @@ function createPanel(opts) {
         emptyNote
     });
     TOOLS.splice(TOOLS.findIndex(t => t.id === 'lights') + 1, 0, flowerChip.chip);
+
+    // The Objects chip is a CapCut-style add tray (objectchip.js): a tap
+    // opens its category/grid overlay instead of swapping the shelf, so it
+    // never becomes activeTool. It splices in right after Sets.
+    const objectChip = createObjectChip({
+        icon,
+        getCardsInput: objectCardsInput,
+        onAction: handleObjectAction,
+        getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
+        onStageAction: (verb, row) => {
+            if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
+        },
+        live
+    });
+    TOOLS.splice(TOOLS.findIndex(t => t.id === 'sets') + 1, 0, objectChip.chip);
 
     let liveTheme = themeIsDark;
     let lastSignature = null;
@@ -10565,6 +11140,10 @@ function createPanel(opts) {
             empty.textContent = 'No models shown.';
             host.appendChild(empty);
         }
+
+        // The tray shows live counts (pillars, lights, placed decor) -
+        // repaint it whenever a structural render lands while it is open.
+        if (objectChip.isOpen()) objectChip.refresh();
 
         applyBusy();
     }

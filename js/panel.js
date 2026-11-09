@@ -1,5 +1,6 @@
 import { PILLAR_ID } from './objects/pillar.js';
 import { createFlowerChip, FLOWER_CHIP_ID } from './objects/flowerchip.js';
+import { createObjectChip, OBJECT_CHIP_ID } from './objectchip.js';
 import { VERSION } from './version.js';
 
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
@@ -225,12 +226,24 @@ export function createPanel(opts) {
         if (!live0.some(t => t.id === activeTool)) activeTool = 'shape';
         toolbarEl.textContent = '';
         for (const t of live0) {
+            // The Objects chip's pressed state comes from its own overlay,
+            // not from activeTool - it never takes over the shelf.
+            const isObjectChip = t.id === OBJECT_CHIP_ID;
+            const pressed = isObjectChip ? objectChip.isOpen() : t.id === activeTool;
             const chip = document.createElement('button');
             chip.type = 'button';
-            chip.className = CHIP_CLS + ' ' + (t.id === activeTool ? CHIP_ON : CHIP_OFF);
-            chip.setAttribute('aria-pressed', t.id === activeTool ? 'true' : 'false');
+            chip.className = CHIP_CLS + ' ' + (pressed ? CHIP_ON : CHIP_OFF);
+            chip.setAttribute('aria-pressed', pressed ? 'true' : 'false');
             chip.append(t.icon, document.createTextNode(t.label));
             chip.addEventListener('click', () => {
+                if (isObjectChip) {
+                    const open = objectChip.toggle();
+                    chip.className = CHIP_CLS + ' ' + (open ? CHIP_ON : CHIP_OFF);
+                    chip.setAttribute('aria-pressed', open ? 'true' : 'false');
+                    return;
+                }
+                // Any other chip taps close the tray before they act.
+                objectChip.close();
                 if (activeTool === t.id) {
                     setShelfOpen(false);
                     return;
@@ -246,6 +259,95 @@ export function createPanel(opts) {
 
     function frameGroupsOf() {
         return currentGroups.filter(g => g.id !== PILLAR_ID && !g.owner);
+    }
+
+    // The frame the Objects tray adds to: whatever is active when it is a
+    // frame, otherwise the first frame on stage. null when none - the tray
+    // then simply shows no pillar/light cards (buildObjectCards drops them).
+    function activeFrameId() {
+        const frames = frameGroupsOf();
+        if (activeId_ && frames.some(g => g.id === activeId_)) return activeId_;
+        return frames.length ? frames[0].id : null;
+    }
+
+    // Live input for buildObjectCards (objectchip.js). Frames come from the
+    // whole catalog so a tap can switch to a preset that is not up yet;
+    // everything else describes the active frame's live counts.
+    function objectCardsInput() {
+        const fid = activeFrameId();
+        const fg = fid ? currentGroups.find(g => g.id === fid) : null;
+        const fname = (fg && fg.models && fg.models[0] && fg.models[0].name) || '';
+        const cfg = fid ? (currentFramePillars[fid] || null) : null;
+        const els = fid ? (currentFrameElements[fid] || []) : [];
+        const counts = {};
+        for (const e of els) if (e && e.type) counts[e.type] = (counts[e.type] || 0) + 1;
+        const onStage = new Set(currentGroups.map(g => g.id));
+        return {
+            frames: catalog.map(entry => {
+                const g = currentGroups.find(x => x.id === entry.id);
+                const m = g && g.models && g.models[0];
+                return {
+                    id: entry.id,
+                    name: entry.name || entry.id,
+                    subtitle: (m && m.subtitle) || '',
+                    onStage: onStage.has(entry.id)
+                };
+            }),
+            pillars: fid ? {
+                frameId: fid, frameName: fname,
+                count: (cfg && cfg.count) || 0, max: 2
+            } : null,
+            lights: fid ? { frameId: fid, frameName: fname, counts } : null,
+            flowers: flowerList.map(a => {
+                const s = (a && a.settings) || {};
+                const nColors = (s.colors && s.colors.length) || 0;
+                return {
+                    id: a.id,
+                    name: s.name || a.id,
+                    meta: `${s.width || 0} \u00d7 ${s.height || 0} ft \u00b7 `
+                        + `${nColors} colour${nColors === 1 ? '' : 's'}`
+                };
+            }),
+            decor: []
+        };
+    }
+
+    // A tray card was tapped. Every kind lands on a callback the panel
+    // already had - the tray adds no mutation path of its own. app.js
+    // clamps (pillars cap at 2, lights at the frame's anchor rules).
+    function handleObjectAction(action) {
+        if (!action) return;
+        switch (action.kind) {
+            case 'frame': {
+                if (!action.id) return;
+                if (currentMode === 'overlay') {
+                    const on = currentGroups.some(g => g.id === action.id);
+                    if (!on && opts.onToggle) opts.onToggle(action.id, true);
+                } else if (opts.onSelect) {
+                    opts.onSelect(action.id);
+                }
+                break;
+            }
+            case 'pillar': {
+                const fid = activeFrameId();
+                if (!fid || !opts.onFramePillarsChange) return;
+                const cur = (currentFramePillars[fid] && currentFramePillars[fid].count) || 0;
+                opts.onFramePillarsChange(fid, { count: cur + 1 });
+                break;
+            }
+            case 'light': {
+                const fid = activeFrameId();
+                if (!fid || !opts.onElementAdd) return;
+                opts.onElementAdd(fid, action.type);
+                break;
+            }
+            case 'flower': {
+                const arr = flowerList.find(a => a && a.id === action.id);
+                if (arr && opts.onFlowerMount) opts.onFlowerMount(arr);
+                break;
+            }
+            default: break;
+        }
     }
 
     function emptyNote(text) {
@@ -440,6 +542,21 @@ export function createPanel(opts) {
         emptyNote
     });
     TOOLS.splice(TOOLS.findIndex(t => t.id === 'lights') + 1, 0, flowerChip.chip);
+
+    // The Objects chip is a CapCut-style add tray (objectchip.js): a tap
+    // opens its category/grid overlay instead of swapping the shelf, so it
+    // never becomes activeTool. It splices in right after Sets.
+    const objectChip = createObjectChip({
+        icon,
+        getCardsInput: objectCardsInput,
+        onAction: handleObjectAction,
+        getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
+        onStageAction: (verb, row) => {
+            if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
+        },
+        live
+    });
+    TOOLS.splice(TOOLS.findIndex(t => t.id === 'sets') + 1, 0, objectChip.chip);
 
     let liveTheme = themeIsDark;
     let lastSignature = null;
@@ -2335,6 +2452,10 @@ export function createPanel(opts) {
             empty.textContent = 'No models shown.';
             host.appendChild(empty);
         }
+
+        // The tray shows live counts (pillars, lights, placed decor) -
+        // repaint it whenever a structural render lands while it is open.
+        if (objectChip.isOpen()) objectChip.refresh();
 
         applyBusy();
     }
