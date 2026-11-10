@@ -460,7 +460,7 @@ check('the decor catalog is pure data and bundles before its factories',
   && orderList.indexOf('js/objects/decor.js') < orderList.indexOf('js/app.js')
   && /from '\.\.\/decorlib\.js'/.test(decorSrc));
 check('the rails are built at final size, never scaled from one another',
-  /latticeCols: \{ large: 7, small: 5 \}/.test(decorSrc)
+  /latticeCols: \{ large: 12, small: 7 \}/.test(decorSrc)
   && !/\.scale\.set/.test(decorSrc)
   && /chosen per size/.test(decorSrc));
 check('the sheet ships a placeholder until its GLB arrives',
