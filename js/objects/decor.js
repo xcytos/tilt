@@ -8,11 +8,12 @@
 // its own lattice count, never a scaled copy of the large one (the plan
 // forbids deriving it that way).
 //
-// Each rail is assembled as a closed hollow cuboid shaft: four identical
-// lattice frames at 90 degrees, with solid corner posts merging the
-// vertical edges into continuous joints (not overlapping planes). The
-// catalog length is the square footprint side; the catalog height is the
-// shaft height.
+// Each rail is a tall vertical cuboid shaft: four identical lattice
+// faces at 90 degrees, joined flush at the corners by continuous flat
+// borders (no detached posts), locked with thick stepped square caps
+// top and bottom. The catalog length is the shaft height; the catalog
+// height is the square face width - so the pillar stands much taller
+// than it is wide, matching the panel proportions on all four sides.
 //
 // Depth / cross-sections are not_measured in the plan - every such number
 // below is a commented visual estimate for the preview, never a
@@ -27,25 +28,36 @@ import { decorAsset, M_PER_FT } from '../decorlib.js';
 // the pillar-rail spec: box beam with a cap, round rod lattice, layered
 // plate ends that staircase past the beams.
 const RAIL = {
-    beamF: 0.17,     // beam height as a fraction of the rail height
+    beamF: 0.17,     // beam height as a fraction of the face width
     insetF: 0.055,   // how far the end plates stand past the beams
     webF: 0.62,      // web's share of the beam (rest = the cap lip)
     beamZ: 0.13,     // beam web depth into Z
     capZ: 0.17,      // cap depth into Z (the widest part) - wall thickness
     rod: 0.045,      // lattice rod diameter - round MS rod (~0.55 in)
-    endW: 0.13,      // one layered plate's width along X
+    endW: 0.13,      // one layered plate's width along the face edge
     endGap: 0.025,   // gap between the layered plates
     endT: 0.15,      // plate thickness into Z
     // Outer plate full height, stepping down inwards: the spec's
-    // staircase silhouette, centred on the rail's mid-line.
+    // staircase silhouette, centred on the face's mid-line.
     endHeights: [1, 0.78, 0.58],
     // Diamond counts chosen per size: same design family, independently
     // modelled - this is what keeps the small rail a real second asset.
+    // Counted along the shaft height (the panel's long edge, vertical).
     latticeCols: { large: 12, small: 7 },
-    // Corner post face: slightly proud of the wall so the joint reads
-    // as one continuous column where the four frames meet.
-    postF: 1.15
+    // Stepped square caps: three tiers, widest at the outer face, so
+    // the top and bottom lock the four-sided form together.
+    capSteps: [
+        { scale: 1.22, h: 0.16 },
+        { scale: 1.10, h: 0.14 },
+        { scale: 1.00, h: 0.12 }
+    ],
+    // Flat corner border: flush with the face outer plane, continuous
+    // full height into both caps - a frame corner, not a free post.
+    cornerFlush: 0.02
 };
+
+// Total cap height (one end) from the stepped tiers.
+const CAP_H = RAIL.capSteps.reduce((s, t) => s + t.h, 0);
 
 // The arch spec states 6 mm (0.24 in); the catalog still records
 // thickness as not_measured, so this value is the stand-in only - it
@@ -76,29 +88,33 @@ function latticeSegment(m, c, halfW, halfH) {
     return [[lo, m * lo + c], [hi, m * hi + c]];
 }
 
-function buildRailContent(asset, kind) {
-    const [L, H] = asset.sizeFt;
+// One lattice face: horizontal top/bottom box beams, diamond rod
+// lattice, and layered edge plates at the left/right vertical borders.
+// faceW is the square side (horizontal); faceH is the shaft height.
+// Built centred at the origin in X/Y with thickness around Z = 0.
+function buildRailFace(faceW, faceH, kind) {
     const cols = RAIL.latticeCols[kind] || RAIL.latticeCols.large;
     const gold = new THREE.MeshStandardMaterial({
         color: 0xd9a441, metalness: 0.85, roughness: 0.3
     });
     const content = new THREE.Group();
 
-    const beamH = H * RAIL.beamF;
-    const inset = H * RAIL.insetF;
+    // Beam proportions follow the short face edge (the panel's own
+    // height when laid flat) so the section matches the spec.
+    const beamH = faceW * RAIL.beamF;
+    const inset = faceW * RAIL.insetF;
     const webH = beamH * (1 - RAIL.webF);
     const capH = beamH - webH;
     const endAsmW = 3 * RAIL.endW + 2 * RAIL.endGap;
-    const span = L - 2 * endAsmW;
+    const span = faceW - 2 * endAsmW;
 
-    // main_frame: top and bottom box beams, each a web under a wider cap
-    // lip (the spec's box/angle section), butt-jointed into the end
-    // plates and inset so the plates staircase past them.
+    // main_frame: top and bottom box beams, each a web under a wider
+    // cap lip, butt-jointed into the edge plates.
     const frame = new THREE.Group();
     frame.name = 'main_frame';
     const beam = sign => {
         const g = new THREE.Group();
-        const edge = sign * (H / 2 - inset);
+        const edge = sign * (faceH / 2 - inset);
         const web = new THREE.Mesh(
             new THREE.BoxGeometry(span, webH, RAIL.beamZ), gold);
         web.position.y = edge - sign * (capH + webH / 2);
@@ -112,11 +128,12 @@ function buildRailContent(asset, kind) {
     content.add(frame);
 
     // diamond_lattice: two clipped diagonal families of round rods -
-    // real rods, real gaps, no backing.
+    // real rods, real gaps, no backing. Counted along the height so
+    // the diamonds stack up the tall face.
     const lattice = new THREE.Group();
     lattice.name = 'diamond_lattice';
     const halfW = span / 2 - 0.012;
-    const halfH = H / 2 - inset - beamH - 0.012;
+    const halfH = faceH / 2 - inset - beamH - 0.012;
     const cMax = halfW + halfH;
     const rodR = RAIL.rod / 2;
     for (let i = 0; i < cols; i++) {
@@ -135,16 +152,16 @@ function buildRailContent(asset, kind) {
     }
     content.add(lattice);
 
-    // end supports: three layered plates per end, heights stepping down
-    // towards the middle - the spec's staircase, kept inside the
-    // catalog length.
+    // Edge plates: three layered strips per vertical border, widths
+    // stepping down inwards - the spec's staircase on the face edge
+    // that becomes the corner joint when four faces close.
     const addEnd = sign => {
         const g = new THREE.Group();
         g.name = sign < 0 ? 'left_end_support' : 'right_end_support';
         RAIL.endHeights.forEach((frac, i) => {
-            const outer = L / 2 - i * (RAIL.endW + RAIL.endGap) - RAIL.endW / 2;
+            const outer = faceW / 2 - i * (RAIL.endW + RAIL.endGap) - RAIL.endW / 2;
             const plate = new THREE.Mesh(
-                new THREE.BoxGeometry(RAIL.endW, H * frac, RAIL.endT), gold);
+                new THREE.BoxGeometry(RAIL.endW, faceH * frac, RAIL.endT), gold);
             plate.position.x = sign * outer;
             g.add(plate);
         });
@@ -154,49 +171,91 @@ function buildRailContent(asset, kind) {
     return content;
 }
 
-// Four identical lattice frames at 90 degrees, closed into a hollow
-// cuboid shaft. The catalog length is the square footprint side; the
-// catalog height is the shaft height. Solid corner posts merge the
-// vertical edges where the frames meet - one continuous joint column
-// per corner, not two overlapping end-plate stacks.
+// Thick stepped square cap: three tiers, widest at the outer face,
+// stepping in to meet the shaft walls. sign = -1 bottom, +1 top.
+// Returned group is centred on the shaft axis; place by its outer face.
+function buildSteppedCap(faceW, sign) {
+    const gold = new THREE.MeshStandardMaterial({
+        color: 0xd9a441, metalness: 0.85, roughness: 0.3
+    });
+    const cap = new THREE.Group();
+    cap.name = sign < 0 ? 'bottom_cap' : 'top_cap';
+    // Stack from the shaft junction outward: inner tier at scale 1.0
+    // meets the walls; outer tiers step away. Bottom cap grows downward
+    // from the body, top cap grows upward.
+    const tiers = [...RAIL.capSteps].reverse(); // scale 1.0 first
+    let y = 0;
+    for (const t of tiers) {
+        const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(faceW * t.scale, t.h, faceW * t.scale),
+            gold);
+        // Place relative to the shaft junction (y = 0 local, to be
+        // offset by the caller): first tier sits against the body.
+        y += t.h / 2;
+        mesh.position.y = sign * y;
+        y += t.h / 2;
+        cap.add(mesh);
+    }
+    return cap;
+}
+
+// Four identical lattice faces at 90 degrees, closed into a tall
+// hollow cuboid. Catalog length is the shaft height; catalog height is
+// the square side. Flat corner borders sit flush on the face edges and
+// run full height into both caps - continuous frame corners, not free
+// posts. Stepped square caps lock top and bottom.
 function buildRailShaft(asset, kind) {
-    const [L, H] = asset.sizeFt;
+    const [L, H] = asset.sizeFt;   // L = shaft height, H = face width
+    const faceW = H;
+    const bodyH = L;
     const wallT = RAIL.capZ;
-    const arm = L / 2 - wallT / 2;
+    const arm = faceW / 2 - wallT / 2;
+    const totalH = bodyH + 2 * CAP_H;
     const gold = new THREE.MeshStandardMaterial({
         color: 0xd9a441, metalness: 0.85, roughness: 0.3
     });
     const shaft = new THREE.Group();
     shaft.name = 'rail_shaft';
 
+    // Body sits between the caps: shift so totalH is centred at 0.
+    const bodyY = 0;
     for (let i = 0; i < 4; i++) {
         const face = new THREE.Group();
         face.name = `face_${i}`;
         face.rotation.y = i * Math.PI / 2;
-        const panel = buildRailContent(asset, kind);
-        panel.position.z = arm;
+        const panel = buildRailFace(faceW, bodyH, kind);
+        panel.position.set(0, bodyY, arm);
         face.add(panel);
         shaft.add(face);
     }
 
-    // Corner posts: one solid column per vertical edge of the cuboid.
-    // Sized just proud of the wall section so the joint reads as a
-    // continuous frame rather than coplanar overlapping plates.
-    const corners = new THREE.Group();
-    corners.name = 'corner_joints';
-    const postW = wallT * RAIL.postF;
-    const postArm = L / 2 - postW / 2;
+    // Corner borders: flat columns on the four vertical edges, flush
+    // with the outer face plane (cornerFlush proud of the wall), full
+    // height into both caps. Overlap the face edge plates so the joint
+    // is solid continuous frame - no gaps, no detached fragments.
+    const borders = new THREE.Group();
+    borders.name = 'corner_borders';
+    const postW = wallT + RAIL.cornerFlush;
+    const postArm = faceW / 2 - postW / 2 + RAIL.cornerFlush;
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
             const post = new THREE.Mesh(
-                new THREE.BoxGeometry(postW, H, postW), gold);
+                new THREE.BoxGeometry(postW, totalH, postW), gold);
             post.position.set(sx * postArm, 0, sz * postArm);
             post.name = `corner_${sx > 0 ? 'p' : 'n'}${sz > 0 ? 'p' : 'n'}`;
-            corners.add(post);
+            borders.add(post);
         }
     }
-    shaft.add(corners);
-    return shaft;
+    shaft.add(borders);
+
+    // Stepped caps: junction at body edges, tiers stack outward.
+    const bottom = buildSteppedCap(faceW, -1);
+    bottom.position.y = -bodyH / 2;
+    const top = buildSteppedCap(faceW, +1);
+    top.position.y = bodyH / 2;
+    shaft.add(bottom, top);
+
+    return { shaft, totalH };
 }
 
 /* ---------------------------------------------------- the arch sheet */
@@ -355,7 +414,6 @@ function loadSheetGltf() {
 export function createPillarRailModel(kind) {
     const small = kind === 'small';
     const asset = decorAsset(small ? 'pillar_rail_small' : 'pillar_rail_large');
-    const H = asset.sizeFt[1];
     const root = new THREE.Group();
     root.name = asset.id;
     const state = { kind: small ? 'small' : 'large' };
@@ -363,10 +421,11 @@ export function createPillarRailModel(kind) {
     function build() {
         disposeParts(root);
         root.clear();
-        // Local geometry is centred (the plan's origin), the node lifts
-        // by half a height so the bottom sits on the ground.
-        root.position.y = H / 2;
-        root.add(buildRailShaft(asset, small ? 'small' : 'large'));
+        // Local geometry is centred (body + both caps), the node lifts
+        // by half the total height so the bottom cap sits on the ground.
+        const { shaft, totalH } = buildRailShaft(asset, small ? 'small' : 'large');
+        root.position.y = totalH / 2;
+        root.add(shaft);
     }
     build();
 

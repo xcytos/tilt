@@ -104,13 +104,23 @@ check('each model builds real content on create',
   JSON.stringify([large, small, sheet].map(m => m.object3D.children.length)));
 
 const lsz = sizeOf(large), ssz = sizeOf(small), wsz = sizeOf(sheet);
-check('the large rail shaft is the catalog 5 ft square, 1.25 ft tall',
-  near(toM(lsz.x), 1.524, 1e-6) && near(toM(lsz.y), 0.381, 1e-6)
-  && near(toM(lsz.z), 1.524, 1e-6),
+// Catalog length becomes shaft height; catalog height is the square
+// face width. Caps step out past the walls, so the footprint is a bit
+// wider than the face and the total height includes both caps.
+const CAP_H = 0.16 + 0.14 + 0.12;
+const largeBody = 5, largeFace = 1.25;
+const smallBody = 3, smallFace = 1;
+const largeCap = largeFace * 1.22;
+const smallCap = smallFace * 1.22;
+check('the large rail is a tall pillar: 5 ft body, 1.25 ft square face',
+  near(lsz.y, largeBody + 2 * CAP_H, 1e-4)
+  && near(lsz.x, largeCap, 1e-4) && near(lsz.z, largeCap, 1e-4)
+  && lsz.y > 2 * lsz.x,
   JSON.stringify([lsz.x, lsz.y, lsz.z]));
-check('the small rail shaft is the catalog 3 ft square, 1 ft tall',
-  near(toM(ssz.x), 0.9144, 1e-6) && near(toM(ssz.y), 0.3048, 1e-6)
-  && near(toM(ssz.z), 0.9144, 1e-6),
+check('the small rail is a tall pillar: 3 ft body, 1 ft square face',
+  near(ssz.y, smallBody + 2 * CAP_H, 1e-4)
+  && near(ssz.x, smallCap, 1e-4) && near(ssz.z, smallCap, 1e-4)
+  && ssz.y > 2 * ssz.x,
   JSON.stringify([ssz.x, ssz.y, ssz.z]));
 check('the sheet bbox is the catalog 2.5 ft x 6 ft',
   near(toM(wsz.x), 0.762, 1e-6) && near(toM(wsz.y), 1.8288, 1e-6),
@@ -134,19 +144,30 @@ check('the required nodes exist under their plan names',
     .every(n => !!large.object3D.getObjectByName(n))
   && !!sheet.object3D.getObjectByName('arch_panel_sheet'));
 
-check('four identical frames close into a hollow shaft at 90 degrees',
+check('four identical faces close into a hollow shaft at 90 degrees',
   ['face_0', 'face_1', 'face_2', 'face_3']
     .every(n => !!large.object3D.getObjectByName(n))
-  && large.object3D.getObjectByName('corner_joints').children.length === 4
+  && large.object3D.getObjectByName('corner_borders').children.length === 4
   && [0, 1, 2, 3].every(i => {
     const f = large.object3D.getObjectByName(`face_${i}`);
     return near(f.rotation.y, i * Math.PI / 2, 1e-6);
   }),
-  String(large.object3D.getObjectByName('corner_joints').children.length));
+  String(large.object3D.getObjectByName('corner_borders').children.length));
 
-check('corner joints are solid posts, not overlapping planes',
-  large.object3D.getObjectByName('corner_joints').children.every(c =>
-    c.isMesh && c.geometry.type === 'BoxGeometry' && c.geometry.parameters.height === 1.25));
+check('corner borders are continuous full-height frame, not free posts',
+  (() => {
+    const borders = large.object3D.getObjectByName('corner_borders');
+    const totalH = largeBody + 2 * CAP_H;
+    return borders.children.every(c =>
+      c.isMesh && c.geometry.type === 'BoxGeometry'
+      && near(c.geometry.parameters.height, totalH, 1e-4));
+  })());
+
+check('stepped square caps lock the top and bottom',
+  !!large.object3D.getObjectByName('bottom_cap')
+  && !!large.object3D.getObjectByName('top_cap')
+  && large.object3D.getObjectByName('bottom_cap').children.length === 3
+  && large.object3D.getObjectByName('top_cap').children.length === 3);
 
 check('the small rail is its own model, not a scaled large one',
   // A uniform scale could never satisfy both catalog ratios (5/3 != 1.25),
