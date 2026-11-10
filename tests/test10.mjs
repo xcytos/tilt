@@ -444,6 +444,61 @@ check('an edited arrangement re-renders through a settings rev',
 check('the hub lets go of its GL context when the page goes away',
   /trayPreviews\.dispose\(\)/.test(appSrc));
 
+// Loop 2: the manufactured decor inventory - pure catalog, procedural
+// factories, free-place wiring, doc round-trip.
+const decorlibSrc = read('js/decorlib.js');
+const decorSrc = read('js/objects/decor.js');
+const projectSrc = read('js/project.js');
+const modelsPageSrc = read('home/models.js');
+const assetlibSrc = read('home/assetlib.js');
+check('the decor catalog is pure data and bundles before its factories',
+  /export const DECOR_ASSETS/.test(decorlibSrc)
+  && !/from 'three'/.test(decorlibSrc)
+  && !/document\./.test(decorlibSrc)
+  && orderList.indexOf('js/decorlib.js') > -1
+  && orderList.indexOf('js/decorlib.js') < orderList.indexOf('js/objects/decor.js')
+  && orderList.indexOf('js/objects/decor.js') < orderList.indexOf('js/app.js')
+  && /from '\.\.\/decorlib\.js'/.test(decorSrc));
+check('the rails are built at final size, never scaled from one another',
+  /latticeCols: \{ large: 7, small: 5 \}/.test(decorSrc)
+  && !/\.scale\.set/.test(decorSrc)
+  && /chosen per size/.test(decorSrc));
+check('the sheet ships a placeholder until its GLB arrives',
+  /GLTFLoader/.test(decorSrc)
+  && /modelStatus: 'placeholder'/.test(decorSrc)
+  && /state\.modelStatus = 'loaded'/.test(decorSrc)
+  && /models\/decor\/decorative_arch_panel_sheet\.glb/.test(decorSrc));
+check('the editor free-places decor like flower panels',
+  /let decorObjects = \[\];/.test(appSrc)
+  && /decor: decorPlain\(\)/.test(appSrc)
+  && /savedDoc && Array\.isArray\(savedDoc\.decor\)/.test(appSrc)
+  && /getDecorStage: \(\) => decorStagePlain\(\)/.test(appSrc)
+  && /onDecorAdd: guard/.test(appSrc)
+  && /onDecorRemove: guard/.test(appSrc)
+  && /onDecorPlace:/.test(appSrc)
+  && /key\.startsWith\('decor:'\)/.test(appSrc));
+check('the tray cards, actions and stage controls are wired',
+  /case 'decor':/.test(panelSrc)
+  && /opts\.onDecorAdd\(action\.assetId\)/.test(panelSrc)
+  && /DECOR_ASSETS\.map/.test(panelSrc)
+  && /verb === 'place' && opts\.onDecorPlace/.test(panelSrc)
+  && /onStageAction\('place', row/.test(objchipSrc)
+  && /type = 'number'/.test(objchipSrc));
+check('documents round-trip through a validating cleaner',
+  /function cleanDecor/.test(projectSrc)
+  && /decor: cleanDecor\(data\.decor\)/.test(projectSrc)
+  && /DECOR_BY_ID\[e\.assetId\]/.test(projectSrc)
+  && /from '\.\/decorlib\.js'/.test(projectSrc));
+check('the models page lists the three new assets',
+  /DECOR_ASSETS\.map/.test(modelsPageSrc)
+  && /registry\.register\('pillar_rail_large'/.test(modelsPageSrc)
+  && /registry\.register\('decorative_arch_panel_sheet'/.test(modelsPageSrc)
+  && /createArchPanelModel/.test(modelsPageSrc));
+check('the catalog classifies rails under Pillars and the sheet under Panels',
+  /name: 'Panels'/.test(assetlibSrc)
+  && /pillar_rail_large' \|\| t === 'pillar_rail_small/.test(assetlibSrc)
+  && /t === 'decorative_arch_panel_sheet'/.test(assetlibSrc));
+
 // -------------------------------------------------------------- 6. mobile
 console.log('\nmobile: the editor on a phone');
 const media = shell.match(/@media[^{]+\{/g) || [];

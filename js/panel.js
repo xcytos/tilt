@@ -1,4 +1,5 @@
 import { PILLAR_ID } from './objects/pillar.js';
+import { DECOR_ASSETS } from './decorlib.js';
 import { createFlowerChip, FLOWER_CHIP_ID } from './objects/flowerchip.js';
 import { createObjectChip, OBJECT_CHIP_ID } from './objectchip.js';
 import { VERSION } from './version.js';
@@ -312,7 +313,18 @@ export function createPanel(opts) {
                     previewKey: 'flower:' + a.id + ':' + revOf(JSON.stringify(s))
                 };
             }),
-            decor: []
+            decor: DECOR_ASSETS.map(a => {
+                const rows = opts.getDecorStage ? opts.getDecorStage() : [];
+                const placed = rows.filter(r => r && r.assetId === a.id).length;
+                return {
+                    assetId: a.id,
+                    name: a.name,
+                    category: a.category,
+                    qty: a.qty,
+                    placed,
+                    sub: `${a.qty} available · ${a.sizeFt[0]} × ${a.sizeFt[1]} ft`
+                };
+            })
         };
     }
 
@@ -355,6 +367,11 @@ export function createPanel(opts) {
             case 'flower': {
                 const arr = flowerList.find(a => a && a.id === action.id);
                 if (arr && opts.onFlowerMount) opts.onFlowerMount(arr);
+                break;
+            }
+            case 'decor': {
+                if (!action.assetId || !opts.onDecorAdd) return;
+                opts.onDecorAdd(action.assetId);
                 break;
             }
             default: break;
@@ -563,8 +580,9 @@ export function createPanel(opts) {
         onAction: handleObjectAction,
         preview: opts.previews,
         getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
-        onStageAction: (verb, row) => {
+        onStageAction: (verb, row, patch) => {
             if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
+            else if (verb === 'place' && opts.onDecorPlace) opts.onDecorPlace(row.key, patch);
         },
         live
     });
@@ -2378,7 +2396,10 @@ export function createPanel(opts) {
             JSON.stringify(elemShape),
             (current && current.name) || '',
             flowerList.map(a => (a && a.id) || '').join(','),
-            mountedFlowers.map(f => (f && f.id) || '').join(',')
+            mountedFlowers.map(f => (f && f.id) || '').join(','),
+            // Mount / remove only: placement is value-level, the strip's
+            // own inputs already show it.
+            (opts.getDecorStage ? opts.getDecorStage() : []).map(r => (r && r.key) || '').join(',')
         ].join('|');
     }
 

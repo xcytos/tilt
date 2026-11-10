@@ -13,6 +13,7 @@ const CATEGORY_META = [
     { name: 'Sets & Stages', blurb: 'Complete stage and entrance assemblies' },
     { name: 'Structures', blurb: 'Frames, arches and support assemblies' },
     { name: 'Pillars & Columns', blurb: 'Classical columns and variants' },
+    { name: 'Panels', blurb: 'Decorative infill sheets and cutwork' },
     { name: 'Floral Arrangements', blurb: 'Authored flower compositions' },
     { name: 'Flowers', blurb: 'Procedural bloom species' },
     { name: 'Greenery', blurb: 'Procedural foliage species' },
@@ -36,6 +37,16 @@ function classify(input) {
     if (t === 'pillar') {
         return { primaryCategory: 'Pillars & Columns', subcategory: 'Classical',
                  assetType: 'component', tags: ['pillar', 'structure', 'set-component'] };
+    }
+    // The manufactured decor inventory: free-placed rails and sheets from
+    // plans/decor_element_library_3d_assets.json (see js/decorlib.js).
+    if (t === 'pillar_rail_large' || t === 'pillar_rail_small') {
+        return { primaryCategory: 'Pillars & Columns', subcategory: 'Rails',
+                 assetType: 'object', tags: ['pillar', 'rail', 'lattice', 'decor'] };
+    }
+    if (t === 'decorative_arch_panel_sheet') {
+        return { primaryCategory: 'Panels', subcategory: 'Cutwork',
+                 assetType: 'object', tags: ['panel', 'sheet', 'cutwork', 'decor'] };
     }
     if (t === 'flowerpanel') {
         return { primaryCategory: 'Floral Arrangements', subcategory: 'Panels',

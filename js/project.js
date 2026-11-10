@@ -12,6 +12,8 @@ import { COLORWAY_IDS, DEFAULT_COLORWAY } from './colorways.js';
 // Pure (no three.js): the flower arrangement's authority for turning whatever a
 // document carries into a full, clamped settings object.
 import { FlowerModel } from './flowermodel.js';
+// Pure catalog: which asset ids the free-placed decor inventory accepts.
+import { DECOR_BY_ID } from './decorlib.js';
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -317,6 +319,30 @@ function cleanFlowerPanels(raw) {
     return out;
 }
 
+// Free-placed decor instances (rails, sheets): a known asset id and a
+// clamped placement, same bounds as the flower panels.
+const DECOR_LIMIT = 40;
+const DECOR_ID_RE = /^decor-\d{1,6}$/;
+
+function cleanDecor(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const e of raw) {
+        if (out.length >= DECOR_LIMIT) break;
+        if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+        if (typeof e.id !== 'string' || !DECOR_ID_RE.test(e.id)) continue;
+        if (typeof e.assetId !== 'string' || !DECOR_BY_ID[e.assetId]) continue;
+        out.push({
+            id: e.id,
+            assetId: e.assetId,
+            x: clampN(e.x, -300, 300, 0),
+            z: clampN(e.z, -300, 300, 0),
+            ry: clampN(e.ry, -360, 360, 0)
+        });
+    }
+    return out;
+}
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 export function parseProject(raw) {
@@ -352,6 +378,8 @@ export function parseProject(raw) {
         // Flower panels mounted around the scene. Each references an arrangement
         // in the Studio's own library by id (see the Studio's localStorage).
         flowerPanels: cleanFlowerPanels(data.flowerPanels),
+        // Free-placed manufactured decor (rails, sheets).
+        decor: cleanDecor(data.decor),
         // Scene-wide flower geometry quality (drives the petal/leaf tessellation).
         flowerQuality: ['high', 'medium', 'low'].includes(data.flowerQuality)
             ? data.flowerQuality : 'medium',

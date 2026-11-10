@@ -11,6 +11,8 @@ import { RECIPES, recipeById, recipeFor } from './recipes.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
 import { createFlowerPanelModel, FLOWERPANEL_PARAMS, FLOWERPANEL_ID } from './objects/flowerpanel.js';
+import { createDecorModel } from './objects/decor.js';
+import { decorAsset } from './decorlib.js';
 import { createLightModel, LIGHT_TYPES, LIGHT_PARAMS, LIGHT_NAMES } from './elements/light.js';
 import {
     loadProject, saveProject, clearProject, applySaved, projectToJSON,
@@ -156,6 +158,7 @@ function buildDoc() {
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
         flowerPanels: flowerPanelsPlain(),
+        decor: decorPlain(),
         flowerQuality,
         view,
         mounted: orderIds(),
@@ -1086,6 +1089,108 @@ function openStudio() {
     window.open(url, '_blank');
 }
 
+// ---- decor inventory ----------------------------------------------------
+// Manufactured rails and sheets, free-placed around the scene. Same
+// free-list shape as flowerPanels: hydrated from the document's top-level
+// `decor` field (see project.js) and written back on save. The instance
+// list doubles as the tray's "On stage" rows and its placed-count badges.
+let decorObjects = [];
+
+function nextDecorId() {
+    const ids = new Set(decorObjects.map(d => d.id));
+    let n = decorObjects.length + 1;
+    while (ids.has('decor-' + n)) n++;
+    return 'decor-' + n;
+}
+
+function placeDecor(d) {
+    if (!d.model || !d.model.object3D) return;
+    d.model.object3D.position.x = d.x;
+    d.model.object3D.position.z = d.z;
+    d.model.object3D.rotation.y = (d.ry || 0) * Math.PI / 180;
+}
+
+// entry: { id?, assetId, x?, z?, ry? } -> the live instance, or null for
+// an unknown asset id (a corrupt document drops it).
+function mountDecor(entry) {
+    const asset = decorAsset(entry && entry.assetId);
+    if (!asset) return null;
+    const model = createDecorModel(asset.id);
+    if (!model) return null;
+    viewer.addModel(model);
+    const d = {
+        id: (entry && entry.id) || nextDecorId(),
+        assetId: asset.id,
+        model,
+        x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
+        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
+    };
+    decorObjects.push(d);
+    placeDecor(d);
+    return d;
+}
+
+function unmountDecor(id) {
+    const i = decorObjects.findIndex(d => d.id === id);
+    if (i < 0) return false;
+    viewer.removeModel(decorObjects[i].model);
+    decorObjects.splice(i, 1);
+    return true;
+}
+
+// The document's snapshot: identity + placement only.
+function decorPlain() {
+    return decorObjects.map(d => ({
+        id: d.id, assetId: d.assetId, x: d.x, z: d.z, ry: d.ry
+    }));
+}
+
+// The tray's view of the same list: `key` addresses an instance in the
+// On-stage strip, `assetId` feeds the cards' placed-count badges.
+function decorStagePlain() {
+    return decorObjects.map(d => {
+        const asset = decorAsset(d.assetId);
+        return {
+            key: d.id, assetId: d.assetId,
+            name: (asset && asset.name) || d.assetId,
+            x: d.x, z: d.z, ry: d.ry
+        };
+    });
+}
+
+// One tap on a tray card: drop a fresh instance at the next free floor
+// spot (a loose grid behind the flowers' default spot - the strip's
+// X/Z/Turn controls do the fine placement).
+function addDecor(assetId) {
+    const n = decorObjects.length;
+    const d = mountDecor({
+        assetId,
+        x: ((n % 4) - 1.5) * 6,
+        z: 8 + Math.floor(n / 4) * 6,
+        ry: 0
+    });
+    if (!d) return;
+    scheduleSave();
+}
+
+function removeDecor(id) {
+    if (!unmountDecor(id)) return;
+    scheduleSave();
+}
+
+// Live placement from the On-stage strip - move/turn one instance and
+// persist, without rebuilding the tray (the input keeps its own value).
+function setDecorPlace(id, patch) {
+    const d = decorObjects.find(x => x.id === id);
+    if (!d) return;
+    if (Number.isFinite(Number(patch.x))) d.x = Number(patch.x);
+    if (Number.isFinite(Number(patch.z))) d.z = Number(patch.z);
+    if (Number.isFinite(Number(patch.ry))) d.ry = Number(patch.ry);
+    placeDecor(d);
+    scheduleSave();
+}
+
 function num(v, fallback) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
@@ -2000,6 +2105,14 @@ if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
     }
 }
 
+// Same for the free-placed decor inventory: a valid entry becomes a live
+// instance; an unknown asset id is dropped by mountDecor.
+if (savedDoc && Array.isArray(savedDoc.decor)) {
+    for (const entry of savedDoc.decor) {
+        try { mountDecor(entry); } catch (err) { console.error('[decor]', err); }
+    }
+}
+
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
@@ -2040,6 +2153,11 @@ async function buildTrayGroup(key) {
         if (!arr) throw new Error('no arrangement ' + id);
         const model = createFlowerPanelModel({ settings: arr.settings });
         if (model.build) model.build();
+        return wrap(model);
+    }
+    if (key.startsWith('decor:')) {
+        const model = createDecorModel(key.slice('decor:'.length));
+        if (!model) throw new Error('no decor asset for ' + key);
         return wrap(model);
     }
     throw new Error('unknown preview key ' + key);
@@ -2103,6 +2221,10 @@ panel = createPanel({
     onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
     onFlowerQualityChange: guard(q => setFlowerQuality(q)),
+    getDecorStage: () => decorStagePlain(),
+    onDecorAdd: guard(assetId => addDecor(assetId)),
+    onDecorRemove: guard(id => removeDecor(id)),
+    onDecorPlace: (id, patch) => setDecorPlace(id, patch),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])

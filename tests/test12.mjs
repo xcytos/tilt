@@ -138,6 +138,8 @@ check('species files self-register with a type and label',
 
 const { buildCatalog, matchesQuery, filterAssets, facetCounts, ASSET_TYPES } =
   await import(pathToFileURL(path.join(DECOR, 'home', 'assetlib.js')).href);
+const { DECOR_ASSETS } =
+  await import(pathToFileURL(path.join(DECOR, 'js', 'decorlib.js')).href);
 
 const catalog = buildCatalog({
   manifest: { entries: manifestRaw.models.map(m => ({ id: m.id, name: m.name, file: m.file, tags: m.tags })), defs },
@@ -148,6 +150,12 @@ const catalog = buildCatalog({
       source: { kind: 'file', path: 'js/objects/pillar.js' }, params: ['height'] },
     { type: 'flowerpanel', name: panelName, subtitle: panelSub,
       source: { kind: 'file', path: 'js/objects/flowerpanel.js' }, params: panelParams },
+    // The decor inventory: ids, names and file straight from the catalog
+    // the editor mounts from - no second copy of the list to drift.
+    ...DECOR_ASSETS.map(a => ({
+      type: a.id, name: a.name, subtitle: '',
+      source: { kind: 'file', path: 'js/objects/decor.js' }, params: []
+    })),
     ...Object.keys(lightNames).map(t => ({
       type: t, name: lightNames[t], subtitle: 'Anchor element',
       source: { kind: 'file', path: 'js/elements/light.js' }, params: ['power']
@@ -159,13 +167,13 @@ const catalog = buildCatalog({
 
 check('the catalog reports no problems', catalog.problems.length === 0,
   catalog.problems.join('; '));
-check('19 assets: 1 model + 6 types + 5 flowers + 7 greenery',
-  catalog.assets.length === 19, String(catalog.assets.length));
-check('ids are unique', new Set(catalog.assets.map(a => a.id)).size === 19);
-check('7 non-empty categories, counts sum to the asset count',
-  catalog.categories.length === 7
+check('22 assets: 1 model + 9 types + 5 flowers + 7 greenery',
+  catalog.assets.length === 22, String(catalog.assets.length));
+check('ids are unique', new Set(catalog.assets.map(a => a.id)).size === 22);
+check('8 non-empty categories, counts sum to the asset count',
+  catalog.categories.length === 8
   && catalog.categories.every(c => c.count > 0)
-  && catalog.categories.reduce((n, c) => n + c.count, 0) === 19,
+  && catalog.categories.reduce((n, c) => n + c.count, 0) === 22,
   JSON.stringify(catalog.categories));
 
 const byId = Object.fromEntries(catalog.assets.map(a => [a.id, a]));
@@ -201,9 +209,18 @@ check('nothing needs review - every asset matched evidence',
   catalog.assets.every(a => !a.uncertain));
 check('byType tallies the four real roles',
   JSON.stringify(catalog.stats.byType) === JSON.stringify(
-    [{ type: 'model', count: 1 }, { type: 'object', count: 2 },
+    [{ type: 'model', count: 1 }, { type: 'object', count: 5 },
      { type: 'element', count: 15 }, { type: 'component', count: 1 }]),
   JSON.stringify(catalog.stats.byType));
+check('the decor inventory classifies without review',
+  byId.pillar_rail_large && byId.pillar_rail_large.primaryCategory === 'Pillars & Columns'
+  && byId.pillar_rail_large.assetType === 'object'
+  && byId.pillar_rail_small && byId.pillar_rail_small.primaryCategory === 'Pillars & Columns'
+  && byId.decorative_arch_panel_sheet
+  && byId.decorative_arch_panel_sheet.primaryCategory === 'Panels'
+  && byId.decorative_arch_panel_sheet.assetType === 'object'
+  && catalog.categories.some(c => c.name === 'Panels' && c.count === 1)
+  && DECOR_ASSETS.every(a => byId[a.id] && !byId[a.id].uncertain));
 check('every def type is covered by a card',
   Object.values(defs).every(d =>
     d.objects.concat(d.elements).every(o => byId[o.type])));
@@ -228,11 +245,11 @@ console.log('\nasset catalog: chips count what a click would really show');
 const A = catalog.assets;
 check('each type filter alone returns its advertised count',
   filterAssets(A, { type: 'model' }).length === 1
-  && filterAssets(A, { type: 'object' }).length === 2
+  && filterAssets(A, { type: 'object' }).length === 5
   && filterAssets(A, { type: 'component' }).length === 1
   && filterAssets(A, { type: 'element' }).length === 15);
 check('a cross-filter can empty the grid (the bug this guards)',
-  filterAssets(A, { type: 'object', category: 'Pillars & Columns' }).length === 0
+  filterAssets(A, { type: 'model', category: 'Panels' }).length === 0
   && filterAssets(A, { type: 'component', category: 'Lighting' }).length === 0);
 check('...but every facet still shows reachable counts to escape it', (() => {
   const f = facetCounts(A, { type: 'component', category: 'Lighting' });
@@ -249,7 +266,7 @@ check('facet counts shrink with the search, never lie',
   && facetCounts(A, { type: 'element', query: 'monstera' }).visible === 1
   && facetCounts(A, { query: 'zzz-nothing' }).visible === 0);
 check('search alone never empties a matchable query',
-  filterAssets(A, { query: 'pillar' }).length === 1
+  filterAssets(A, { query: 'pillar' }).length === 3
   && filterAssets(A, { query: 'light' }).length === 3);
 
 // ------------------------------------------------------------- 4. the page

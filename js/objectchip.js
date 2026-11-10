@@ -12,9 +12,10 @@
 //   getCardsInput()    - live input for buildObjectCards
 //   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
 //                        each kind onto its existing add callbacks)
-//   getStageRows()     - optional: instances already on stage for the
-//                        "On stage" strip [{ key, name, x, z, ry }]
-//   onStageAction(...) - optional: placement / remove for one instance
+//   getStageRows()      - optional: instances already on stage for the
+//                        "On stage" strip [{ key, assetId?, name, x, z, ry }]
+//   onStageAction(...) - optional: 'remove' | 'place' ({ x | z | ry })
+//                        for one instance
 //   live               - the panel's button registry (busy dimming)
 // }
 
@@ -298,12 +299,42 @@ export function createObjectChip(ctx) {
         name.textContent = row.name || row.key;
         card.appendChild(name);
         if (ctx.onStageAction) {
+            const num = (label, key, step, min, max) => {
+                const w = document.createElement('label');
+                w.className = 'objpick-stage-num';
+                w.textContent = label;
+                const inp = document.createElement('input');
+                inp.type = 'number';
+                inp.step = String(step);
+                if (min != null) inp.min = String(min);
+                if (max != null) inp.max = String(max);
+                inp.value = String(Number(row[key]) || 0);
+                inp.setAttribute('aria-label', label + ' ' + (row.name || row.key));
+                // 'change' (blur / enter), not 'input': the app persists
+                // the patch and the input keeps its own typed value.
+                inp.addEventListener('change', () => {
+                    const v = Number(inp.value);
+                    if (!Number.isFinite(v)) return;
+                    ctx.onStageAction('place', row, { [key]: v });
+                });
+                w.appendChild(inp);
+                return w;
+            };
+            card.append(
+                num('X', 'x', 1),
+                num('Z', 'z', 1),
+                num('Turn', 'ry', 15, -180, 180)
+            );
             const rm = document.createElement('button');
             rm.type = 'button';
             rm.className = 'objpick-stage-rm';
             rm.textContent = 'Remove';
             rm.title = 'Take this off the stage';
-            rm.addEventListener('click', () => ctx.onStageAction('remove', row));
+            rm.addEventListener('click', () => {
+                ctx.onStageAction('remove', row);
+                // Counts, badges and the strip itself all changed.
+                refresh();
+            });
             if (ctx.live) ctx.live.buttons.push(rm);
             card.appendChild(rm);
         }

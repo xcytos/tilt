@@ -319,10 +319,23 @@
         }
         #objpick .objpick-stage-row {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 8px; padding: 6px 8px; border-radius: 8px; background: #f8fafc;
+            flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #f8fafc;
             font: 600 12px/1.3 system-ui, sans-serif; color: #0f172a; margin-bottom: 4px;
         }
         .dark #objpick .objpick-stage-row { background: #232327; color: #f4f4f5; }
+        #objpick .objpick-stage-num {
+            display: flex; align-items: center; gap: 3px;
+            font: 500 10px/1 system-ui, sans-serif; color: #64748b;
+        }
+        .dark #objpick .objpick-stage-num { color: #a1a1aa; }
+        #objpick .objpick-stage-num input {
+            width: 3.6em; min-height: 26px; padding: 0 4px;
+            border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;
+            font: 600 11px/1 system-ui, sans-serif; color: #0f172a;
+        }
+        .dark #objpick .objpick-stage-num input {
+            border-color: #3f3f46; background: #18181b; color: #f4f4f5;
+        }
         #objpick .objpick-stage-rm {
             min-height: 30px; padding: 0 10px; border-radius: 999px;
             border: 1px solid #cbd5e1; background: transparent;
@@ -2047,6 +2060,7 @@ function recipeFor(scene, colorway, set) {
 // Node the tests run the parser under.
 // Pure (no three.js): the flower arrangement's authority for turning whatever a
 // document carries into a full, clamped settings object.
+// Pure catalog: which asset ids the free-placed decor inventory accepts.
 
 const PROJECT_FILE = 'project.json';
 const STORAGE_KEY = 'o2tilt-project.v1';
@@ -2352,6 +2366,30 @@ function cleanFlowerPanels(raw) {
     return out;
 }
 
+// Free-placed decor instances (rails, sheets): a known asset id and a
+// clamped placement, same bounds as the flower panels.
+const DECOR_LIMIT = 40;
+const DECOR_ID_RE = /^decor-\d{1,6}$/;
+
+function cleanDecor(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const e of raw) {
+        if (out.length >= DECOR_LIMIT) break;
+        if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+        if (typeof e.id !== 'string' || !DECOR_ID_RE.test(e.id)) continue;
+        if (typeof e.assetId !== 'string' || !DECOR_BY_ID[e.assetId]) continue;
+        out.push({
+            id: e.id,
+            assetId: e.assetId,
+            x: clampN(e.x, -300, 300, 0),
+            z: clampN(e.z, -300, 300, 0),
+            ry: clampN(e.ry, -360, 360, 0)
+        });
+    }
+    return out;
+}
+
 // Pure: turns whatever came back from disk into a known shape, or null if it
 // is unusable. Never throws - a corrupt project just means "start fresh".
 function parseProject(raw) {
@@ -2387,6 +2425,8 @@ function parseProject(raw) {
         // Flower panels mounted around the scene. Each references an arrangement
         // in the Studio's own library by id (see the Studio's localStorage).
         flowerPanels: cleanFlowerPanels(data.flowerPanels),
+        // Free-placed manufactured decor (rails, sheets).
+        decor: cleanDecor(data.decor),
         // Scene-wide flower geometry quality (drives the petal/leaf tessellation).
         flowerQuality: ['high', 'medium', 'low'].includes(data.flowerQuality)
             ? data.flowerQuality : 'medium',
@@ -6039,9 +6079,10 @@ function createFlowerChip(ctx) {
 //   getCardsInput()    - live input for buildObjectCards
 //   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
 //                        each kind onto its existing add callbacks)
-//   getStageRows()     - optional: instances already on stage for the
-//                        "On stage" strip [{ key, name, x, z, ry }]
-//   onStageAction(...) - optional: placement / remove for one instance
+//   getStageRows()      - optional: instances already on stage for the
+//                        "On stage" strip [{ key, assetId?, name, x, z, ry }]
+//   onStageAction(...) - optional: 'remove' | 'place' ({ x | z | ry })
+//                        for one instance
 //   live               - the panel's button registry (busy dimming)
 // }
 
@@ -6325,12 +6366,42 @@ function createObjectChip(ctx) {
         name.textContent = row.name || row.key;
         card.appendChild(name);
         if (ctx.onStageAction) {
+            const num = (label, key, step, min, max) => {
+                const w = document.createElement('label');
+                w.className = 'objpick-stage-num';
+                w.textContent = label;
+                const inp = document.createElement('input');
+                inp.type = 'number';
+                inp.step = String(step);
+                if (min != null) inp.min = String(min);
+                if (max != null) inp.max = String(max);
+                inp.value = String(Number(row[key]) || 0);
+                inp.setAttribute('aria-label', label + ' ' + (row.name || row.key));
+                // 'change' (blur / enter), not 'input': the app persists
+                // the patch and the input keeps its own typed value.
+                inp.addEventListener('change', () => {
+                    const v = Number(inp.value);
+                    if (!Number.isFinite(v)) return;
+                    ctx.onStageAction('place', row, { [key]: v });
+                });
+                w.appendChild(inp);
+                return w;
+            };
+            card.append(
+                num('X', 'x', 1),
+                num('Z', 'z', 1),
+                num('Turn', 'ry', 15, -180, 180)
+            );
             const rm = document.createElement('button');
             rm.type = 'button';
             rm.className = 'objpick-stage-rm';
             rm.textContent = 'Remove';
             rm.title = 'Take this off the stage';
-            rm.addEventListener('click', () => ctx.onStageAction('remove', row));
+            rm.addEventListener('click', () => {
+                ctx.onStageAction('remove', row);
+                // Counts, badges and the strip itself all changed.
+                refresh();
+            });
             if (ctx.live) ctx.live.buttons.push(rm);
             card.appendChild(rm);
         }
@@ -6638,6 +6709,60 @@ class Registry {
         }
         return { models, environment: def.environment || {} };
     }
+}
+
+// ---- js/decorlib.js ----
+// The manufactured decor inventory, transcribed from
+// plans/decor_element_library_3d_assets.json - the authored source of
+// truth (tests/test13.mjs pins this file against it with fs). Pure data:
+// no three, no DOM. Dimensions carry both units the app speaks - metres
+// as the plan records them, feet as TILT's scene unit - and depth stays
+// null because the plan has not measured it; the factories own the
+// clearly-commented visual estimate for that one axis.
+
+const M_PER_FT = 0.3048;
+
+const DECOR_CATEGORIES = [
+    { id: 'pillars', label: 'Pillars' },
+    { id: 'panels', label: 'Panels' }
+];
+
+// sizeM / sizeFt are [width_or_length, height, depth] in the plan's own
+// dimensions_order; null means not_measured, never zero.
+const DECOR_ASSETS = [
+    {
+        id: 'pillar_rail_large',
+        name: 'Pillar Rail - Large',
+        category: 'pillars',
+        qty: 2,
+        defaults: 2,
+        sizeM: [1.524, 0.381, null],
+        sizeFt: [5, 1.25, null]
+    },
+    {
+        id: 'pillar_rail_small',
+        name: 'Pillar Rail - Small',
+        category: 'pillars',
+        qty: 4,
+        defaults: 4,
+        sizeM: [0.9144, 0.3048, null],
+        sizeFt: [3, 1, null]
+    },
+    {
+        id: 'decorative_arch_panel_sheet',
+        name: 'Decorative Arch Panel Sheet',
+        category: 'panels',
+        qty: 1,
+        defaults: 1,
+        sizeM: [0.762, 1.8288, null],
+        sizeFt: [2.5, 6, null]
+    }
+];
+
+const DECOR_BY_ID = Object.fromEntries(DECOR_ASSETS.map(a => [a.id, a]));
+
+function decorAsset(id) {
+    return DECOR_BY_ID[id] || null;
 }
 
 // ---- js/objects/o2tilt.js ----
@@ -7591,6 +7716,244 @@ function createPillarModel(initial = {}) {
 
     build();
     return model;
+}
+
+// ---- js/objects/decor.js ----
+// The three manufactured decor assets from
+// plans/decor_element_library_3d_assets.json: two lattice rails and the
+// arch-panel sheet. Scene units are feet (sizeFt in js/decorlib.js - the
+// plan records metres; TILT lays out in feet). Geometry is built at final
+// size: the small rail is its own model with its own lattice count, never
+// a scaled copy of the large one (the plan forbids deriving it that way).
+//
+// Depth / cross-sections are not_measured in the plan - every such number
+// below is a commented visual estimate for the preview, never a
+// tolerance. The sheet ships a placeholder box until the real GLB lands
+// at models/decor/decorative_arch_panel_sheet.glb; the loader swaps it in
+// (and warns when the file is off catalog by more than 5%).
+
+
+// Visual estimates for the unmeasured cross-sections (feet).
+const RAIL = {
+    member: 0.16,   // frame member width        (~2 in)
+    depth: 0.15,    // rail depth into Z         (~1.8 in)
+    rod: 0.04,      // lattice rod thickness     (~1/2 in)
+    rodZ: 0.08,     // lattice rod depth into Z
+    endW: 0.22,     // end-support plate width
+    endGap: 0.02,   // gap between layered plates
+    endZ: 0.09,     // end-support plate depth into Z (inside the frame)
+    endHeights: [1, 0.7, 0.45],  // stepped layered silhouette, per end
+    // Diamond counts chosen per size: same design family, independently
+    // modelled - this is what keeps the small rail a real second asset.
+    latticeCols: { large: 7, small: 5 }
+};
+
+// 6 mm was the plan's previous working thickness assumption; the catalog
+// records thickness as not_measured, so this box alone may use it - it
+// exists only until the supplied GLB replaces it.
+const SHEET_T = 0.006 / M_PER_FT;
+const SHEET_URL = 'models/decor/decorative_arch_panel_sheet.glb';
+
+function disposeParts(root) {
+    const mats = new Set();
+    root.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+            for (const m of Array.isArray(o.material) ? o.material : [o.material]) mats.add(m);
+        }
+    });
+    for (const m of mats) m.dispose();
+}
+
+// Clip the line y = m*x + c (m = +/-1) against the inner rectangle and
+// return the segment endpoints, or null when it misses.
+function latticeSegment(m, c, halfW, halfH) {
+    let lo = -halfW, hi = halfW;
+    const yLo = m === 1 ? -halfH - c : c - halfH;
+    const yHi = m === 1 ? halfH - c : c + halfH;
+    lo = Math.max(lo, yLo);
+    hi = Math.min(hi, yHi);
+    if (hi - lo < 1e-6) return null;
+    return [[lo, m * lo + c], [hi, m * hi + c]];
+}
+
+function buildRailContent(asset, kind) {
+    const [L, H] = asset.sizeFt;
+    const cols = RAIL.latticeCols[kind] || RAIL.latticeCols.large;
+    const gold = new THREE.MeshStandardMaterial({
+        color: 0xd9a441, metalness: 0.85, roughness: 0.3
+    });
+    const content = new THREE.Group();
+
+    // main_frame: four members, horizontals abutting the full-height
+    // verticals so no two faces share a plane.
+    const frame = new THREE.Group();
+    frame.name = 'main_frame';
+    const horiz = new THREE.BoxGeometry(L - 2 * RAIL.member, RAIL.member, RAIL.depth);
+    const top = new THREE.Mesh(horiz, gold);
+    top.position.y = H / 2 - RAIL.member / 2;
+    const bot = new THREE.Mesh(horiz, gold);
+    bot.position.y = -(H / 2 - RAIL.member / 2);
+    const vert = new THREE.BoxGeometry(RAIL.member, H, RAIL.depth);
+    const left = new THREE.Mesh(vert, gold);
+    left.position.x = -(L / 2 - RAIL.member / 2);
+    const right = new THREE.Mesh(vert, gold);
+    right.position.x = L / 2 - RAIL.member / 2;
+    frame.add(top, bot, left, right);
+    content.add(frame);
+
+    // diamond_lattice: two clipped diagonal families - real rods, real
+    // gaps, no backing.
+    const lattice = new THREE.Group();
+    lattice.name = 'diamond_lattice';
+    const halfW = (L - 2 * (RAIL.member + 0.01)) / 2;
+    const halfH = (H - 2 * (RAIL.member + 0.01)) / 2;
+    const cMax = halfW + halfH;
+    for (let i = 0; i < cols; i++) {
+        const c = cols === 1 ? 0 : -cMax + i * (2 * cMax / (cols - 1));
+        for (const m of [1, -1]) {
+            const seg = latticeSegment(m, c, halfW, halfH);
+            if (!seg) continue;
+            const [[x0, y0], [x1, y1]] = seg;
+            const len = Math.hypot(x1 - x0, y1 - y0);
+            const rod = new THREE.Mesh(
+                new THREE.BoxGeometry(len, RAIL.rod, RAIL.rodZ), gold);
+            rod.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0);
+            rod.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+            lattice.add(rod);
+        }
+    }
+    content.add(lattice);
+
+    // end supports: three stepped plates per end, layered along X and
+    // kept inside the catalog length.
+    const addEnd = sign => {
+        const g = new THREE.Group();
+        g.name = sign < 0 ? 'left_end_support' : 'right_end_support';
+        RAIL.endHeights.forEach((frac, i) => {
+            const outer = L / 2 - i * (RAIL.endW + RAIL.endGap) - RAIL.endW / 2;
+            const plate = new THREE.Mesh(
+                new THREE.BoxGeometry(RAIL.endW, H * frac, RAIL.endZ), gold);
+            plate.position.x = sign * outer;
+            g.add(plate);
+        });
+        return g;
+    };
+    content.add(addEnd(-1), addEnd(1));
+    return content;
+}
+
+// The sheet's GLB attempt: one per session, failures resolve null so the
+// placeholder stays. Dynamic import keeps the static import graph (and
+// node-based tests) free of the addons loader.
+let sheetLoad = null;
+function loadSheetGltf() {
+    if (!sheetLoad) {
+        sheetLoad = import('three/addons/loaders/GLTFLoader.js')
+            .then(({ GLTFLoader }) => new Promise(resolve => {
+                try {
+                    new GLTFLoader().load(SHEET_URL, g => resolve(g),
+                        undefined, () => resolve(null));
+                } catch { resolve(null); }
+            }))
+            .catch(() => null);
+    }
+    return sheetLoad;
+}
+
+function createPillarRailModel(kind) {
+    const small = kind === 'small';
+    const asset = decorAsset(small ? 'pillar_rail_small' : 'pillar_rail_large');
+    const H = asset.sizeFt[1];
+    const root = new THREE.Group();
+    root.name = asset.id;
+    const state = { kind: small ? 'small' : 'large' };
+
+    function build() {
+        disposeParts(root);
+        root.clear();
+        // Local geometry is centred (the plan's origin), the node lifts
+        // by half a height so the bottom sits on the ground.
+        root.position.y = H / 2;
+        root.add(buildRailContent(asset, small ? 'small' : 'large'));
+    }
+    build();
+
+    return {
+        id: asset.id,
+        name: asset.name,
+        object3D: root,
+        params: {},
+        state,
+        build,
+        dispose() { disposeParts(root); root.clear(); }
+    };
+}
+
+function createArchPanelModel() {
+    const asset = decorAsset('decorative_arch_panel_sheet');
+    const [W, H] = asset.sizeFt;
+    const root = new THREE.Group();
+    root.name = asset.id;
+    const state = { modelStatus: 'placeholder' };
+    let token = 0;
+    let dead = false;
+
+    function build() {
+        const mine = ++token;
+        disposeParts(root);
+        root.clear();
+        root.position.y = H / 2;
+        const white = new THREE.MeshStandardMaterial({
+            color: 0xf5f5f0, metalness: 0, roughness: 0.8
+        });
+        const ph = new THREE.Mesh(new THREE.BoxGeometry(W, H, SHEET_T), white);
+        ph.name = 'arch_panel_sheet';
+        root.add(ph);
+        state.modelStatus = 'placeholder';
+        loadSheetGltf().then(gltf => {
+            if (dead || mine !== token || !gltf || !gltf.scene) return;
+            try {
+                const scene = gltf.scene;
+                scene.updateMatrixWorld(true);
+                const box = new THREE.Box3().setFromObject(scene);
+                if (box.isEmpty()) return;
+                const size = box.getSize(new THREE.Vector3());
+                const tol = 0.05;
+                if (Math.abs(size.x - W) / W > tol || Math.abs(size.y - H) / H > tol) {
+                    console.warn('[decor] sheet file is off catalog by more than 5%',
+                        { got: [size.x, size.y], want: [W, H] });
+                }
+                // Recentre on the local origin, then swap for the placeholder.
+                scene.position.sub(box.getCenter(new THREE.Vector3()));
+                disposeParts(root);
+                root.clear();
+                root.add(scene);
+                state.modelStatus = 'loaded';
+            } catch (err) {
+                console.warn('[decor] sheet swap failed:', err);
+            }
+        });
+    }
+    build();
+
+    return {
+        id: asset.id,
+        name: asset.name,
+        object3D: root,
+        params: {},
+        state,
+        build,
+        dispose() { dead = true; disposeParts(root); root.clear(); }
+    };
+}
+
+// One dispatcher for the tray preview and the editor's free-place mount.
+function createDecorModel(assetId) {
+    if (assetId === 'pillar_rail_large') return createPillarRailModel('large');
+    if (assetId === 'pillar_rail_small') return createPillarRailModel('small');
+    if (assetId === 'decorative_arch_panel_sheet') return createArchPanelModel();
+    return null;
 }
 
 // ---- js/elements/light.js ----
@@ -9256,7 +9619,18 @@ function createPanel(opts) {
                     previewKey: 'flower:' + a.id + ':' + revOf(JSON.stringify(s))
                 };
             }),
-            decor: []
+            decor: DECOR_ASSETS.map(a => {
+                const rows = opts.getDecorStage ? opts.getDecorStage() : [];
+                const placed = rows.filter(r => r && r.assetId === a.id).length;
+                return {
+                    assetId: a.id,
+                    name: a.name,
+                    category: a.category,
+                    qty: a.qty,
+                    placed,
+                    sub: `${a.qty} available · ${a.sizeFt[0]} × ${a.sizeFt[1]} ft`
+                };
+            })
         };
     }
 
@@ -9299,6 +9673,11 @@ function createPanel(opts) {
             case 'flower': {
                 const arr = flowerList.find(a => a && a.id === action.id);
                 if (arr && opts.onFlowerMount) opts.onFlowerMount(arr);
+                break;
+            }
+            case 'decor': {
+                if (!action.assetId || !opts.onDecorAdd) return;
+                opts.onDecorAdd(action.assetId);
                 break;
             }
             default: break;
@@ -9507,8 +9886,9 @@ function createPanel(opts) {
         onAction: handleObjectAction,
         preview: opts.previews,
         getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
-        onStageAction: (verb, row) => {
+        onStageAction: (verb, row, patch) => {
             if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
+            else if (verb === 'place' && opts.onDecorPlace) opts.onDecorPlace(row.key, patch);
         },
         live
     });
@@ -11322,7 +11702,10 @@ function createPanel(opts) {
             JSON.stringify(elemShape),
             (current && current.name) || '',
             flowerList.map(a => (a && a.id) || '').join(','),
-            mountedFlowers.map(f => (f && f.id) || '').join(',')
+            mountedFlowers.map(f => (f && f.id) || '').join(','),
+            // Mount / remove only: placement is value-level, the strip's
+            // own inputs already show it.
+            (opts.getDecorStage ? opts.getDecorStage() : []).map(r => (r && r.key) || '').join(',')
         ].join('|');
     }
 
@@ -12074,6 +12457,7 @@ function buildDoc() {
             .map(([k, v]) => [k, v.filter(Boolean)
                 .map(p => ({ x: p.x, z: p.z, ry: p.ry }))])),
         flowerPanels: flowerPanelsPlain(),
+        decor: decorPlain(),
         flowerQuality,
         view,
         mounted: orderIds(),
@@ -13004,6 +13388,108 @@ function openStudio() {
     window.open(url, '_blank');
 }
 
+// ---- decor inventory ----------------------------------------------------
+// Manufactured rails and sheets, free-placed around the scene. Same
+// free-list shape as flowerPanels: hydrated from the document's top-level
+// `decor` field (see project.js) and written back on save. The instance
+// list doubles as the tray's "On stage" rows and its placed-count badges.
+let decorObjects = [];
+
+function nextDecorId() {
+    const ids = new Set(decorObjects.map(d => d.id));
+    let n = decorObjects.length + 1;
+    while (ids.has('decor-' + n)) n++;
+    return 'decor-' + n;
+}
+
+function placeDecor(d) {
+    if (!d.model || !d.model.object3D) return;
+    d.model.object3D.position.x = d.x;
+    d.model.object3D.position.z = d.z;
+    d.model.object3D.rotation.y = (d.ry || 0) * Math.PI / 180;
+}
+
+// entry: { id?, assetId, x?, z?, ry? } -> the live instance, or null for
+// an unknown asset id (a corrupt document drops it).
+function mountDecor(entry) {
+    const asset = decorAsset(entry && entry.assetId);
+    if (!asset) return null;
+    const model = createDecorModel(asset.id);
+    if (!model) return null;
+    viewer.addModel(model);
+    const d = {
+        id: (entry && entry.id) || nextDecorId(),
+        assetId: asset.id,
+        model,
+        x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
+        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
+    };
+    decorObjects.push(d);
+    placeDecor(d);
+    return d;
+}
+
+function unmountDecor(id) {
+    const i = decorObjects.findIndex(d => d.id === id);
+    if (i < 0) return false;
+    viewer.removeModel(decorObjects[i].model);
+    decorObjects.splice(i, 1);
+    return true;
+}
+
+// The document's snapshot: identity + placement only.
+function decorPlain() {
+    return decorObjects.map(d => ({
+        id: d.id, assetId: d.assetId, x: d.x, z: d.z, ry: d.ry
+    }));
+}
+
+// The tray's view of the same list: `key` addresses an instance in the
+// On-stage strip, `assetId` feeds the cards' placed-count badges.
+function decorStagePlain() {
+    return decorObjects.map(d => {
+        const asset = decorAsset(d.assetId);
+        return {
+            key: d.id, assetId: d.assetId,
+            name: (asset && asset.name) || d.assetId,
+            x: d.x, z: d.z, ry: d.ry
+        };
+    });
+}
+
+// One tap on a tray card: drop a fresh instance at the next free floor
+// spot (a loose grid behind the flowers' default spot - the strip's
+// X/Z/Turn controls do the fine placement).
+function addDecor(assetId) {
+    const n = decorObjects.length;
+    const d = mountDecor({
+        assetId,
+        x: ((n % 4) - 1.5) * 6,
+        z: 8 + Math.floor(n / 4) * 6,
+        ry: 0
+    });
+    if (!d) return;
+    scheduleSave();
+}
+
+function removeDecor(id) {
+    if (!unmountDecor(id)) return;
+    scheduleSave();
+}
+
+// Live placement from the On-stage strip - move/turn one instance and
+// persist, without rebuilding the tray (the input keeps its own value).
+function setDecorPlace(id, patch) {
+    const d = decorObjects.find(x => x.id === id);
+    if (!d) return;
+    if (Number.isFinite(Number(patch.x))) d.x = Number(patch.x);
+    if (Number.isFinite(Number(patch.z))) d.z = Number(patch.z);
+    if (Number.isFinite(Number(patch.ry))) d.ry = Number(patch.ry);
+    placeDecor(d);
+    scheduleSave();
+}
+
 function num(v, fallback) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
@@ -13918,6 +14404,14 @@ if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
     }
 }
 
+// Same for the free-placed decor inventory: a valid entry becomes a live
+// instance; an unknown asset id is dropped by mountDecor.
+if (savedDoc && Array.isArray(savedDoc.decor)) {
+    for (const entry of savedDoc.decor) {
+        try { mountDecor(entry); } catch (err) { console.error('[decor]', err); }
+    }
+}
+
 // syncScene framed the scene; only now may a saved camera win over the frame.
 if (savedDoc && savedDoc.view) viewer.setCameraState(savedDoc.view);
 
@@ -13958,6 +14452,11 @@ async function buildTrayGroup(key) {
         if (!arr) throw new Error('no arrangement ' + id);
         const model = createFlowerPanelModel({ settings: arr.settings });
         if (model.build) model.build();
+        return wrap(model);
+    }
+    if (key.startsWith('decor:')) {
+        const model = createDecorModel(key.slice('decor:'.length));
+        if (!model) throw new Error('no decor asset for ' + key);
         return wrap(model);
     }
     throw new Error('unknown preview key ' + key);
@@ -14021,6 +14520,10 @@ panel = createPanel({
     onFlowerRemove: guard(id => removeFlowerPanel(id)),
     onFlowerOpenStudio: () => openStudio(),
     onFlowerQualityChange: guard(q => setFlowerQuality(q)),
+    getDecorStage: () => decorStagePlain(),
+    onDecorAdd: guard(assetId => addDecor(assetId)),
+    onDecorRemove: guard(id => removeDecor(id)),
+    onDecorPlace: (id, patch) => setDecorPlace(id, patch),
     onParamsChange: (partial, targets) => {
         const fallback = panel ? panel.model : null;
         const picked = (targets && targets.length ? targets : fallback ? [fallback] : [])

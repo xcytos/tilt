@@ -1,0 +1,607 @@
+{
+  "schema_name": "decor_inventory_3d_asset_catalog",
+  "schema_version": "1.0.0",
+  "catalog_id": "decor_element_library_v1",
+  "purpose": "Runtime 3D object catalogue for existing, manufactured decor inventory. Describes assets for placement and rendering in a 3D layout application; it is not a manufacturing/CAD drawing.",
+  "coordinate_system": {
+    "handedness": "right_handed",
+    "up_axis": "Y",
+    "forward_axis": "Z",
+    "horizontal_axes": [
+      "X",
+      "Z"
+    ],
+    "linear_unit": "meter",
+    "angle_unit": "radian",
+    "recommended_object_origin": "center_of_bounding_box",
+    "axis_convention": {
+      "X": "left_to_right / component length or width",
+      "Y": "bottom_to_top / component height",
+      "Z": "front_to_back / component depth or sheet thickness"
+    }
+  },
+  "dimension_conventions": {
+    "dimensions_order": [
+      "width_or_length",
+      "height",
+      "depth"
+    ],
+    "dimension_source_values": "User-confirmed or visually estimated inventory dimensions are recorded separately from unknown physical measurements.",
+    "estimated_dimensions_must_not_be_used_as_manufacturing_tolerances": true,
+    "unknown_values": "null",
+    "quantity_means": "number of physical manufactured pieces available"
+  },
+  "rendering_defaults": {
+    "units_for_import": "meters",
+    "preserve_aspect_ratio": true,
+    "allow_non_uniform_scaling": false,
+    "cast_shadows": true,
+    "receive_shadows": true,
+    "double_sided_material": false,
+    "use_real_geometry_for_cutouts": true,
+    "do_not_fake_cutouts_with_texture": true,
+    "asset_orientation": {
+      "front_view": "looking toward the front face along the negative Z direction",
+      "front_face_normal": [
+        0,
+        0,
+        1
+      ],
+      "bottom_on_ground": true
+    },
+    "pbr_material_defaults": {
+      "metalness": null,
+      "roughness": null,
+      "base_color": null,
+      "note": "Tune from actual photographed inventory or material reference; visual gold/white appearance alone does not establish physical material or exact PBR values."
+    }
+  },
+  "categories": [
+    {
+      "category_id": "pillars",
+      "display_name": "Pillars",
+      "description": "Structural/decorative rail modules used as 3D inventory objects in pillar or support assemblies.",
+      "asset_ids": [
+        "pillar_rail_large",
+        "pillar_rail_small"
+      ]
+    },
+    {
+      "category_id": "panels",
+      "display_name": "Panels",
+      "description": "Decorative infill objects installed within a separate supporting panel structure.",
+      "asset_ids": [
+        "decorative_arch_panel_sheet"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "pillar_rail_large",
+      "display_name": "Pillar Rail - Large",
+      "category_id": "pillars",
+      "asset_type": "manufactured_3d_assembly",
+      "inventory": {
+        "quantity": 2,
+        "quantity_description": "1 matching pair",
+        "pairing_group": "pillar_rail_large_pair",
+        "instances_are_matching": true
+      },
+      "dimensions": {
+        "length": {
+          "value": 1.524,
+          "unit": "m",
+          "source_value": "5 ft",
+          "confidence": "user_corrected_visual_estimate"
+        },
+        "height": {
+          "value": 0.381,
+          "unit": "m",
+          "source_value": "1.25 ft",
+          "confidence": "visual_estimate"
+        },
+        "depth": {
+          "value": null,
+          "unit": "m",
+          "source_value": null,
+          "confidence": "not_measured"
+        },
+        "bounding_box_m": [
+          1.524,
+          0.381,
+          null
+        ],
+        "dimension_status": "length_and_height_estimated_depth_unknown"
+      },
+      "transform_defaults": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation_euler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "origin": "center_of_bounding_box",
+        "ground_contact": "bottom_face"
+      },
+      "geometry": {
+        "overall_form": "elongated_rectangular_lattice_rail",
+        "primary_axis": "X",
+        "components": [
+          {
+            "node_id": "main_frame",
+            "display_name": "Outer rectangular frame",
+            "geometry_type": "manufactured_profile_members",
+            "subcomponents": [
+              "top_horizontal_member",
+              "bottom_horizontal_member",
+              "left_vertical_member",
+              "right_vertical_member"
+            ],
+            "profile_type": null,
+            "profile_dimensions_m": null,
+            "cross_section_status": "not_measured"
+          },
+          {
+            "node_id": "diamond_lattice",
+            "display_name": "Internal diamond lattice",
+            "geometry_type": "intersecting_diagonal_rod_members",
+            "subcomponents": [
+              "diagonal_family_a",
+              "diagonal_family_b"
+            ],
+            "pattern": "repeating_diamond",
+            "rod_profile": null,
+            "rod_diameter_m": null,
+            "intersection_method": "welded_or_joined_as_manufactured",
+            "opening_count": null,
+            "opening_pitch_m": null
+          },
+          {
+            "node_id": "left_end_support",
+            "display_name": "Left layered end support",
+            "geometry_type": "layered_plate_like_end_assembly",
+            "plate_count": null,
+            "plate_thickness_m": null,
+            "mounting_holes": null
+          },
+          {
+            "node_id": "right_end_support",
+            "display_name": "Right layered end support",
+            "geometry_type": "layered_plate_like_end_assembly",
+            "plate_count": null,
+            "plate_thickness_m": null,
+            "mounting_holes": null
+          }
+        ],
+        "mesh_representation": {
+          "preferred": "separate_mesh_nodes_for_frame_lattice_and_end_supports",
+          "fallback": "single_static_mesh_with_named_submeshes",
+          "preserve_open_lattice_gaps": true,
+          "preserve_layered_end_support_silhouette": true
+        }
+      },
+      "appearance": {
+        "observed_color": "golden metallic",
+        "finish_description": "gold-colored reflective finish; exact coating not confirmed",
+        "material_type": null,
+        "material_assignment": "gold_metal_visual",
+        "texture_maps": {
+          "base_color": null,
+          "metallic": null,
+          "roughness": null,
+          "normal": null
+        },
+        "pbr_values": {
+          "metalness": null,
+          "roughness": null
+        }
+      },
+      "placement": {
+        "intended_use": "decorative rail module associated with pillar/support assemblies",
+        "mounting_interface": "end_supports",
+        "mounting_details_confirmed": false,
+        "can_be_instanced": true,
+        "allow_rotation": true,
+        "allow_mirroring": false,
+        "allow_uniform_scaling": true,
+        "allow_non_uniform_scaling": false
+      },
+      "asset_import": {
+        "model_file": null,
+        "preferred_formats": [
+          "glb",
+          "gltf",
+          "fbx"
+        ],
+        "unit_scale": "meters",
+        "required_nodes": [
+          "main_frame",
+          "diamond_lattice",
+          "left_end_support",
+          "right_end_support"
+        ],
+        "status": "3d_model_file_not_yet_supplied"
+      },
+      "metadata": {
+        "source": "user-provided photograph and subsequent user correction",
+        "measurement_note": "5 ft length is the user's corrected estimate; 1.25 ft height remains a visual estimate. Depth and member profiles are not measurable reliably from the photograph.",
+        "manufacturing_status": "already_manufactured"
+      }
+    },
+    {
+      "asset_id": "pillar_rail_small",
+      "display_name": "Pillar Rail - Small",
+      "category_id": "pillars",
+      "asset_type": "manufactured_3d_assembly",
+      "inventory": {
+        "quantity": 4,
+        "quantity_description": "2 matching pairs (double pair)",
+        "pairing_group": "pillar_rail_small_double_pair",
+        "instances_are_matching": true
+      },
+      "dimensions": {
+        "length": {
+          "value": 0.9144,
+          "unit": "m",
+          "source_value": "3 ft",
+          "confidence": "user_corrected_visual_estimate"
+        },
+        "height": {
+          "value": 0.3048,
+          "unit": "m",
+          "source_value": "1 ft",
+          "confidence": "visual_estimate"
+        },
+        "depth": {
+          "value": null,
+          "unit": "m",
+          "source_value": null,
+          "confidence": "not_measured"
+        },
+        "bounding_box_m": [
+          0.9144,
+          0.3048,
+          null
+        ],
+        "dimension_status": "length_user_corrected_height_estimated_depth_unknown"
+      },
+      "transform_defaults": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation_euler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "origin": "center_of_bounding_box",
+        "ground_contact": "bottom_face"
+      },
+      "geometry": {
+        "overall_form": "short_elongated_rectangular_lattice_rail",
+        "primary_axis": "X",
+        "design_relationship": "same_visual_design_family_as_pillar_rail_large_but_independently_modelled",
+        "do_not_derive_by_scaling_large_asset": true,
+        "components": [
+          {
+            "node_id": "main_frame",
+            "display_name": "Outer rectangular frame",
+            "geometry_type": "manufactured_profile_members",
+            "subcomponents": [
+              "top_horizontal_member",
+              "bottom_horizontal_member",
+              "left_vertical_member",
+              "right_vertical_member"
+            ],
+            "profile_type": null,
+            "profile_dimensions_m": null,
+            "cross_section_status": "not_measured"
+          },
+          {
+            "node_id": "diamond_lattice",
+            "display_name": "Internal diamond lattice",
+            "geometry_type": "intersecting_diagonal_rod_members",
+            "subcomponents": [
+              "diagonal_family_a",
+              "diagonal_family_b"
+            ],
+            "pattern": "repeating_diamond",
+            "rod_profile": null,
+            "rod_diameter_m": null,
+            "intersection_method": "welded_or_joined_as_manufactured",
+            "opening_count": null,
+            "opening_pitch_m": null
+          },
+          {
+            "node_id": "left_end_support",
+            "display_name": "Left layered end support",
+            "geometry_type": "layered_plate_like_end_assembly",
+            "plate_count": null,
+            "plate_thickness_m": null,
+            "mounting_holes": null
+          },
+          {
+            "node_id": "right_end_support",
+            "display_name": "Right layered end support",
+            "geometry_type": "layered_plate_like_end_assembly",
+            "plate_count": null,
+            "plate_thickness_m": null,
+            "mounting_holes": null
+          }
+        ],
+        "mesh_representation": {
+          "preferred": "separate_mesh_nodes_for_frame_lattice_and_end_supports",
+          "fallback": "single_static_mesh_with_named_submeshes",
+          "preserve_open_lattice_gaps": true,
+          "preserve_layered_end_support_silhouette": true
+        }
+      },
+      "appearance": {
+        "observed_color": "golden metallic",
+        "finish_description": "gold-colored reflective finish; exact coating not confirmed",
+        "material_type": null,
+        "material_assignment": "gold_metal_visual",
+        "texture_maps": {
+          "base_color": null,
+          "metallic": null,
+          "roughness": null,
+          "normal": null
+        },
+        "pbr_values": {
+          "metalness": null,
+          "roughness": null
+        }
+      },
+      "placement": {
+        "intended_use": "short decorative rail module associated with pillar/support assemblies",
+        "mounting_interface": "end_supports",
+        "mounting_details_confirmed": false,
+        "can_be_instanced": true,
+        "allow_rotation": true,
+        "allow_mirroring": false,
+        "allow_uniform_scaling": true,
+        "allow_non_uniform_scaling": false
+      },
+      "asset_import": {
+        "model_file": null,
+        "preferred_formats": [
+          "glb",
+          "gltf",
+          "fbx"
+        ],
+        "unit_scale": "meters",
+        "required_nodes": [
+          "main_frame",
+          "diamond_lattice",
+          "left_end_support",
+          "right_end_support"
+        ],
+        "status": "3d_model_file_not_yet_supplied"
+      },
+      "metadata": {
+        "source": "user-provided photograph and subsequent user correction",
+        "measurement_note": "3 ft length is the user's corrected estimate; 1 ft height remains a visual estimate. Depth and member profiles are not measurable reliably from the photograph.",
+        "manufacturing_status": "already_manufactured"
+      }
+    },
+    {
+      "asset_id": "decorative_arch_panel_sheet",
+      "display_name": "Decorative Arch Panel Sheet",
+      "category_id": "panels",
+      "asset_type": "manufactured_thin_sheet_cutwork",
+      "inventory": {
+        "quantity": 1,
+        "quantity_description": "1 standalone decorative sheet"
+      },
+      "dimensions": {
+        "width": {
+          "value": 0.762,
+          "unit": "m",
+          "source_value": "2.5 ft / 30 in",
+          "confidence": "visual_estimate"
+        },
+        "height": {
+          "value": 1.8288,
+          "unit": "m",
+          "source_value": "6 ft / 72 in",
+          "confidence": "visual_estimate"
+        },
+        "thickness": {
+          "value": null,
+          "unit": "m",
+          "source_value": null,
+          "previous_working_assumption": "6 mm",
+          "confidence": "not_measured"
+        },
+        "bounding_box_m": [
+          0.762,
+          1.8288,
+          null
+        ],
+        "dimension_status": "width_and_height_estimated_thickness_unconfirmed"
+      },
+      "transform_defaults": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation_euler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "origin": "center_of_bounding_box",
+        "front_face_normal": [
+          0,
+          0,
+          1
+        ]
+      },
+      "geometry": {
+        "overall_form": "rectangular_sheet_with_through_cutouts",
+        "outer_boundary": "rectangular",
+        "central_opening": {
+          "shape": "symmetrical_scalloped_arch",
+          "is_through_cut": true,
+          "exact_profile_dimensions": null
+        },
+        "pattern_zones": [
+          {
+            "node_id": "upper_ornament",
+            "description": "symmetrical scrollwork and floral cutouts across the top",
+            "geometry_type": "organic_closed_curve_cutouts"
+          },
+          {
+            "node_id": "central_scalloped_arch",
+            "description": "large central arch-shaped void with scalloped upper contour",
+            "geometry_type": "through_cut_opening"
+          },
+          {
+            "node_id": "left_side_floral_strip",
+            "description": "vertical sequence of floral and leaf-like openings",
+            "geometry_type": "repeated_organic_cutouts"
+          },
+          {
+            "node_id": "right_side_floral_strip",
+            "description": "matching vertical sequence of floral and leaf-like openings",
+            "geometry_type": "repeated_organic_cutouts"
+          },
+          {
+            "node_id": "lower_ornament",
+            "description": "decorative floral and geometric cutouts near the lower corners",
+            "geometry_type": "organic_and_geometric_cutouts"
+          }
+        ],
+        "topology_requirements": {
+          "cutouts_are_real_geometry": true,
+          "sheet_is_one_connected_manufactured_piece_where_pattern_connects": true,
+          "preserve_original_pattern_and_proportions": true,
+          "do_not_add_backing_mesh_or_backing_sheet": true,
+          "do_not_add_unobserved_outer_frame": true,
+          "avoid_accidental_disconnected_islands": true
+        },
+        "mesh_representation": {
+          "preferred": "single_manifold_thin_solid_mesh_with_through_cutouts",
+          "alternative": "single_mesh_with_named_pattern_regions",
+          "front_and_back_faces": true,
+          "edge_faces": true,
+          "bevel": {
+            "enabled": false,
+            "amount_m": null,
+            "note": "Only add a small edge treatment if visible on the actual manufactured sheet."
+          }
+        }
+      },
+      "appearance": {
+        "observed_color": "white",
+        "finish_description": "white finish; matte or gloss not confirmed",
+        "material_type": null,
+        "material_assignment": "white_sheet_visual",
+        "texture_maps": {
+          "base_color": null,
+          "metallic": null,
+          "roughness": null,
+          "normal": null
+        },
+        "pbr_values": {
+          "metalness": 0,
+          "roughness": null
+        }
+      },
+      "placement": {
+        "intended_use": "decorative infill mounted inside a separate supporting panel structure",
+        "parent_object_type": "supporting_panel_structure",
+        "is_supporting_structure": false,
+        "is_backing": false,
+        "mounting_method": null,
+        "mounting_points": null,
+        "clearance_m": null,
+        "can_be_instanced": true,
+        "allow_rotation": true,
+        "allow_mirroring": false,
+        "allow_uniform_scaling": true,
+        "allow_non_uniform_scaling": false
+      },
+      "asset_import": {
+        "model_file": null,
+        "preferred_formats": [
+          "glb",
+          "gltf",
+          "fbx",
+          "obj"
+        ],
+        "unit_scale": "meters",
+        "required_nodes": [
+          "arch_panel_sheet"
+        ],
+        "status": "3d_model_file_not_yet_supplied"
+      },
+      "metadata": {
+        "source": "user-provided photograph and subsequent clarification",
+        "measurement_note": "2.5 ft × 6 ft is a working visual estimate. A 6 mm thickness was previously suggested only as an assumption and is intentionally not treated as confirmed.",
+        "manufacturing_status": "already_manufactured",
+        "design_preservation": "Use the photographed sheet as the source of truth; do not redesign, simplify, or invent missing pattern features."
+      }
+    }
+  ],
+  "scene_assembly_rules": {
+    "pillar_rail_large": {
+      "default_instance_count": 2,
+      "instances_must_remain_independently_selectable": true,
+      "pairing_is_inventory_metadata_not_a_forced_spatial_arrangement": true
+    },
+    "pillar_rail_small": {
+      "default_instance_count": 4,
+      "instances_must_remain_independently_selectable": true,
+      "pairing_is_inventory_metadata_not_a_forced_spatial_arrangement": true
+    },
+    "decorative_arch_panel_sheet": {
+      "default_instance_count": 1,
+      "must_be_child_or_attached_in_panel_assembly_when_placed": true,
+      "supporting_panel_is_a_separate_asset": true,
+      "do_not_generate_or_assume_supporting_panel_geometry": true
+    }
+  },
+  "validation": {
+    "required_before_final_physical_scale_lock": [
+      "measure_large_rail_depth",
+      "measure_small_rail_depth",
+      "confirm_rail_member_cross_sections",
+      "confirm_lattice_rod_diameter_and_spacing",
+      "confirm_end_support_dimensions_and_mounting_details",
+      "measure_arch_sheet_thickness",
+      "confirm_arch_sheet_material_and_finish",
+      "measure_arch_sheet_outer_width_and_height"
+    ],
+    "runtime_import_checks": [
+      "verify_model_units_are_meters",
+      "verify_asset_bounding_box_matches_catalog_dimensions",
+      "verify_object_origin_and_front_face_orientation",
+      "verify_arch_cutouts_are_open_through_geometry",
+      "verify_no_unrequested_backing_or_frame_is_present",
+      "verify_all_inventory_instances_are_selectable"
+    ]
+  }
+}

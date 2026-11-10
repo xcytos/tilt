@@ -196,6 +196,48 @@ console.log('\nproject file: mounted flower panels');
       return doc.flowerPanels[0].enabled === true;
     })());
 
+  check('decor instances round-trip with asset id and placement', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      decor: [
+        { id: 'decor-1', assetId: 'pillar_rail_large', x: 5, z: -3, ry: 45 },
+        { id: 'decor-2', assetId: 'decorative_arch_panel_sheet', x: -8, z: 2, ry: 0 }
+      ]
+    }));
+    return doc.decor.length === 2
+      && doc.decor[0].assetId === 'pillar_rail_large'
+      && doc.decor[0].x === 5 && doc.decor[0].z === -3 && doc.decor[0].ry === 45
+      && doc.decor[1].assetId === 'decorative_arch_panel_sheet';
+  })());
+  check('junk decor is dropped: bad ids, unknown assets, non-objects', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      decor: [
+        { id: 'BAD ID', assetId: 'pillar_rail_large' },
+        { id: 'decor-3', assetId: 'not-an-asset' },
+        { id: 'decor-4' },
+        'nope',
+        { id: 'decor-5', assetId: 'pillar_rail_small', x: 1, z: 2, ry: 3 }
+      ]
+    }));
+    return doc.decor.length === 1
+      && doc.decor[0].id === 'decor-5' && doc.decor[0].assetId === 'pillar_rail_small'
+      && doc.decor[0].x === 1 && doc.decor[0].z === 2 && doc.decor[0].ry === 3;
+  })());
+  check('the decor list is capped', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      decor: Array.from({ length: 60 }, (_, i) =>
+        ({ id: 'decor-' + i, assetId: 'pillar_rail_small' }))
+    }));
+    return doc.decor.length <= 40;
+  })());
+  check('decor placement clamps instead of rejecting', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      decor: [{ id: 'decor-9', assetId: 'pillar_rail_large',
+                x: 9999, z: 'far', ry: 720 }]
+    }));
+    const d = doc.decor[0];
+    return d && d.x === 300 && d.z === 0 && d.ry === 360;
+  })());
+
   check('a light element carries its Shown flag through the file', (() => {
     const doc = proj.parseProject(proj.projectToJSON({
       elements: { 'frame-1': [

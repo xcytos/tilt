@@ -8,6 +8,8 @@ import { Registry } from '../js/registry.js';
 import { createO2TiltModel, PARAMS as O2TILT_PARAMS } from '../js/objects/o2tilt.js';
 import { createPillarModel, PILLAR_ID, PILLAR_NAME, PILLAR_SUBTITLE, PILLAR_PARAMS } from '../js/objects/pillar.js';
 import { createFlowerPanelModel, FLOWERPANEL_ID, FLOWERPANEL_NAME, FLOWERPANEL_SUBTITLE, FLOWERPANEL_PARAMS } from '../js/objects/flowerpanel.js';
+import { createPillarRailModel, createArchPanelModel } from '../js/objects/decor.js';
+import { DECOR_ASSETS } from '../js/decorlib.js';
 import { createLightModel, LIGHT_TYPES, LIGHT_NAMES, LIGHT_PARAMS } from '../js/elements/light.js';
 import { FlowerEngine } from '../js/flowers/flower-factory.js';
 import { GreeneryEngine } from '../js/greenery/greenery-factory.js';
@@ -39,6 +41,11 @@ async function loadSources() {
     registry.register('o2tilt-frame', createO2TiltModel, O2TILT_PARAMS);
     registry.register(PILLAR_ID, createPillarModel, PILLAR_PARAMS);
     registry.register(FLOWERPANEL_ID, createFlowerPanelModel, FLOWERPANEL_PARAMS);
+    // The decor inventory has no def of its own - cards preview it through
+    // the same factory registry the other type assets use.
+    registry.register('pillar_rail_large', () => createPillarRailModel('large'), {});
+    registry.register('pillar_rail_small', () => createPillarRailModel('small'), {});
+    registry.register('decorative_arch_panel_sheet', () => createArchPanelModel(), {});
     for (const t of LIGHT_TYPES) {
         const kind = t.slice(6);
         registry.register(t, p => createLightModel(t, p), LIGHT_PARAMS[kind]);
@@ -66,6 +73,11 @@ async function loadSources() {
         { type: FLOWERPANEL_ID, name: FLOWERPANEL_NAME, subtitle: FLOWERPANEL_SUBTITLE,
           source: { kind: 'file', path: 'js/objects/flowerpanel.js' },
           params: Object.keys(FLOWERPANEL_PARAMS) },
+        ...DECOR_ASSETS.map(a => ({
+            type: a.id, name: a.name, subtitle: '',
+            source: { kind: 'file', path: 'js/objects/decor.js' },
+            params: []
+        })),
         ...LIGHT_TYPES.map(t => ({
             type: t, name: LIGHT_NAMES[t], subtitle: 'Anchor element',
             source: { kind: 'file', path: 'js/elements/light.js' },

@@ -27,7 +27,8 @@ check('sliders moved out of the shell', !html.includes('slider-gap') && !html.in
 check('shelf body is empty markup', /id="shelf-body"[^>]*><\/div>/.test(html));
 
 const FILES = ['js/app.js', 'js/viewer.js', 'js/panel.js', 'js/registry.js',
-               'js/objects/o2tilt.js', 'js/elements/light.js'];
+               'js/objects/o2tilt.js', 'js/elements/light.js',
+               'js/decorlib.js', 'js/objects/decor.js'];
 for (const f of FILES) check(`exists ${f}`, fs.existsSync(path.join(DECOR, f)));
 
 for (const f of FILES) {
