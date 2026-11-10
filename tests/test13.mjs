@@ -104,18 +104,21 @@ check('each model builds real content on create',
   JSON.stringify([large, small, sheet].map(m => m.object3D.children.length)));
 
 const lsz = sizeOf(large), ssz = sizeOf(small), wsz = sizeOf(sheet);
-check('the large rail bbox is the catalog 5 ft x 1.25 ft',
-  near(toM(lsz.x), 1.524, 1e-6) && near(toM(lsz.y), 0.381, 1e-6),
-  JSON.stringify([lsz.x, lsz.y]));
-check('the small rail bbox is the catalog 3 ft x 1 ft',
-  near(toM(ssz.x), 0.9144, 1e-6) && near(toM(ssz.y), 0.3048, 1e-6),
-  JSON.stringify([ssz.x, ssz.y]));
+check('the large rail shaft is the catalog 5 ft square, 1.25 ft tall',
+  near(toM(lsz.x), 1.524, 1e-6) && near(toM(lsz.y), 0.381, 1e-6)
+  && near(toM(lsz.z), 1.524, 1e-6),
+  JSON.stringify([lsz.x, lsz.y, lsz.z]));
+check('the small rail shaft is the catalog 3 ft square, 1 ft tall',
+  near(toM(ssz.x), 0.9144, 1e-6) && near(toM(ssz.y), 0.3048, 1e-6)
+  && near(toM(ssz.z), 0.9144, 1e-6),
+  JSON.stringify([ssz.x, ssz.y, ssz.z]));
 check('the sheet bbox is the catalog 2.5 ft x 6 ft',
   near(toM(wsz.x), 0.762, 1e-6) && near(toM(wsz.y), 1.8288, 1e-6),
   JSON.stringify([wsz.x, wsz.y]));
 check('depth is a positive visual estimate, never the catalog null',
   lsz.z > 0 && ssz.z > 0 && wsz.z > 0
-  && lsz.z < lsz.y && ssz.z < ssz.y && wsz.z < wsz.x,
+  && near(lsz.z, lsz.x, 1e-6) && near(ssz.z, ssz.x, 1e-6)
+  && wsz.z < wsz.x,
   JSON.stringify([lsz.z, ssz.z, wsz.z]));
 
 const lb = boxOf(large), sbb = boxOf(sheet);
@@ -130,6 +133,20 @@ check('the required nodes exist under their plan names',
   ['main_frame', 'diamond_lattice', 'left_end_support', 'right_end_support']
     .every(n => !!large.object3D.getObjectByName(n))
   && !!sheet.object3D.getObjectByName('arch_panel_sheet'));
+
+check('four identical frames close into a hollow shaft at 90 degrees',
+  ['face_0', 'face_1', 'face_2', 'face_3']
+    .every(n => !!large.object3D.getObjectByName(n))
+  && large.object3D.getObjectByName('corner_joints').children.length === 4
+  && [0, 1, 2, 3].every(i => {
+    const f = large.object3D.getObjectByName(`face_${i}`);
+    return near(f.rotation.y, i * Math.PI / 2, 1e-6);
+  }),
+  String(large.object3D.getObjectByName('corner_joints').children.length));
+
+check('corner joints are solid posts, not overlapping planes',
+  large.object3D.getObjectByName('corner_joints').children.every(c =>
+    c.isMesh && c.geometry.type === 'BoxGeometry' && c.geometry.parameters.height === 1.25));
 
 check('the small rail is its own model, not a scaled large one',
   // A uniform scale could never satisfy both catalog ratios (5/3 != 1.25),

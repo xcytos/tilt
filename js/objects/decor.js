@@ -8,6 +8,12 @@
 // its own lattice count, never a scaled copy of the large one (the plan
 // forbids deriving it that way).
 //
+// Each rail is assembled as a closed hollow cuboid shaft: four identical
+// lattice frames at 90 degrees, with solid corner posts merging the
+// vertical edges into continuous joints (not overlapping planes). The
+// catalog length is the square footprint side; the catalog height is the
+// shaft height.
+//
 // Depth / cross-sections are not_measured in the plan - every such number
 // below is a commented visual estimate for the preview, never a
 // tolerance. The sheet ships this procedural cutwork stand-in until the
@@ -25,7 +31,7 @@ const RAIL = {
     insetF: 0.055,   // how far the end plates stand past the beams
     webF: 0.62,      // web's share of the beam (rest = the cap lip)
     beamZ: 0.13,     // beam web depth into Z
-    capZ: 0.17,      // cap depth into Z (the widest part)
+    capZ: 0.17,      // cap depth into Z (the widest part) - wall thickness
     rod: 0.045,      // lattice rod diameter - round MS rod (~0.55 in)
     endW: 0.13,      // one layered plate's width along X
     endGap: 0.025,   // gap between the layered plates
@@ -35,7 +41,10 @@ const RAIL = {
     endHeights: [1, 0.78, 0.58],
     // Diamond counts chosen per size: same design family, independently
     // modelled - this is what keeps the small rail a real second asset.
-    latticeCols: { large: 12, small: 7 }
+    latticeCols: { large: 12, small: 7 },
+    // Corner post face: slightly proud of the wall so the joint reads
+    // as one continuous column where the four frames meet.
+    postF: 1.15
 };
 
 // The arch spec states 6 mm (0.24 in); the catalog still records
@@ -143,6 +152,51 @@ function buildRailContent(asset, kind) {
     };
     content.add(addEnd(-1), addEnd(1));
     return content;
+}
+
+// Four identical lattice frames at 90 degrees, closed into a hollow
+// cuboid shaft. The catalog length is the square footprint side; the
+// catalog height is the shaft height. Solid corner posts merge the
+// vertical edges where the frames meet - one continuous joint column
+// per corner, not two overlapping end-plate stacks.
+function buildRailShaft(asset, kind) {
+    const [L, H] = asset.sizeFt;
+    const wallT = RAIL.capZ;
+    const arm = L / 2 - wallT / 2;
+    const gold = new THREE.MeshStandardMaterial({
+        color: 0xd9a441, metalness: 0.85, roughness: 0.3
+    });
+    const shaft = new THREE.Group();
+    shaft.name = 'rail_shaft';
+
+    for (let i = 0; i < 4; i++) {
+        const face = new THREE.Group();
+        face.name = `face_${i}`;
+        face.rotation.y = i * Math.PI / 2;
+        const panel = buildRailContent(asset, kind);
+        panel.position.z = arm;
+        face.add(panel);
+        shaft.add(face);
+    }
+
+    // Corner posts: one solid column per vertical edge of the cuboid.
+    // Sized just proud of the wall section so the joint reads as a
+    // continuous frame rather than coplanar overlapping plates.
+    const corners = new THREE.Group();
+    corners.name = 'corner_joints';
+    const postW = wallT * RAIL.postF;
+    const postArm = L / 2 - postW / 2;
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            const post = new THREE.Mesh(
+                new THREE.BoxGeometry(postW, H, postW), gold);
+            post.position.set(sx * postArm, 0, sz * postArm);
+            post.name = `corner_${sx > 0 ? 'p' : 'n'}${sz > 0 ? 'p' : 'n'}`;
+            corners.add(post);
+        }
+    }
+    shaft.add(corners);
+    return shaft;
 }
 
 /* ---------------------------------------------------- the arch sheet */
@@ -312,7 +366,7 @@ export function createPillarRailModel(kind) {
         // Local geometry is centred (the plan's origin), the node lifts
         // by half a height so the bottom sits on the ground.
         root.position.y = H / 2;
-        root.add(buildRailContent(asset, small ? 'small' : 'large'));
+        root.add(buildRailShaft(asset, small ? 'small' : 'large'));
     }
     build();
 
