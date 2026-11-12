@@ -362,7 +362,7 @@ check('the tray is a modal dialog sheet, styled in the shell',
 check('every tray card lands on a callback the panel already had',
   /opts\.onSelect\(action\.id\)/.test(panelSrc)
   && /opts\.onToggle\(action\.id, true\)/.test(panelSrc)
-  && /opts\.onFramePillarsChange\(fid, \{ count: cur \+ 1 \}\)/.test(panelSrc)
+  && /opts\.onFramePillarsChange\(fid, \{\s*type, selected: type,\s*count: Math\.min\(2, cur \+ 1\)/.test(panelSrc)
   && /opts\.onElementAdd\(fid, action\.type\)/.test(panelSrc)
   && /opts\.onFlowerMount\(arr\)/.test(panelSrc));
 check('tapping another chip closes the tray first',
@@ -396,12 +396,27 @@ check('cards cover frames, pillars, lights, flowers and decor',
   built.cards.length === 8
   && built.cards.map(c => c.category).join(',')
     === 'frames,frames,pillars,lights,lights,lights,flowers,pillars');
+check('the tray offers each pillar type as its own attached card', (() => {
+  const b = buildObjectCards({
+    pillars: { frameId: 'o2tilt', frameName: 'S Curve', types: [
+      { type: 'classical', label: 'Classical', count: 1, max: 2 },
+      { type: 'rail_large', label: 'Rail Large', count: 0, max: 2 },
+      { type: 'rail_small', label: 'Rail Small', count: 2, max: 2 }
+    ] }
+  });
+  const p = b.cards.filter(c => c.category === 'pillars');
+  return p.length === 3
+    && p[0].key === 'pillar:classical' && p[0].badge === '1/2'
+    && p[1].key === 'pillar:rail_large' && p[1].badge === 'Add'
+    && p[2].key === 'pillar:rail_small' && p[2].badge === '2/2'
+    && p[0].action.type === 'classical';
+})());
 check('tabs only appear when their category has cards',
   built.categories.map(c => c.id).join(',') === 'all,frames,pillars,lights,flowers'
   && buildObjectCards({ frames: [{ id: 'x', name: 'X' }] }).categories
     .map(c => c.id).join(',') === 'all,frames');
 check('badges carry the live counts',
-  built.cards.find(c => c.key === 'pillar').badge === '1/2'
+  built.cards.find(c => c.key === 'pillar:classical').badge === '1/2'
   && built.cards.find(c => c.key === 'light:light-par').badge === '3'
   && built.cards.find(c => c.key === 'light:light-led').badge === 'Add'
   && built.cards.find(c => c.key === 'decor:pillar_rail_large').badge === '1'
@@ -476,13 +491,15 @@ check('the editor free-places decor like flower panels',
   && /onDecorAdd: guard/.test(appSrc)
   && /onDecorRemove: guard/.test(appSrc)
   && /onDecorPlace:/.test(appSrc)
+  && /d\.model\.restY/.test(appSrc) && /DECOR_FLOAT_Y/.test(appSrc)
   && /key\.startsWith\('decor:'\)/.test(appSrc));
 check('the tray cards, actions and stage controls are wired',
   /case 'decor':/.test(panelSrc)
   && /opts\.onDecorAdd\(action\.assetId\)/.test(panelSrc)
-  && /DECOR_ASSETS\.map/.test(panelSrc)
+  && /DECOR_ASSETS\.filter\(a => a\.category !== 'pillars'\)\.map/.test(panelSrc)
   && /verb === 'place' && opts\.onDecorPlace/.test(panelSrc)
   && /onStageAction\('place', row/.test(objchipSrc)
+  && /ctx\.stepBar/.test(objchipSrc) && /bar\('Y', 'y'/.test(objchipSrc)
   && /type = 'number'/.test(objchipSrc));
 check('documents round-trip through a validating cleaner',
   /function cleanDecor/.test(projectSrc)

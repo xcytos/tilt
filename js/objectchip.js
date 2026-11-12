@@ -13,9 +13,11 @@
 //   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
 //                        each kind onto its existing add callbacks)
 //   getStageRows()      - optional: instances already on stage for the
-//                        "On stage" strip [{ key, assetId?, name, x, z, ry }]
-//   onStageAction(...) - optional: 'remove' | 'place' ({ x | z | ry })
+//                        "On stage" strip [{ key, assetId?, name, x, y, z, ry }]
+//   onStageAction(...) - optional: 'remove' | 'place' ({ x | y | z | ry })
 //                        for one instance
+//   stepBar(opts)      - optional: panel.js's hold-to-traverse number box
+//                        ({ label, value, step, min, max, onChange })
 //   live               - the panel's button registry (busy dimming)
 // }
 
@@ -75,17 +77,23 @@ export function buildObjectCards(input) {
 
     const p = in_.pillars;
     if (p && p.frameId) {
-        const n = p.count || 0;
-        cards.push({
-            key: 'pillar',
-            category: 'pillars',
-            name: 'Pillars',
-            sub: n ? `${n} standing by ${p.frameName || 'the frame'}`
-                : 'A pair beside the frame',
-            badge: n ? `${n}/${p.max || 2}` : 'Add',
-            on: n > 0,
-            action: { kind: 'pillar' }
-        });
+        // One card per pillar type: the classical column and the two rails.
+        // Tapping adds one of that type to the active frame's ends.
+        const types = p.types && p.types.length ? p.types
+            : [{ type: 'classical', label: 'Pillars', count: p.count || 0, max: p.max || 2 }];
+        for (const t of types) {
+            const n = t.count || 0;
+            cards.push({
+                key: 'pillar:' + t.type,
+                category: 'pillars',
+                name: t.label || t.type,
+                sub: n ? `${n} standing by ${p.frameName || 'the frame'}`
+                    : 'Attached to the frame ends',
+                badge: n ? `${n}/${t.max || 2}` : 'Add',
+                on: n > 0,
+                action: { kind: 'pillar', type: t.type, label: t.label }
+            });
+        }
     }
 
     const l = in_.lights;
@@ -299,19 +307,23 @@ export function createObjectChip(ctx) {
         name.textContent = row.name || row.key;
         card.appendChild(name);
         if (ctx.onStageAction) {
-            const num = (label, key, step, min, max) => {
+            // Placement: X / Height / Depth / Turn, each a number box with
+            // hold-to-traverse arrows (panel.js owns the control, so the
+            // tray and the shelf behave identically).
+            const bar = (label, key, step, min, max) => {
+                if (ctx.stepBar) {
+                    return ctx.stepBar({
+                        label, value: row[key], step, min, max,
+                        onChange: v => ctx.onStageAction('place', row, { [key]: v })
+                    });
+                }
                 const w = document.createElement('label');
                 w.className = 'objpick-stage-num';
                 w.textContent = label;
                 const inp = document.createElement('input');
                 inp.type = 'number';
                 inp.step = String(step);
-                if (min != null) inp.min = String(min);
-                if (max != null) inp.max = String(max);
                 inp.value = String(Number(row[key]) || 0);
-                inp.setAttribute('aria-label', label + ' ' + (row.name || row.key));
-                // 'change' (blur / enter), not 'input': the app persists
-                // the patch and the input keeps its own typed value.
                 inp.addEventListener('change', () => {
                     const v = Number(inp.value);
                     if (!Number.isFinite(v)) return;
@@ -321,9 +333,10 @@ export function createObjectChip(ctx) {
                 return w;
             };
             card.append(
-                num('X', 'x', 1),
-                num('Z', 'z', 1),
-                num('Turn', 'ry', 15, -180, 180)
+                bar('X', 'x', 0.25),
+                bar('Y', 'y', 0.25, -5, 40),
+                bar('Z', 'z', 0.25),
+                bar('Turn', 'ry', 1, -180, 180)
             );
             const rm = document.createElement('button');
             rm.type = 'button';

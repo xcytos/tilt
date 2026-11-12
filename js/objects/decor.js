@@ -433,6 +433,10 @@ export function createPillarRailModel(kind) {
     const root = new THREE.Group();
     root.name = asset.id;
     const state = { kind: small ? 'small' : 'large' };
+    // How far the node must lift to stand on the floor. The scene's own
+    // placement adds a float offset on top of this, so it is published
+    // rather than baked into an opaque position.
+    let restY = 0;
 
     function build() {
         disposeParts(root);
@@ -440,7 +444,8 @@ export function createPillarRailModel(kind) {
         // Local geometry is centred (body + both caps), the node lifts
         // by half the total height so the bottom cap sits on the ground.
         const { shaft, totalH } = buildRailShaft(asset, small ? 'small' : 'large');
-        root.position.y = totalH / 2;
+        restY = totalH / 2;
+        root.position.y = restY;
         root.add(shaft);
     }
     build();
@@ -449,6 +454,7 @@ export function createPillarRailModel(kind) {
         id: asset.id,
         name: asset.name,
         object3D: root,
+        get restY() { return restY; },
         params: {},
         state,
         build,
@@ -464,12 +470,16 @@ export function createArchPanelModel() {
     const state = { modelStatus: 'placeholder' };
     let token = 0;
     let dead = false;
+    // Standing offset (half the sheet's height); the scene placement adds
+    // its float height on top of this.
+    let restY = 0;
 
     function build() {
         const mine = ++token;
         disposeParts(root);
         root.clear();
-        root.position.y = H / 2;
+        restY = H / 2;
+        root.position.y = restY;
         const white = new THREE.MeshStandardMaterial({
             color: 0xf5f5f0, metalness: 0, roughness: 0.8
         });
@@ -512,6 +522,7 @@ export function createArchPanelModel() {
         id: asset.id,
         name: asset.name,
         object3D: root,
+        get restY() { return restY; },
         params: {},
         state,
         build,

@@ -241,13 +241,15 @@ function groups() {
     const out = [];
     for (const id of orderIds()) {
         if (mounted.has(id)) out.push({ id, models: mounted.get(id) });
-        const pillars = mounted.get(pillarKey(id)) || [];
-        pillars.forEach((m, i) => {
-            out.push({
-                id: PILLAR_ID, models: [m], inst: i,
-                total: pillars.length, owner: id
+        for (const t of PILLAR_TYPES) {
+            const pillars = mounted.get(pillarKey(id, t.id)) || [];
+            pillars.forEach((m, i) => {
+                out.push({
+                    id: PILLAR_ID, pillarType: t.id, models: [m], inst: i,
+                    total: pillars.length, owner: id
+                });
             });
-        });
+        }
         const lights = mounted.get(elementKey(id)) || [];
         lights.forEach((m, i) => {
             out.push({
@@ -305,8 +307,9 @@ async function syncPresets() {
     for (const [id, models] of [...mounted]) {
         // A pillar group stays while the frame that owns it stays; so does a
         // frame's light rig.
-        const owner = id.startsWith(PILLAR_ID + ':')
-            ? id.slice(PILLAR_ID.length + 1)
+        const pillar = parsePillarKey(id);
+        const owner = pillar
+            ? pillar.frameId
             : id.startsWith(ELEM_PREFIX)
                 ? id.slice(ELEM_PREFIX.length) : id;
         if (want.includes(owner)) continue;
@@ -362,6 +365,93 @@ async function instantiateKey(key, count) {
     return models;
 }
 
+// The pillar types a frame can carry at its ends. The classical column and
+// the two manufactured rails all attach to the same frame anchors and travel
+// with the frame; only their geometry (and the classical look controls)
+// differs. Decor rail assets are no longer free-placed.
+const PILLAR_TYPES = [
+    { id: 'classical', label: 'Classical', max: 2 },
+    { id: 'rail_large', label: 'Rail Large', assetId: 'pillar_rail_large', max: 2 },
+    { id: 'rail_small', label: 'Rail Small', assetId: 'pillar_rail_small', max: 2 }
+];
+const PILLAR_TYPE_IDS = PILLAR_TYPES.map(t => t.id);
+const DEFAULT_PILLAR_TYPE = 'classical';
+
+function pillarTypeMeta(id) {
+    return PILLAR_TYPES.find(t => t.id === id) || PILLAR_TYPES[0];
+}
+
+function defaultPillarSlot() {
+    return {
+        count: 0, place: 'outer', gap: 3,
+        offset: { x: 0, y: 0, z: 0, ry: 0 }
+    };
+}
+
+function emptyFramePillars() {
+    const types = {};
+    for (const t of PILLAR_TYPES) types[t.id] = defaultPillarSlot();
+    return { selected: DEFAULT_PILLAR_TYPE, types };
+}
+
+// One type's numbers, clamped and balanced the way the old single-pillar
+// config was: one pillar centres itself, two never sit in the centre.
+function normalisePillarSlot(v) {
+    const slot = defaultPillarSlot();
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return slot;
+    const max = pillarTypeMeta(DEFAULT_PILLAR_TYPE).max;
+    slot.count = Math.max(0, Math.min(max, Math.round(Number(v.count) || 0)));
+    slot.place = ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer';
+    const g = Number(v.gap);
+    slot.gap = Number.isFinite(g) ? Math.max(-5, Math.min(40, g)) : 3;
+    const off = v.offset && typeof v.offset === 'object' && !Array.isArray(v.offset)
+        ? v.offset : {};
+    for (const [axis, lo, hi] of [['x', -200, 200], ['y', -5, 60],
+        ['z', -200, 200], ['ry', -360, 360]]) {
+        const n = Number(off[axis]);
+        slot.offset[axis] = Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0;
+    }
+    if (slot.count === 1) slot.place = 'centre';
+    if (slot.count === 2 && slot.place === 'centre') slot.place = 'outer';
+    return slot;
+}
+
+// Accept both the unified shape and every older one (a single classical
+// config per frame, or the global count from the very first documents).
+function normaliseFramePillars(v) {
+    const out = emptyFramePillars();
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    if (v.types && typeof v.types === 'object' && !Array.isArray(v.types)) {
+        for (const t of PILLAR_TYPES) out.types[t.id] = normalisePillarSlot(v.types[t.id]);
+        if (PILLAR_TYPE_IDS.includes(v.selected)) out.selected = v.selected;
+    } else {
+        out.types[DEFAULT_PILLAR_TYPE] = normalisePillarSlot(v);
+    }
+    if (!out.types[out.selected].count) {
+        const present = PILLAR_TYPE_IDS.find(id => out.types[id].count > 0);
+        if (present) out.selected = present;
+    }
+    return out;
+}
+
+// The rail types build from the decor factory; the classical column keeps
+// its registered model (and its shared look preset).
+async function instantiatePillarType(meta, count) {
+    if (meta.id === DEFAULT_PILLAR_TYPE) {
+        const models = await instantiateKey(PILLAR_ID, count);
+        models.forEach(m => { m.pillarType = meta.id; });
+        return models;
+    }
+    const models = [];
+    for (let i = 0; i < count; i++) {
+        const m = createDecorModel(meta.assetId);
+        if (!m) throw new Error('no pillar model for ' + meta.id);
+        m.pillarType = meta.id;
+        models.push(m);
+    }
+    return models;
+}
+
 // Where `count` objects stand in `slots`. A half-filled set stays balanced
 // instead of piling onto one side: a single object takes the average of every
 // slot, several take evenly spread slots, and a full set uses them as drawn.
@@ -380,28 +470,31 @@ function slotPick(slots, count) {
     return out;
 }
 
-// Pillars live under their frame's key: `count` per instance of that frame.
-// Changing the count rebuilds the set; the look (saved preset values) rides
-// along either way.
-function pillarKey(frameId) {
-    return PILLAR_ID + ':' + frameId;
+// Pillars live under their frame's key, one group per type: `count` per
+// instance of that frame. Changing a count rebuilds only that type's set;
+// the classical look (saved preset values) rides along either way.
+function pillarKey(frameId, type) {
+    return PILLAR_ID + ':' + frameId + ':' + (type || DEFAULT_PILLAR_TYPE);
+}
+
+// `pillar:<frameId>:<type>`; a key without the type is an old session's
+// classical group.
+function parsePillarKey(key) {
+    if (typeof key !== 'string' || !key.startsWith(PILLAR_ID + ':')) return null;
+    const rest = key.slice(PILLAR_ID.length + 1);
+    const cut = rest.indexOf(':');
+    if (cut < 0) return { frameId: rest, type: DEFAULT_PILLAR_TYPE };
+    return { frameId: rest.slice(0, cut), type: rest.slice(cut + 1) };
 }
 
 function framePillarsFor(id) {
-    const cfg = framePillars.get(id) || { count: 0, place: 'outer' };
-    return Object.assign({}, cfg, {
-        gap: Number.isFinite(cfg.gap) ? cfg.gap : 3,
-        offset: cfg.offset || { x: 0, z: 0, ry: 0 }
-    });
+    return normaliseFramePillars(framePillars.get(id));
 }
 
 function framePillarsPlain() {
-    return Object.fromEntries([...framePillars].map(([id, c]) => [id, {
-        count: c.count,
-        place: c.place,
-        gap: Number.isFinite(c.gap) ? c.gap : 3,
-        offset: Object.assign({ x: 0, z: 0, ry: 0 }, c.offset || {})
-    }]));
+    return Object.fromEntries([...framePillars].map(([id, c]) => [
+        id, normaliseFramePillars(c)
+    ]));
 }
 
 // Elements live under their frame's key, one instance slot apiece.
@@ -566,29 +659,38 @@ function defaultAnchorFor(frameId, type) {
 
 async function syncPillarsFor(frameId) {
     const failures = [];
-    const key = pillarKey(frameId);
     const frames = mounted.get(frameId) || [];
-    const per = Math.max(0, Math.min(2, framePillarsFor(frameId).count));
-    const want = frames.length * per;
-    const have = mounted.get(key) || [];
-    if (have.length === want) return failures;
+    const cfg = framePillarsFor(frameId);
 
-    for (const m of have) viewer.removeModel(m);
-    mounted.delete(key);
-    savedPlaces.delete(key);
-    if (want <= 0) return failures;
+    // Each type has its own group under the frame; only a type whose count
+    // changed is rebuilt, so switching one kind never disturbs another.
+    for (const meta of PILLAR_TYPES) {
+        const key = pillarKey(frameId, meta.id);
+        const slot = cfg.types[meta.id] || defaultPillarSlot();
+        const per = Math.max(0, Math.min(meta.max, slot.count));
+        const want = frames.length * per;
+        const have = mounted.get(key) || [];
+        if (have.length === want) continue;
 
-    try {
-        const models = await instantiateKey(PILLAR_ID, want);
-        for (const m of models) {
-            applySaved(m.state, m.params, savedPresets[PILLAR_ID]);
-            m.build();
-            viewer.addModel(m);
+        for (const m of have) viewer.removeModel(m);
+        mounted.delete(key);
+        savedPlaces.delete(key);
+        if (want <= 0) continue;
+
+        try {
+            const models = await instantiatePillarType(meta, want);
+            for (const m of models) {
+                if (meta.id === DEFAULT_PILLAR_TYPE) {
+                    applySaved(m.state, m.params, savedPresets[PILLAR_ID]);
+                }
+                m.build();
+                viewer.addModel(m);
+            }
+            mounted.set(key, models);
+        } catch (err) {
+            console.error('[pillars]', err);
+            failures.push({ id: key, message: (err && err.message) || String(err) });
         }
-        mounted.set(key, models);
-    } catch (err) {
-        console.error('[pillars]', err);
-        failures.push({ id: key, message: (err && err.message) || String(err) });
     }
     return failures;
 }
@@ -703,9 +805,9 @@ function derivePillarPlace(frame, place, i, total) {
 }
 
 function readPlace(m) {
-    const pos = m.object3D ? m.object3D.position : { x: 0, z: 0 };
+    const pos = m.object3D ? m.object3D.position : { x: 0, y: 0, z: 0 };
     const ry = m.object3D ? m.object3D.rotation.y * 180 / Math.PI : 0;
-    return { x: pos.x, z: pos.z, ry };
+    return { x: pos.x, y: pos.y || 0, z: pos.z, ry };
 }
 
 // Give every model its starting spot. A SET's slots and the viewer's own
@@ -727,7 +829,8 @@ function defaultPlaces() {
                 if (!missing.includes(k)) return;
                 const at = slots[i];
                 savedPlaces.set(k, [{
-                    x: at ? at.x : 0, z: at ? at.z : 0, ry: at ? at.ry || 0 : 0
+                    x: at ? at.x : 0, y: 0,
+                    z: at ? at.z : 0, ry: at ? at.ry || 0 : 0
                 }]);
             });
         } else {
@@ -750,16 +853,18 @@ function defaultPlaces() {
 function refreshPillarPlaces() {
     let changed = false;
     for (const [key, models] of mounted) {
-        if (!key.startsWith(PILLAR_ID + ':') || !models.length) continue;
-        const frameId = key.slice(PILLAR_ID.length + 1);
+        const parsed = parsePillarKey(key);
+        if (!parsed || !models.length) continue;
+        const { frameId, type } = parsed;
         const frames = mounted.get(frameId) || [];
         const cfg = framePillarsFor(frameId);
-        const per = Math.max(0, Math.min(2, cfg.count)) || 1;
-        const off = cfg.offset || { x: 0, z: 0, ry: 0 };
-        const gap = Number.isFinite(cfg.gap) ? cfg.gap : 3;
+        const slot = cfg.types[type] || defaultPillarSlot();
+        const per = Math.max(0, Math.min(2, slot.count)) || 1;
+        const off = slot.offset || { x: 0, y: 0, z: 0, ry: 0 };
+        const gap = Number.isFinite(slot.gap) ? slot.gap : 3;
         const arr = models.map((m, i) => {
             const frame = frames[Math.floor(i / per)] || frames[0] || null;
-            const spot = derivePillarPlace(frame, cfg.place, i % per, per);
+            const spot = derivePillarPlace(frame, slot.place, i % per, per);
             // Centre Gap: symmetric spread along the frame's own axis.
             // Pillar 0 steps left, pillar 1 steps right.
             let sx = 0, sz = 0;
@@ -773,13 +878,15 @@ function refreshPillarPlaces() {
             // numbers on top of where the pair stands by default.
             return {
                 x: spot.x + sx + (off.x || 0),
+                y: off.y || 0,
                 z: spot.z + sz + (off.z || 0),
                 ry: off.ry || 0
             };
         });
         const prev = savedPlaces.get(key);
         if (!prev || prev.length !== arr.length
-            || arr.some((p, i) => !prev[i] || prev[i].x !== p.x || prev[i].z !== p.z)) {
+            || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
+                || prev[i].y !== p.y || prev[i].z !== p.z)) {
             changed = true;
         }
         savedPlaces.set(key, arr);
@@ -943,6 +1050,7 @@ function nextFlowerPanelId() {
 function placeFlowerPanel(fp) {
     if (!fp.model || !fp.model.object3D) return;
     fp.model.object3D.position.x = fp.x;
+    fp.model.object3D.position.y = fp.y || 0;
     fp.model.object3D.position.z = fp.z;
     fp.model.object3D.rotation.y = (fp.ry || 0) * Math.PI / 180;
 }
@@ -968,6 +1076,7 @@ function mountFlowerPanel(entry) {
         arrangementId: (entry && entry.arrangementId) || null,
         enabled: !(entry && entry.enabled === false),
         x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        y: Number.isFinite(Number(entry && entry.y)) ? Number(entry.y) : 0,
         z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
         ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
     };
@@ -991,7 +1100,7 @@ function flowerPanelsPlain() {
         arrangementId: fp.arrangementId,
         settings: fp.model && fp.model.getSettings ? fp.model.getSettings() : undefined,
         enabled: fp.enabled !== false,
-        x: fp.x, z: fp.z, ry: fp.ry
+        x: fp.x, y: fp.y, z: fp.z, ry: fp.ry
     }));
 }
 
@@ -1001,7 +1110,7 @@ function mountedFlowersPlain() {
         id: fp.id,
         name: fp.name || 'Panel',
         enabled: fp.enabled !== false,
-        x: fp.x, z: fp.z, ry: fp.ry
+        x: fp.x, y: fp.y, z: fp.z, ry: fp.ry
     }));
 }
 
@@ -1011,6 +1120,7 @@ function setFlowerPlace(id, patch) {
     const fp = flowerPanels.find(f => f.id === id);
     if (!fp) return;
     if (Number.isFinite(Number(patch.x))) fp.x = Number(patch.x);
+    if (Number.isFinite(Number(patch.y))) fp.y = Number(patch.y);
     if (Number.isFinite(Number(patch.z))) fp.z = Number(patch.z);
     if (Number.isFinite(Number(patch.ry))) fp.ry = Number(patch.ry);
     placeFlowerPanel(fp);
@@ -1096,6 +1206,15 @@ function openStudio() {
 // list doubles as the tray's "On stage" rows and its placed-count badges.
 let decorObjects = [];
 
+// The arch sheet is displayed floating clear of the floor; the rails stand
+// on it. Placement stores the extra height, so the model's own standing
+// offset (restY) stays intact underneath.
+const DECOR_FLOAT_Y = { decorative_arch_panel_sheet: 1 };
+
+function decorFloatY(assetId) {
+    return DECOR_FLOAT_Y[assetId] || 0;
+}
+
 function nextDecorId() {
     const ids = new Set(decorObjects.map(d => d.id));
     let n = decorObjects.length + 1;
@@ -1106,6 +1225,7 @@ function nextDecorId() {
 function placeDecor(d) {
     if (!d.model || !d.model.object3D) return;
     d.model.object3D.position.x = d.x;
+    d.model.object3D.position.y = (d.model.restY || 0) + (d.y || 0);
     d.model.object3D.position.z = d.z;
     d.model.object3D.rotation.y = (d.ry || 0) * Math.PI / 180;
 }
@@ -1123,6 +1243,8 @@ function mountDecor(entry) {
         assetId: asset.id,
         model,
         x: Number.isFinite(Number(entry && entry.x)) ? Number(entry.x) : 0,
+        y: Number.isFinite(Number(entry && entry.y))
+            ? Number(entry.y) : decorFloatY(asset.id),
         z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
         ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
     };
@@ -1142,7 +1264,7 @@ function unmountDecor(id) {
 // The document's snapshot: identity + placement only.
 function decorPlain() {
     return decorObjects.map(d => ({
-        id: d.id, assetId: d.assetId, x: d.x, z: d.z, ry: d.ry
+        id: d.id, assetId: d.assetId, x: d.x, y: d.y, z: d.z, ry: d.ry
     }));
 }
 
@@ -1154,7 +1276,7 @@ function decorStagePlain() {
         return {
             key: d.id, assetId: d.assetId,
             name: (asset && asset.name) || d.assetId,
-            x: d.x, z: d.z, ry: d.ry
+            x: d.x, y: d.y, z: d.z, ry: d.ry
         };
     });
 }
@@ -1167,6 +1289,7 @@ function addDecor(assetId) {
     const d = mountDecor({
         assetId,
         x: ((n % 4) - 1.5) * 6,
+        y: decorFloatY(assetId),
         z: 8 + Math.floor(n / 4) * 6,
         ry: 0
     });
@@ -1185,6 +1308,7 @@ function setDecorPlace(id, patch) {
     const d = decorObjects.find(x => x.id === id);
     if (!d) return;
     if (Number.isFinite(Number(patch.x))) d.x = Number(patch.x);
+    if (Number.isFinite(Number(patch.y))) d.y = Number(patch.y);
     if (Number.isFinite(Number(patch.z))) d.z = Number(patch.z);
     if (Number.isFinite(Number(patch.ry))) d.ry = Number(patch.ry);
     placeDecor(d);
@@ -1210,6 +1334,7 @@ function setPlace(key, index, patch) {
     const cur = arr[index];
     arr[index] = {
         x: num(patch.x, cur.x),
+        y: num(patch.y, cur.y),
         z: num(patch.z, cur.z),
         ry: num(patch.ry, cur.ry)
     };
@@ -1532,39 +1657,49 @@ function setFramePillars(id, patch) {
     if (!patch || typeof patch !== 'object') return false;
     if (!orderIds().includes(id) && !mounted.has(id)) return false;
     const cur = framePillarsFor(id);
-    let count = cur.count, place = cur.place, gap = cur.gap;
-    const offset = Object.assign({ x: 0, z: 0, ry: 0 }, cur.offset || {});
+    const type = PILLAR_TYPE_IDS.includes(patch.type) ? patch.type : cur.selected;
+    const meta = pillarTypeMeta(type);
+    const slot = normalisePillarSlot(cur.types[type]);
     if (patch.count !== undefined) {
-        count = Math.max(0, Math.min(2, Math.round(Number(patch.count) || 0)));
+        slot.count = Math.max(0, Math.min(meta.max, Math.round(Number(patch.count) || 0)));
     }
     if (patch.place !== undefined && ['centre', 'inner', 'outer'].includes(patch.place)) {
-        place = patch.place;
+        slot.place = patch.place;
     }
     if (patch.gap !== undefined) {
         const g = Number(patch.gap);
-        if (Number.isFinite(g)) gap = Math.max(-5, Math.min(40, g));
+        if (Number.isFinite(g)) slot.gap = Math.max(-5, Math.min(40, g));
     }
     if (patch.offset && typeof patch.offset === 'object' && !Array.isArray(patch.offset)) {
         const numv = (v, lo, hi) => Number.isFinite(Number(v))
             ? Math.max(lo, Math.min(hi, Number(v))) : null;
-        for (const [axis, range] of [['x', [-200, 200]], ['z', [-200, 200]],
-            ['ry', [-360, 360]]]) {
+        for (const [axis, range] of [['x', [-200, 200]], ['y', [-5, 60]],
+            ['z', [-200, 200]], ['ry', [-360, 360]]]) {
             if (patch.offset[axis] === undefined) continue;
             const v = numv(patch.offset[axis], range[0], range[1]);
-            if (v !== null) offset[axis] = v;
+            if (v !== null) slot.offset[axis] = v;
         }
     }
-    if (count === 1) place = 'centre';
-    if (count === 2 && place === 'centre') place = 'outer';
-    if (count === cur.count && place === cur.place && gap === cur.gap
-        && offset.x === (cur.offset && cur.offset.x || 0)
-        && offset.z === (cur.offset && cur.offset.z || 0)
-        && offset.ry === (cur.offset && cur.offset.ry || 0)) return false;
-    framePillars.set(id, { count, place, gap, offset });
-    // A new count gets a fresh set of anchors.
-    if (count !== cur.count) savedPlaces.delete(pillarKey(id));
+    if (slot.count === 1) slot.place = 'centre';
+    if (slot.count === 2 && slot.place === 'centre') slot.place = 'outer';
+
+    const selected = PILLAR_TYPE_IDS.includes(patch.selected)
+        ? patch.selected : (slot.count > 0 ? type : cur.selected);
+    const next = {
+        selected,
+        types: Object.assign({}, cur.types, { [type]: slot })
+    };
+    const changedValue = slot.count !== cur.types[type].count
+        || slot.place !== cur.types[type].place
+        || selected !== cur.selected;
+    const same = JSON.stringify(next) === JSON.stringify(cur);
+    if (same) return false;
+
+    framePillars.set(id, next);
+    // A new count gets a fresh set of anchors for that type.
+    if (slot.count !== cur.types[type].count) savedPlaces.delete(pillarKey(id, type));
     if (panel) {
-        if (count === cur.count && place === cur.place) {
+        if (!changedValue) {
             // Value-level: update the sliders in place - a full rebuild
             // would destroy the input mid-drag.
             panel.applyLive({ framePillars: framePillarsPlain() });
@@ -1970,21 +2105,9 @@ if (savedDoc) {
             if (!knownIds.has(target) || !v || typeof v !== 'object') continue;
             // A merged pair of old presets keeps the choice that was active.
             if (framePillars.has(target) && id !== savedDoc.activeId) continue;
-            const count = Math.max(0, Math.min(2, Math.round(Number(v.count) || 0)));
-            const rawOff = v.offset && typeof v.offset === 'object'
-                && !Array.isArray(v.offset) ? v.offset : {};
-            framePillars.set(target, {
-                count,
-                place: count === 1 ? 'centre'
-                    : (['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer'),
-                gap: typeof v.gap === 'number' && Number.isFinite(v.gap)
-                    ? Math.max(-5, Math.min(40, v.gap)) : 3,
-                offset: {
-                    x: Number.isFinite(Number(rawOff.x)) ? Number(rawOff.x) : 0,
-                    z: Number.isFinite(Number(rawOff.z)) ? Number(rawOff.z) : 0,
-                    ry: Number.isFinite(Number(rawOff.ry)) ? Number(rawOff.ry) : 0
-                }
-            });
+            // The normaliser accepts both the unified types shape and the
+            // older single-classical-per-frame shape.
+            framePillars.set(target, normaliseFramePillars(v));
         }
     } else if (Number.isFinite(savedDoc.pillars)) {
         // Documents from the global-pillar days: one pair beside the frame
@@ -1995,10 +2118,10 @@ if (savedDoc) {
             : (registry.list[0] && registry.list[0].id);
         const count = Math.max(0, Math.min(2, Math.round(savedDoc.pillars)));
         if (target && count) {
-            framePillars.set(target, {
+            framePillars.set(target, normaliseFramePillars({
                 count, place: count === 1 ? 'centre' : 'outer',
-                offset: { x: 0, z: 0, ry: 0 }
-            });
+                offset: { x: 0, y: 0, z: 0, ry: 0 }
+            }));
         }
     }
     // The fixtures ride along with the pillars - same rule: the document's
@@ -2183,6 +2306,7 @@ panel = createPanel({
     sets: LAYOUTS,
     set: layoutId,
     framePillars: framePillarsPlain(),
+    pillarTypes: PILLAR_TYPES,
     frameElements: frameElementsPlain(),
     frameAnchors: frameAnchorsPlain(),
     frameSpacing: frameSpacingPlain(),

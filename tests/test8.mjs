@@ -124,8 +124,10 @@ check('each frame carries its pillar options through a round trip', (() => {
     places: { o2tilt: [{ x: 4, z: 2, ry: 0 }] }
   }));
   const fresh = proj.parseProject('{}');
+  const cls = doc.pillars.o2tilt.types.classical;
   return doc.layout === 'classic-symmetry'
-    && doc.pillars.o2tilt.count === 2 && doc.pillars.o2tilt.place === 'inner'
+    && cls.count === 2 && cls.place === 'inner'
+    && doc.pillars.o2tilt.selected === 'classical'
     && doc.places.o2tilt[0].x === 4
     && typeof fresh.pillars === 'object'
     && !Object.keys(fresh.pillars).length;
@@ -134,8 +136,29 @@ check("a frame's pillar count is clamped to a pair", (() => {
   const doc = proj.parseProject(JSON.stringify({
     pillars: { o2tilt: { count: 9, place: 'sideways' }, 'a"; drop': { count: 1 } }
   }));
-  return doc.pillars.o2tilt.count === 2 && doc.pillars.o2tilt.place === 'outer'
+  const cls = doc.pillars.o2tilt.types.classical;
+  return cls.count === 2 && cls.place === 'outer'
     && !('a"; drop' in doc.pillars);
+})());
+check('unified pillar types round-trip, attached to the frame', (() => {
+  const doc = proj.parseProject(JSON.stringify({
+    pillars: {
+      o2tilt: {
+        selected: 'rail_large',
+        types: {
+          classical: { count: 1, place: 'centre', gap: 3, offset: { x: 0, y: 0, z: 0, ry: 0 } },
+          rail_large: { count: 2, place: 'outer', gap: 6, offset: { x: 1, y: 2.5, z: -1, ry: 10 } },
+          rail_small: { count: 0 }
+        }
+      }
+    }
+  }));
+  const p = doc.pillars.o2tilt;
+  return p.selected === 'rail_large'
+    && p.types.classical.count === 1
+    && p.types.rail_large.count === 2 && p.types.rail_large.gap === 6
+    && p.types.rail_large.offset.y === 2.5
+    && p.types.rail_small.count === 0;
 })());
 check('old documents with a global pillar count pass through',
   proj.parseProject(JSON.stringify({ pillars: 2 })).pillars === 2);
@@ -199,14 +222,26 @@ console.log('\nproject file: mounted flower panels');
   check('decor instances round-trip with asset id and placement', (() => {
     const doc = proj.parseProject(proj.projectToJSON({
       decor: [
-        { id: 'decor-1', assetId: 'pillar_rail_large', x: 5, z: -3, ry: 45 },
+        { id: 'decor-1', assetId: 'pillar_rail_large', x: 5, y: 2, z: -3, ry: 45 },
         { id: 'decor-2', assetId: 'decorative_arch_panel_sheet', x: -8, z: 2, ry: 0 }
       ]
     }));
     return doc.decor.length === 2
       && doc.decor[0].assetId === 'pillar_rail_large'
-      && doc.decor[0].x === 5 && doc.decor[0].z === -3 && doc.decor[0].ry === 45
+      && doc.decor[0].x === 5 && doc.decor[0].y === 2
+      && doc.decor[0].z === -3 && doc.decor[0].ry === 45
       && doc.decor[1].assetId === 'decorative_arch_panel_sheet';
+  })());
+  check('the arch sheet floats above the floor by default', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      decor: [
+        { id: 'decor-1', assetId: 'decorative_arch_panel_sheet' },
+        { id: 'decor-2', assetId: 'pillar_rail_large' },
+        { id: 'decor-3', assetId: 'decorative_arch_panel_sheet', y: 99 }
+      ]
+    }));
+    return doc.decor[0].y === 1 && doc.decor[1].y === 0
+      && doc.decor[2].y === 60;
   })());
   check('junk decor is dropped: bad ids, unknown assets, non-objects', (() => {
     const doc = proj.parseProject(proj.projectToJSON({
@@ -706,8 +741,8 @@ check('two pillars can also stand at the opposite ends beside the gap',
 check("the pillar options live inside the frame's own Pillars group",
   /function pillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
   && /framePillars: framePillarsPlain\(\)/.test(app)
-  && /check\.checked = cfg\.count > 0/.test(panel)
-  && /param-pillars-on/.test(panel));
+  && /param-pillars-types/.test(panel)
+  && /pillarTypes/.test(panel) && /PILLAR_TYPES/.test(app));
 check('pillars take free placement on top of their anchor', (() => {
   return /spot\.x \+ sx \+ \(off\.x \|\| 0\)|offset\.x \+ \(off\.x \|\| 0\)/.test(app)
     && /placeRangeBlock\(`pillar-pos-\$\{prop\}`/.test(panel)
@@ -717,14 +752,24 @@ check('pillars take free placement on top of their anchor', (() => {
 })());
 check('pillars get a Centre Gap slider when there are two', (() => {
   return /Centre Gap/.test(panel)
-    && /\{ gap: v \}/.test(panel)
+    && /\{ type: selected, gap: v \}/.test(panel)
     && /spot\.x \+ sx/.test(app)
-    && /gap: clampN/.test(read('js/project.js'));
+    && /clampN\(v\.gap/.test(read('js/project.js'));
 })());
 check('both placement blocks offer a reset', (() => {
   return (panel.match(/Reset placement/g) || []).length >= 2
-    && /onPlaceChange && onPlaceChange\(key, idx, \{ x: 0, z: 0, ry: 0 \}\)/.test(panel)
-    && /offset: \{ x: 0, z: 0, ry: 0 \} \}\);/.test(panel);
+    && /onPlaceChange && onPlaceChange\(key, idx,\s*\{ x: 0, y: 0, z: 0, ry: 0 \}\)/.test(panel)
+    && /offset: \{ x: 0, y: 0, z: 0, ry: 0 \} \}\);/.test(panel);
+})());
+check('placement offers X / Height / Depth / Turn with hold-to-traverse arrows', (() => {
+  return /function attachHold\(/.test(panel)
+    && /setTimeout\(beginRepeat, 300\)/.test(panel)
+    && /pointerdown/.test(panel) && /pointerup/.test(panel)
+    && /function stageStepBar\(/.test(panel)
+    && /'Height', 'y'/.test(panel)
+    && /'X', 'x'[^]*'Height', 'y'[^]*'Depth', 'z'[^]*'Turn', 'ry'/.test(panel)
+    && /stepBar: stageStepBar/.test(panel)
+    && /bar\('Y', 'y'/.test(read('js/objectchip.js'));
 })());
 check("a pillar's look hides behind one gear inside Pillars",
   /function gearIcon\(/.test(panel) && /'Look'/.test(panel)

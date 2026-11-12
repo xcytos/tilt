@@ -95,6 +95,7 @@ function cleanPlaces(places) {
             }
             arr.push({
                 x: clampN(p.x, -300, 300, 0),
+                y: clampN(p.y, -5, 60, 0),
                 z: clampN(p.z, -300, 300, 0),
                 ry: clampN(p.ry, -360, 360, 0),
                 ...(p.auto === true ? { auto: true } : {})
@@ -106,11 +107,38 @@ function cleanPlaces(places) {
     return out;
 }
 
-// Pillars belong to their frame: { '<frameId>': { count, place } }. Count is
-// 0-2 per instance of the frame; place is where the pair anchors - centre of
-// the O2, the outer ends of its modules, or the inner ends beside the gap.
-// Documents from the global-pillar days carry a plain number instead; that
-// is passed through so app.js can migrate it against the frames it knows.
+// Pillar types a frame can carry at its ends. The document stores, per
+// frame: { selected, types: { classical|rail_large|rail_small: { count,
+// place, gap, offset } } }. Count is 0-2 per instance of the frame; place is
+// where the set anchors - centre of the O2, the outer ends of its modules, or
+// the inner ends beside the gap. Older documents carry one classical config
+// per frame, and the very first ones a plain global number; both are
+// normalised (or passed through for app.js to migrate) here.
+const DOC_PILLAR_TYPE_IDS = ['classical', 'rail_large', 'rail_small'];
+const DOC_DEFAULT_PILLAR_TYPE = 'classical';
+
+function cleanPillarSlot(v) {
+    const slot = {
+        count: 0, place: 'outer', gap: 3,
+        offset: { x: 0, y: 0, z: 0, ry: 0 }
+    };
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return slot;
+    const rawOff = v.offset && typeof v.offset === 'object' && !Array.isArray(v.offset)
+        ? v.offset : {};
+    slot.count = Math.round(clampN(v.count, 0, 2, 0));
+    slot.place = ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer';
+    slot.gap = clampN(v.gap, -5, 40, 3);
+    slot.offset = {
+        x: clampN(rawOff.x, -200, 200, 0),
+        y: clampN(rawOff.y, -5, 60, 0),
+        z: clampN(rawOff.z, -200, 200, 0),
+        ry: clampN(rawOff.ry, -360, 360, 0)
+    };
+    if (slot.count === 1) slot.place = 'centre';
+    if (slot.count === 2 && slot.place === 'centre') slot.place = 'outer';
+    return slot;
+}
+
 function cleanFramePillars(raw) {
     if (typeof raw === 'number') return raw;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -119,18 +147,21 @@ function cleanFramePillars(raw) {
     for (const [id, v] of Object.entries(raw)) {
         if (keys >= PLACE_KEYS || !PLACE_KEY_RE.test(id)
             || !v || typeof v !== 'object' || Array.isArray(v)) continue;
-        const rawOff = v.offset && typeof v.offset === 'object' && !Array.isArray(v.offset)
-            ? v.offset : {};
-        out[id] = {
-            count: Math.round(clampN(v.count, 0, 2, 0)),
-            place: ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer',
-            gap: clampN(v.gap, -5, 40, 3),
-            offset: {
-                x: clampN(rawOff.x, -200, 200, 0),
-                z: clampN(rawOff.z, -200, 200, 0),
-                ry: clampN(rawOff.ry, -360, 360, 0)
-            }
-        };
+        if (v.types && typeof v.types === 'object' && !Array.isArray(v.types)) {
+            const types = {};
+            for (const t of DOC_PILLAR_TYPE_IDS) types[t] = cleanPillarSlot(v.types[t]);
+            out[id] = {
+                selected: DOC_PILLAR_TYPE_IDS.includes(v.selected)
+                    ? v.selected : DOC_DEFAULT_PILLAR_TYPE,
+                types
+            };
+        } else {
+            // One classical config per frame (the pre-unification shape).
+            const types = {};
+            for (const t of DOC_PILLAR_TYPE_IDS) types[t] = cleanPillarSlot(null);
+            types[DOC_DEFAULT_PILLAR_TYPE] = cleanPillarSlot(v);
+            out[id] = { selected: DOC_DEFAULT_PILLAR_TYPE, types };
+        }
         keys++;
     }
     return out;
@@ -312,6 +343,7 @@ function cleanFlowerPanels(raw) {
             // Old documents predate the toggle; they stay visible.
             enabled: p.enabled !== false,
             x: clampN(p.x, -300, 300, 0),
+            y: clampN(p.y, -5, 60, 0),
             z: clampN(p.z, -300, 300, 0),
             ry: clampN(p.ry, -360, 360, 0)
         });
@@ -336,6 +368,10 @@ function cleanDecor(raw) {
             id: e.id,
             assetId: e.assetId,
             x: clampN(e.x, -300, 300, 0),
+            // The arch sheet floats by default; a document that predates the
+            // height field keeps that look rather than dropping to the floor.
+            y: clampN(e.y, -5, 60,
+                e.assetId === 'decorative_arch_panel_sheet' ? 1 : 0),
             z: clampN(e.z, -300, 300, 0),
             ry: clampN(e.ry, -360, 360, 0)
         });

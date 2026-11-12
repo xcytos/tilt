@@ -57,7 +57,7 @@ function rangeBlock(key, p, current, compact) {
 
 // One placement slider: X, Depth or Turn as a full-width track - modern,
 // thumb-sized, and it updates the stage while the finger moves.
-function placeRangeBlock(key, label, prop, value, min, max, step, unit) {
+function placeRangeBlock(key, label, prop, value, min, max, step, unit, arrows) {
     const wrap = document.createElement('div');
     wrap.className = 'mb-1.5';
     const head = document.createElement('div');
@@ -79,7 +79,30 @@ function placeRangeBlock(key, label, prop, value, min, max, step, unit) {
     input.value = String(Math.round(value * 100) / 100);
     input.className = 'w-full h-5 accent-sky-500 cursor-pointer';
     wrap.append(head, input);
-    return { wrap, input, value: val, head, label: labelEl };
+    const built = { wrap, input, value: val, head, label: labelEl };
+    if (arrows) {
+        const nudge = dir => {
+            const cur = parseFloat(input.value);
+            let v = (Number.isFinite(cur) ? cur : 0) + dir * step;
+            v = Math.max(Number(min), Math.min(Number(max), v));
+            v = Math.round(v * 1e6) / 1e6;
+            if (Number(input.value) === v) return;
+            input.value = String(v);
+            // Same live path a finger drag takes: the block's own listener
+            // repaints the readout and writes the scene.
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const group = document.createElement('div');
+        group.className = 'flex items-center gap-0.5';
+        head.insertBefore(group, labelEl);
+        const back = stepArrowButton(-1, `Step ${label} back`);
+        const fwd = stepArrowButton(1, `Step ${label} forward`);
+        group.append(back, labelEl, fwd);
+        attachHold(back, () => nudge(-1));
+        attachHold(fwd, () => nudge(1));
+        built.stepButtons = { back, fwd };
+    }
+    return built;
 }
 
 function toggleBlock(key, p, current) {
@@ -123,7 +146,7 @@ export function createPanel(opts) {
         body, model, groups = [], catalog = [], activeId, mode = 'single',
         scenes = [], scene = null, sets = [], set = null,
         framePillars = {}, frameElements = {}, frameAnchors = {}, places = {},
-        frameSpacing = {},
+        frameSpacing = {}, pillarTypes = [],
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
@@ -296,7 +319,20 @@ export function createPanel(opts) {
             }),
             pillars: fid ? {
                 frameId: fid, frameName: fname,
-                count: (cfg && cfg.count) || 0, max: 2
+                types: (pillarTypes.length ? pillarTypes : [
+                    { id: 'classical', label: 'Classical', max: 2 }
+                ]).map(t => {
+                    const slot = cfg && cfg.types ? cfg.types[t.id] : cfg;
+                    return {
+                        type: t.id, label: t.label,
+                        count: (slot && slot.count) || 0, max: t.max || 2
+                    };
+                }),
+                count: (cfg && cfg.types)
+                    ? Object.values(cfg.types).reduce((n, s) => n + (s.count || 0), 0)
+                    : ((cfg && cfg.count) || 0),
+                max: (pillarTypes.length ? pillarTypes : [{}])
+                    .reduce((n, t) => n + (t.max || 2), 0)
             } : null,
             lights: fid ? { frameId: fid, frameName: fname, counts } : null,
             flowers: flowerList.map(a => {
@@ -313,7 +349,9 @@ export function createPanel(opts) {
                     previewKey: 'flower:' + a.id + ':' + revOf(JSON.stringify(s))
                 };
             }),
-            decor: DECOR_ASSETS.map(a => {
+            // Rails are attached pillar types now, so only the free-placed
+            // sheets appear as decor cards.
+            decor: DECOR_ASSETS.filter(a => a.category !== 'pillars').map(a => {
                 const rows = opts.getDecorStage ? opts.getDecorStage() : [];
                 const placed = rows.filter(r => r && r.assetId === a.id).length;
                 return {
@@ -354,8 +392,14 @@ export function createPanel(opts) {
             case 'pillar': {
                 const fid = activeFrameId();
                 if (!fid || !opts.onFramePillarsChange) return;
-                const cur = (currentFramePillars[fid] && currentFramePillars[fid].count) || 0;
-                opts.onFramePillarsChange(fid, { count: cur + 1 });
+                const type = action.type || 'classical';
+                const cfg = currentFramePillars[fid];
+                const slot = cfg && cfg.types ? cfg.types[type] : cfg;
+                const cur = (slot && slot.count) || 0;
+                opts.onFramePillarsChange(fid, {
+                    type, selected: type,
+                    count: Math.min(2, cur + 1)
+                });
                 break;
             }
             case 'light': {
@@ -459,16 +503,67 @@ export function createPanel(opts) {
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
 
-    // A single stepper arrow beside the Turn label: nudges the rotation to the
-    // next / previous position on the slider (dir is -1 or +1).
-    const TURN_STEP = 15; // degrees per arrow click - one slider position
-    function turnStepArrow(dir, onStep) {
+    // Active press-and-hold loops, so a rebuild can never leave one running.
+    const holds = new Set();
+    function cancelHolds() {
+        for (const stop of [...holds]) stop();
+        holds.clear();
+    }
+
+    // One arrow that steps once on touch-down, then - after a short pause -
+    // repeats with an accelerating cadence. A tap is the slow, precise step;
+    // holding is the fast traverse. Every live path stops on release, leave,
+    // cancel or a panel rebuild.
+    function attachHold(btn, apply) {
+        let startTimer = 0;
+        let repeatTimer = 0;
+        let stopped = true;
+        const stop = () => {
+            stopped = true;
+            clearTimeout(startTimer);
+            clearTimeout(repeatTimer);
+            startTimer = repeatTimer = 0;
+            holds.delete(stop);
+        };
+        const beginRepeat = () => {
+            let gap = 120;
+            const tick = () => {
+                if (stopped) return;
+                apply();
+                gap = Math.max(40, gap - 8);
+                repeatTimer = setTimeout(tick, gap);
+            };
+            tick();
+        };
+        btn.addEventListener('pointerdown', e => {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            try { btn.setPointerCapture(e.pointerId); } catch (err) { /* optional */ }
+            stopped = false;
+            holds.add(stop);
+            apply();
+            startTimer = setTimeout(beginRepeat, 300);
+        });
+        for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+            btn.addEventListener(ev, stop);
+        }
+        // Keyboard activation does not produce a pointerdown - one step.
+        btn.addEventListener('click', e => {
+            if (e.detail === 0) apply();
+        });
+        btn.addEventListener('contextmenu', e => e.preventDefault());
+        return stop;
+    }
+
+    // A small chevron button (dir -1 left / +1 right) without its own action.
+    function stepArrowButton(dir, title) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'w-6 h-6 rounded border border-gray-300 dark:border-zinc-600 '
             + 'text-gray-500 dark:text-zinc-400 hover:border-sky-400 hover:text-sky-500 '
-            + 'transition-colors flex items-center justify-center';
-        b.title = dir < 0 ? 'Turn left' : 'Turn right';
+            + 'transition-colors flex items-center justify-center select-none';
+        b.style.touchAction = 'none';
+        b.title = title || (dir < 0 ? 'Step back' : 'Step forward');
         b.setAttribute('aria-label', b.title);
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
@@ -483,8 +578,47 @@ export function createPanel(opts) {
         path.setAttribute('d', dir < 0 ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6');
         svg.appendChild(path);
         b.appendChild(svg);
-        b.addEventListener('click', onStep);
         return b;
+    }
+
+    const TURN_STEP = 15; // degrees per Turn arrow step - one slider position
+
+    // The Objects tray's compact On-stage row control: a number box flanked
+    // by the same hold-to-traverse arrows as the placement sliders. Tap = one
+    // step; hold = fast traverse. The caller persists each value.
+    function stageStepBar({ label, value, min, max, step, onChange }) {
+        const w = document.createElement('div');
+        w.className = 'objpick-stage-num';
+        const sim = document.createElement('span');
+        sim.textContent = label;
+        const back = stepArrowButton(-1, `Step ${label} back`);
+        const fwd = stepArrowButton(1, `Step ${label} forward`);
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.step = String(step);
+        if (min != null) inp.min = String(min);
+        if (max != null) inp.max = String(max);
+        inp.setAttribute('aria-label', label);
+        const round = v => Math.round(v * 1e6) / 1e6;
+        const commit = v => {
+            let n = Number(v);
+            if (!Number.isFinite(n)) return;
+            if (min != null) n = Math.max(Number(min), n);
+            if (max != null) n = Math.min(Number(max), n);
+            n = round(n);
+            inp.value = String(n);
+            onChange(n);
+        };
+        inp.value = String(round(Number(value) || 0));
+        inp.addEventListener('change', () => commit(inp.value));
+        const nudge = dir => {
+            const cur = Number(inp.value);
+            commit((Number.isFinite(cur) ? cur : 0) + dir * step);
+        };
+        attachHold(back, () => nudge(-1));
+        attachHold(fwd, () => nudge(1));
+        w.append(sim, back, inp, fwd);
+        return w;
     }
 
     // Placement controls for one mounted flower panel - X and Depth sliders,
@@ -514,6 +648,7 @@ export function createPanel(opts) {
 
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Height', 'y', -5, 40, 0.25, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
             ['Turn', 'ry', 0, 360, TURN_STEP, '°']
         ]) {
@@ -521,9 +656,9 @@ export function createPanel(opts) {
             // slider and the readout agree.
             const init = prop === 'ry'
                 ? ((Math.round(Number(fp[prop]) || 0) % 360) + 360) % 360
-                : fp[prop];
+                : (Number(fp[prop]) || 0);
             const built = placeRangeBlock(`${fp.id}-pos-${prop}`, label, prop,
-                init, min, max, step, unit);
+                init, min, max, step, unit, true);
             built.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
@@ -532,23 +667,6 @@ export function createPanel(opts) {
             });
             live.selects.push(built.input);
             wrap.appendChild(built.wrap);
-            if (prop === 'ry') {
-                // Two arrows flank the Turn label: each steps the slider to the
-                // next / previous position - a clean rotate control.
-                const stepBy = d => {
-                    let v = Math.round(Number(built.input.value) || 0) + d;
-                    v = ((v % 360) + 360) % 360;
-                    built.input.value = String(v);
-                    built.value.textContent = fmt(v, unit);
-                    if (opts.onFlowerMove) opts.onFlowerMove(fp.id, { ry: v });
-                };
-                const left = document.createElement('div');
-                left.className = 'flex items-center gap-0.5';
-                built.head.insertBefore(left, built.label);
-                left.appendChild(turnStepArrow(-1, () => stepBy(-TURN_STEP)));
-                left.appendChild(built.label);
-                left.appendChild(turnStepArrow(1, () => stepBy(TURN_STEP)));
-            }
         }
         return wrap;
     }
@@ -584,6 +702,7 @@ export function createPanel(opts) {
             if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
             else if (verb === 'place' && opts.onDecorPlace) opts.onDecorPlace(row.key, patch);
         },
+        stepBar: stageStepBar,
         live
     });
     TOOLS.splice(TOOLS.findIndex(t => t.id === 'sets') + 1, 0, objectChip.chip);
@@ -1045,11 +1164,12 @@ export function createPanel(opts) {
         const refs = {};
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Height', 'y', -5, 40, 0.25, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
             ['Turn', 'ry', -90, 90, 1, '°']
         ]) {
             const built = placeRangeBlock(`${key}-pos-${prop}`, label, prop,
-                place[prop], min, max, step, unit);
+                Number(place[prop]) || 0, min, max, step, unit, true);
             built.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
@@ -1069,9 +1189,10 @@ export function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         reset.textContent = 'Reset placement';
-        reset.title = 'Zero X / Depth / Turn - back to the SET drawing';
+        reset.title = 'Zero X / Height / Depth / Turn - back to the SET drawing';
         reset.addEventListener('click', () => {
-            onPlaceChange && onPlaceChange(key, idx, { x: 0, z: 0, ry: 0 });
+            onPlaceChange && onPlaceChange(key, idx,
+                { x: 0, y: 0, z: 0, ry: 0 });
         });
         live.buttons.push(reset);
         body.appendChild(reset);
@@ -1111,7 +1232,17 @@ export function createPanel(opts) {
     // and the pillar's look - which used to be a whole accordion section
     // of its own. Count, place and look are one subject: pillars.
     function pillarsBlock(id) {
-        const cfg = currentFramePillars[id] || { count: 0, place: 'outer' };
+        const cfg = currentFramePillars[id] || {};
+        const metaList = pillarTypes.length ? pillarTypes
+            : [{ id: 'classical', label: 'Classical', max: 2 }];
+        const slotOf = t => (cfg.types ? cfg.types[t.id] : cfg) || {
+            count: 0, place: 'outer', gap: 3, offset: {}
+        };
+        const selectedMeta = metaList.find(t => t.id === cfg.selected)
+            || metaList.find(t => slotOf(t).count > 0) || metaList[0];
+        const selected = selectedMeta.id;
+        const slot = slotOf(selectedMeta);
+
         const wrap = document.createElement('div');
         wrap.className = 'mt-3';
 
@@ -1122,25 +1253,45 @@ export function createPanel(opts) {
             + 'text-gray-500 dark:text-zinc-400';
         title.textContent = 'Pillars';
         head.appendChild(title);
-
-        const check = document.createElement('input');
-        check.type = 'checkbox';
-        check.id = 'param-pillars-on';
-        check.className = 'w-4 h-4 accent-sky-500 cursor-pointer';
-        check.checked = cfg.count > 0;
-        check.addEventListener('change', e => {
-            onFramePillarsChange && onFramePillarsChange(id,
-                { count: e.target.checked ? Math.max(1, cfg.count) : 0 });
-        });
-        live.checks.push(check);
-        const lab = document.createElement('label');
-        lab.className = 'flex items-center gap-2 text-xs cursor-pointer '
-            + 'text-gray-600 dark:text-zinc-300';
-        lab.append(check, document.createTextNode('Show'));
-        head.appendChild(lab);
+        const total = metaList.reduce((n, t) => n + (slotOf(t).count || 0), 0);
+        const badge = document.createElement('span');
+        badge.className = 'text-[11px] text-gray-500 dark:text-zinc-400 tabular-nums';
+        badge.textContent = total ? `${total} attached` : 'None attached';
+        head.appendChild(badge);
         wrap.appendChild(head);
 
-        if (cfg.count === 0) return wrap;
+        // One chip per type: tapping selects it, and a type with no instances
+        // is added straight away. Several types can stand on the same frame.
+        const chipCls = on => 'px-2 py-1 rounded-md border text-[11px] font-semibold '
+            + 'transition-colors ' + (on
+                ? 'bg-sky-600 border-sky-600 text-white'
+                : 'bg-white/70 border-gray-300 text-gray-600 hover:border-sky-400 '
+                    + 'dark:bg-zinc-800/70 dark:border-zinc-600 dark:text-zinc-300');
+        const typeRow = document.createElement('div');
+        typeRow.id = 'param-pillars-types';
+        typeRow.className = 'flex flex-wrap gap-1 mt-1.5';
+        for (const t of metaList) {
+            const s = slotOf(t);
+            const on = t.id === selected;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = chipCls(on);
+            btn.dataset.type = t.id;
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = s.count ? `${t.label} ${s.count}` : `${t.label} +`;
+            btn.addEventListener('click', () => {
+                if (s.count === 0) {
+                    onFramePillarsChange && onFramePillarsChange(id,
+                        { type: t.id, selected: t.id, count: 1 });
+                } else {
+                    onFramePillarsChange && onFramePillarsChange(id,
+                        { type: t.id, selected: t.id });
+                }
+            });
+            live.buttons.push(btn);
+            typeRow.appendChild(btn);
+        }
+        wrap.appendChild(typeRow);
 
         const box = document.createElement('div');
         box.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
@@ -1155,71 +1306,74 @@ export function createPanel(opts) {
             btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
                 + 'dark:border-zinc-600 text-sm font-bold leading-none '
                 + 'hover:bg-sky-50 dark:hover:bg-zinc-700 disabled:opacity-40';
-            const next = cfg.count + delta;
-            const out = next < 0 || next > 2;
+            const next = (slot.count || 0) + delta;
+            const out = next < 0 || next > (selectedMeta.max || 2);
             btn.disabled = out;
             btn.dataset.off = out ? '1' : '0';
             btn.addEventListener('click', () => {
-                onFramePillarsChange && onFramePillarsChange(id, { count: next });
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: selected, count: next });
             });
             live.buttons.push(btn);
             return btn;
         };
         const value = document.createElement('span');
         value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
-        value.textContent = String(cfg.count);
+        value.textContent = String(slot.count || 0);
         row.append(step(-1), value, step(1));
         box.appendChild(row);
 
-        if (cfg.count > 0) {
+        if (slot.count > 0) {
             const placeWrap = document.createElement('div');
             placeWrap.id = 'param-pillars-place';
             placeWrap.className = 'mt-2';
-            const items = cfg.count === 1
+            const items = slot.count === 1
                 ? [{ id: 'centre', name: 'Centre of the O2' }]
                 : [{ id: 'outer', name: 'Outer ends' },
                    { id: 'inner', name: 'Inner (beside the gap)' }];
-            const active = items.some(o => o.id === cfg.place)
-                ? cfg.place : items[0].id;
-            const { row } = chipRow(items, active,
-                v => onFramePillarsChange && onFramePillarsChange(id, { place: v }),
+            const active = items.some(o => o.id === slot.place)
+                ? slot.place : items[0].id;
+            const { row: placeRow } = chipRow(items, active,
+                v => onFramePillarsChange && onFramePillarsChange(id,
+                    { type: selected, place: v }),
                 o => o.id, o => o.name);
-            placeWrap.appendChild(row);
+            placeWrap.appendChild(placeRow);
             box.appendChild(placeWrap);
         }
 
-        // The pillar's look, from the pillar model beside this frame. Its
-        // sliders emit against the pillar instances, so both pillars move
-        // together - same as the old standalone section.
-        const pg = currentGroups.find(g => g.id === PILLAR_ID && g.owner === id);
-        const pm = pg && pg.models && pg.models[0];
-        if (pm && pm.params) {
-            const details = document.createElement('details');
-            details.className = 'mt-2 rounded-md border border-dashed '
-                + 'border-gray-300 dark:border-zinc-600';
-            const summary = document.createElement('summary');
-            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-            summary.append(gearIcon(), document.createTextNode('Look'));
-            const bodyEl = document.createElement('div');
-            bodyEl.className = 'px-2 pb-2';
-            for (const [k, p] of Object.entries(pm.params)) {
-                if (p.type !== 'range') continue;
-                const built = rangeBlock(`pillar-${k}`, p, pm.state[k]);
-                built.input.addEventListener('input', e => {
-                    const v = parseFloat(e.target.value);
-                    built.value.textContent = fmt(v, p.unit);
-                    emit({ [k]: v }, pg.models);
-                });
-                bodyEl.appendChild(built.wrap);
+        // The classical pillar's look, from the classical group beside this
+        // frame. Rail types have no look parameters.
+        if (selected === 'classical') {
+            const pg = currentGroups.find(g => g.id === PILLAR_ID && g.owner === id
+                && (g.pillarType || 'classical') === 'classical');
+            const pm = pg && pg.models && pg.models[0];
+            if (pm && pm.params) {
+                const details = document.createElement('details');
+                details.className = 'mt-2 rounded-md border border-dashed '
+                    + 'border-gray-300 dark:border-zinc-600';
+                const summary = document.createElement('summary');
+                summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
+                    + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
+                summary.append(gearIcon(), document.createTextNode('Look'));
+                const bodyEl = document.createElement('div');
+                bodyEl.className = 'px-2 pb-2';
+                for (const [k, p] of Object.entries(pm.params)) {
+                    if (p.type !== 'range') continue;
+                    const built = rangeBlock(`pillar-${k}`, p, pm.state[k]);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        built.value.textContent = fmt(v, p.unit);
+                        emit({ [k]: v }, pg.models);
+                    });
+                    bodyEl.appendChild(built.wrap);
+                }
+                details.append(summary, bodyEl);
+                box.appendChild(details);
             }
-            details.append(summary, bodyEl);
-            box.appendChild(details);
         }
 
-        // Free numbers on top of the anchor: X / Depth / Turn for the pair,
-        // folded by default like the frame's own placement. The offset is
-        // added to wherever the place option puts them.
+        // Free numbers on top of the anchor: X / Height / Depth / Turn with
+        // the same step arrows as every other placement control.
         const posDetails = document.createElement('details');
         posDetails.className = 'mt-1.5 border-t border-dashed '
             + 'border-gray-300 dark:border-zinc-600';
@@ -1231,46 +1385,50 @@ export function createPanel(opts) {
         posDetails.appendChild(posSummary);
         const posBody = document.createElement('div');
         posBody.className = 'pt-1';
-        const off = cfg.offset || { x: 0, z: 0, ry: 0 };
+        const rowKey = id + ':' + selected;
+        const off = slot.offset || { x: 0, y: 0, z: 0, ry: 0 };
         // Centre Gap: only meaningful with two pillars - symmetric spread.
-        if (cfg.count === 2) {
+        if (slot.count === 2) {
             const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', cfg.gap ?? 3, -5, 40, 0.5, ' ft');
+                'gap', Number(slot.gap ?? 3), -5, 40, 0.5, ' ft', true);
             builtGap.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
                 builtGap.value.textContent = fmt(v, ' ft');
-                onFramePillarsChange && onFramePillarsChange(id, { gap: v });
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: selected, gap: v });
             });
             live.selects.push(builtGap.input);
-            const slot = pillarOffsetRows.get(id) || {};
-            slot.gap = { input: builtGap.input, value: builtGap.value };
-            pillarOffsetRows.set(id, slot);
+            const gapSlot = pillarOffsetRows.get(rowKey) || {};
+            gapSlot.gap = { input: builtGap.input, value: builtGap.value };
+            pillarOffsetRows.set(rowKey, gapSlot);
             posBody.appendChild(builtGap.wrap);
         }
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
+            ['Height', 'y', -5, 40, 0.25, ' ft'],
             ['Depth', 'z', -40, 40, 0.5, ' ft'],
-            ['Turn', 'ry', -90, 90, 1, '°']
+            ['Turn', 'ry', -90, 90, 1, '\u00b0']
         ]) {
             const built = placeRangeBlock(`pillar-pos-${prop}`, label, prop,
-                off[prop] || 0, min, max, step, unit);
+                Number(off[prop]) || 0, min, max, step, unit, true);
             built.input.addEventListener('input', e => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
                 built.value.textContent = fmt(v, unit);
                 onFramePillarsChange && onFramePillarsChange(id, {
+                    type: selected,
                     offset: Object.assign({}, off, { [prop]: v })
                 });
             });
             live.selects.push(built.input);
-            const slot = pillarOffsetRows.get(id) || {};
-            slot[prop] = { input: built.input, value: built.value };
-            pillarOffsetRows.set(id, slot);
+            const offSlot = pillarOffsetRows.get(rowKey) || {};
+            offSlot[prop] = { input: built.input, value: built.value };
+            pillarOffsetRows.set(rowKey, offSlot);
             posBody.appendChild(built.wrap);
         }
 
-        // Back to the bare anchor: the pair stands where the place option
+        // Back to the bare anchor: the set stands where the place option
         // puts it, no nudge.
         const resetP = document.createElement('button');
         resetP.type = 'button';
@@ -1278,10 +1436,10 @@ export function createPanel(opts) {
             + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
             + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
         resetP.textContent = 'Reset placement';
-        resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Depth / Turn';
+        resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Height / Depth / Turn';
         resetP.addEventListener('click', () => {
             onFramePillarsChange && onFramePillarsChange(id,
-                { gap: 3, offset: { x: 0, z: 0, ry: 0 } });
+                { type: selected, gap: 3, offset: { x: 0, y: 0, z: 0, ry: 0 } });
         });
         live.buttons.push(resetP);
         posBody.appendChild(resetP);
@@ -2380,9 +2538,20 @@ export function createPanel(opts) {
         // Count and place are structural (they change what the shelf
         // shows); the offset sliders are value-level and must never
         // force a rebuild mid-drag.
+        const typeMeta = pillarTypes.length ? pillarTypes
+            : [{ id: 'classical' }];
         const pillarShape = Object.fromEntries(
-            Object.entries(currentFramePillars).map(([k, c]) => [k,
-                { count: c.count, place: c.place }]));
+            Object.entries(currentFramePillars).map(([k, c]) => {
+                const types = {};
+                for (const t of typeMeta) {
+                    const slot = c && c.types ? c.types[t.id] : c;
+                    types[t.id] = {
+                        count: (slot && slot.count) || 0,
+                        place: (slot && slot.place) || 'outer'
+                    };
+                }
+                return [k, { selected: c.selected || 'classical', types }];
+            }));
         // A light's type and hook are structural (the card must repaint);
         // its numbers are value-level like every other slider.
         const elemShape = Object.fromEntries(
@@ -2405,6 +2574,7 @@ export function createPanel(opts) {
 
 
     function render() {
+        cancelHolds();
         setSelectRef = null;
         setNoteRef = null;
         sceneSelectRef = null;
@@ -2550,12 +2720,16 @@ export function createPanel(opts) {
                 currentFramePillars = next.framePillars;
                 // Nudge the gap and offset sliders in place - a drag must
                 // never rebuild the shelf under the finger.
-                for (const [pid, slot] of pillarOffsetRows) {
+                for (const [rowKey, slot] of pillarOffsetRows) {
+                    const cut = rowKey.indexOf(':');
+                    const pid = cut < 0 ? rowKey : rowKey.slice(0, cut);
+                    const type = cut < 0 ? 'classical' : rowKey.slice(cut + 1);
                     const c = currentFramePillars[pid];
-                    const off = (c && c.offset) || {};
+                    const cfg = c && c.types ? c.types[type] : c;
+                    const off = (cfg && cfg.offset) || {};
                     for (const [prop, refs] of Object.entries(slot)) {
                         const v = prop === 'gap'
-                            ? (Number(c && c.gap) || 3)
+                            ? (Number(cfg && cfg.gap) || 3)
                             : (Number(off[prop]) || 0);
                         refs.input.value = String(Math.round(v * 100) / 100);
                         refs.value.textContent = fmt(v,
