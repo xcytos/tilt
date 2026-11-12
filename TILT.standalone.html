@@ -7753,11 +7753,13 @@ const RAIL = {
     beamZ: 0.13,     // beam web depth into Z
     capZ: 0.17,      // cap depth into Z (the widest part) - wall thickness
     rod: 0.045,      // lattice rod diameter - round MS rod (~0.55 in)
-    endW: 0.13,      // one layered plate's width along the face edge
-    endGap: 0.025,   // gap between the layered plates
+    endW: 0.045,     // one layered plate's width along the face edge
+    endGap: 0.015,   // gap between the layered plates
     endT: 0.15,      // plate thickness into Z
-    // Outer plate full height, stepping down inwards: the spec's
-    // staircase silhouette, centred on the face's mid-line.
+    // Outer plate full height, stepping down inwards. The assembly is
+    // thin enough (3 plates + 2 gaps = 0.165 ft) that it tucks entirely
+    // inside the corner border, so it never leaves a stepped void on the
+    // open face - the staircase now reads on the caps instead.
     endHeights: [1, 0.78, 0.58],
     // Diamond counts chosen per size: same design family, independently
     // modelled - this is what keeps the small rail a real second asset.
@@ -7809,8 +7811,11 @@ function latticeSegment(m, c, halfW, halfH) {
 
 // One lattice face: horizontal top/bottom box beams, diamond rod
 // lattice, and layered edge plates at the left/right vertical borders.
-// faceW is the square side (horizontal); faceH is the shaft height.
-// Built centred at the origin in X/Y with thickness around Z = 0.
+// The plates are a thin layered strip - the spec's end support, now
+// tucked into the corner joint - so the beams and lattice share the full
+// width between the corner borders. faceW is the square side
+// (horizontal); faceH is the shaft height. Built centred at the origin in
+// X/Y with thickness around Z = 0.
 function buildRailFace(faceW, faceH, kind) {
     const cols = RAIL.latticeCols[kind] || RAIL.latticeCols.large;
     const gold = new THREE.MeshStandardMaterial({
@@ -7849,14 +7854,23 @@ function buildRailFace(faceW, faceH, kind) {
     // diamond_lattice: two clipped diagonal families of round rods -
     // real rods, real gaps, no backing. Counted along the height so
     // the diamonds stack up the tall face.
+    //
+    // The line offsets are a half-offset grid: the outermost lines sit
+    // half a step in from the degenerate corner diagonals (c = +/-
+    // cMax), where a line would touch the void at a single point and
+    // vanish. With that phase the extreme rods clip the top and bottom
+    // edges, so the lattice reaches all four edges of the opening and
+    // its bounding box matches the void - no bare strips left at the
+    // beams or the borders.
     const lattice = new THREE.Group();
     lattice.name = 'diamond_lattice';
     const halfW = span / 2 - 0.012;
     const halfH = faceH / 2 - inset - beamH - 0.012;
     const cMax = halfW + halfH;
+    const step = (2 * cMax) / cols;
     const rodR = RAIL.rod / 2;
     for (let i = 0; i < cols; i++) {
-        const c = cols === 1 ? 0 : -cMax + i * (2 * cMax / (cols - 1));
+        const c = -cMax + step * (i + 0.5);
         for (const m of [1, -1]) {
             const seg = latticeSegment(m, c, halfW, halfH);
             if (!seg) continue;
@@ -7873,7 +7887,9 @@ function buildRailFace(faceW, faceH, kind) {
 
     // Edge plates: three layered strips per vertical border, widths
     // stepping down inwards - the spec's staircase on the face edge
-    // that becomes the corner joint when four faces close.
+    // that becomes the corner joint when four faces close. Thin enough
+    // to sit inside the corner border, so the open face carries no
+    // stepped void and no detached strip.
     const addEnd = sign => {
         const g = new THREE.Group();
         g.name = sign < 0 ? 'left_end_support' : 'right_end_support';
