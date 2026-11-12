@@ -12,12 +12,6 @@
 //   getCardsInput()    - live input for buildObjectCards
 //   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
 //                        each kind onto its existing add callbacks)
-//   getStageRows()      - optional: instances already on stage for the
-//                        "On stage" strip [{ key, assetId?, name, x, y, z, ry }]
-//   onStageAction(...) - optional: 'remove' | 'place' ({ x | y | z | ry })
-//                        for one instance
-//   stepBar(opts)      - optional: panel.js's hold-to-traverse number box
-//                        ({ label, value, step, min, max, onChange })
 //   live               - the panel's button registry (busy dimming)
 // }
 
@@ -156,7 +150,6 @@ export function createObjectChip(ctx) {
     let closeBtn = null;
     let tabRow = null;
     let grid = null;
-    let stage = null;
     let activeCat = 'all';
     let lastFocus = null;
 
@@ -204,11 +197,7 @@ export function createObjectChip(ctx) {
         grid = document.createElement('div');
         grid.className = 'objpick-grid';
 
-        stage = document.createElement('div');
-        stage.className = 'objpick-stage';
-        stage.hidden = true;
-
-        sheet.append(head, tabRow, grid, stage);
+        sheet.append(head, tabRow, grid);
         host.append(scrim, sheet);
         document.body.appendChild(host);
 
@@ -300,60 +289,6 @@ export function createObjectChip(ctx) {
         io.observe(btn);
     }
 
-    function stageEl(row) {
-        const card = document.createElement('div');
-        card.className = 'objpick-stage-row';
-        const name = document.createElement('strong');
-        name.textContent = row.name || row.key;
-        card.appendChild(name);
-        if (ctx.onStageAction) {
-            // Placement: X / Height / Depth / Turn, each a number box with
-            // hold-to-traverse arrows (panel.js owns the control, so the
-            // tray and the shelf behave identically).
-            const bar = (label, key, step, min, max) => {
-                if (ctx.stepBar) {
-                    return ctx.stepBar({
-                        label, value: row[key], step, min, max,
-                        onChange: v => ctx.onStageAction('place', row, { [key]: v })
-                    });
-                }
-                const w = document.createElement('label');
-                w.className = 'objpick-stage-num';
-                w.textContent = label;
-                const inp = document.createElement('input');
-                inp.type = 'number';
-                inp.step = String(step);
-                inp.value = String(Number(row[key]) || 0);
-                inp.addEventListener('change', () => {
-                    const v = Number(inp.value);
-                    if (!Number.isFinite(v)) return;
-                    ctx.onStageAction('place', row, { [key]: v });
-                });
-                w.appendChild(inp);
-                return w;
-            };
-            card.append(
-                bar('X', 'x', 0.25),
-                bar('Y', 'y', 0.25, -5, 40),
-                bar('Z', 'z', 0.25),
-                bar('Turn', 'ry', 1, -180, 180)
-            );
-            const rm = document.createElement('button');
-            rm.type = 'button';
-            rm.className = 'objpick-stage-rm';
-            rm.textContent = 'Remove';
-            rm.title = 'Take this off the stage';
-            rm.addEventListener('click', () => {
-                ctx.onStageAction('remove', row);
-                // Counts, badges and the strip itself all changed.
-                refresh();
-            });
-            if (ctx.live) ctx.live.buttons.push(rm);
-            card.appendChild(rm);
-        }
-        return card;
-    }
-
     function refresh() {
         ensure();
         const { categories, cards } = buildObjectCards(ctx.getCardsInput ? ctx.getCardsInput() : {});
@@ -383,17 +318,6 @@ export function createObjectChip(ctx) {
             grid.appendChild(empty);
         }
         for (const card of shown) grid.appendChild(cardEl(card));
-
-        const rows = ctx.getStageRows ? (ctx.getStageRows() || []) : [];
-        stage.textContent = '';
-        stage.hidden = !rows.length;
-        if (rows.length) {
-            const title = document.createElement('div');
-            title.className = 'objpick-stage-title';
-            title.textContent = 'On stage';
-            stage.appendChild(title);
-            for (const row of rows) stage.appendChild(stageEl(row));
-        }
     }
 
     function open() {

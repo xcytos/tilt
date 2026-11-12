@@ -308,40 +308,6 @@
         }
         #objpick .objcard:not(.is-on) .objcard-badge { background: #cbd5e1; color: #334155; }
         .dark #objpick .objcard:not(.is-on) .objcard-badge { background: #3f3f46; color: #d4d4d8; }
-        #objpick .objpick-stage {
-            border-top: 1px dashed #cbd5e1; padding: 0.6rem 1rem 0.9rem;
-            overflow-y: auto; max-height: 34%;
-        }
-        .dark #objpick .objpick-stage { border-top-color: #3f3f46; }
-        #objpick .objpick-stage-title {
-            font: 700 10px/1 system-ui, sans-serif; letter-spacing: 0.08em;
-            text-transform: uppercase; color: #64748b; margin-bottom: 6px;
-        }
-        #objpick .objpick-stage-row {
-            display: flex; align-items: center; justify-content: space-between;
-            flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #f8fafc;
-            font: 600 12px/1.3 system-ui, sans-serif; color: #0f172a; margin-bottom: 4px;
-        }
-        .dark #objpick .objpick-stage-row { background: #232327; color: #f4f4f5; }
-        #objpick .objpick-stage-num {
-            display: flex; align-items: center; gap: 3px;
-            font: 500 10px/1 system-ui, sans-serif; color: #64748b;
-        }
-        .dark #objpick .objpick-stage-num { color: #a1a1aa; }
-        #objpick .objpick-stage-num input {
-            width: 3.6em; min-height: 26px; padding: 0 4px;
-            border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;
-            font: 600 11px/1 system-ui, sans-serif; color: #0f172a;
-        }
-        .dark #objpick .objpick-stage-num input {
-            border-color: #3f3f46; background: #18181b; color: #f4f4f5;
-        }
-        #objpick .objpick-stage-rm {
-            min-height: 30px; padding: 0 10px; border-radius: 999px;
-            border: 1px solid #cbd5e1; background: transparent;
-            font: 600 11px/1 system-ui, sans-serif; color: #475569; cursor: pointer;
-        }
-        .dark #objpick .objpick-stage-rm { border-color: #3f3f46; color: #a1a1aa; }
         @media (prefers-reduced-motion: reduce) {
             #objpick .objcard-tile { transition: none; }
         }
@@ -6115,12 +6081,6 @@ function createFlowerChip(ctx) {
 //   getCardsInput()    - live input for buildObjectCards
 //   onAction(action)   - a card was tapped: { kind, ... } (panel.js maps
 //                        each kind onto its existing add callbacks)
-//   getStageRows()      - optional: instances already on stage for the
-//                        "On stage" strip [{ key, assetId?, name, x, y, z, ry }]
-//   onStageAction(...) - optional: 'remove' | 'place' ({ x | y | z | ry })
-//                        for one instance
-//   stepBar(opts)      - optional: panel.js's hold-to-traverse number box
-//                        ({ label, value, step, min, max, onChange })
 //   live               - the panel's button registry (busy dimming)
 // }
 
@@ -6259,7 +6219,6 @@ function createObjectChip(ctx) {
     let closeBtn = null;
     let tabRow = null;
     let grid = null;
-    let stage = null;
     let activeCat = 'all';
     let lastFocus = null;
 
@@ -6307,11 +6266,7 @@ function createObjectChip(ctx) {
         grid = document.createElement('div');
         grid.className = 'objpick-grid';
 
-        stage = document.createElement('div');
-        stage.className = 'objpick-stage';
-        stage.hidden = true;
-
-        sheet.append(head, tabRow, grid, stage);
+        sheet.append(head, tabRow, grid);
         host.append(scrim, sheet);
         document.body.appendChild(host);
 
@@ -6403,60 +6358,6 @@ function createObjectChip(ctx) {
         io.observe(btn);
     }
 
-    function stageEl(row) {
-        const card = document.createElement('div');
-        card.className = 'objpick-stage-row';
-        const name = document.createElement('strong');
-        name.textContent = row.name || row.key;
-        card.appendChild(name);
-        if (ctx.onStageAction) {
-            // Placement: X / Height / Depth / Turn, each a number box with
-            // hold-to-traverse arrows (panel.js owns the control, so the
-            // tray and the shelf behave identically).
-            const bar = (label, key, step, min, max) => {
-                if (ctx.stepBar) {
-                    return ctx.stepBar({
-                        label, value: row[key], step, min, max,
-                        onChange: v => ctx.onStageAction('place', row, { [key]: v })
-                    });
-                }
-                const w = document.createElement('label');
-                w.className = 'objpick-stage-num';
-                w.textContent = label;
-                const inp = document.createElement('input');
-                inp.type = 'number';
-                inp.step = String(step);
-                inp.value = String(Number(row[key]) || 0);
-                inp.addEventListener('change', () => {
-                    const v = Number(inp.value);
-                    if (!Number.isFinite(v)) return;
-                    ctx.onStageAction('place', row, { [key]: v });
-                });
-                w.appendChild(inp);
-                return w;
-            };
-            card.append(
-                bar('X', 'x', 0.25),
-                bar('Y', 'y', 0.25, -5, 40),
-                bar('Z', 'z', 0.25),
-                bar('Turn', 'ry', 1, -180, 180)
-            );
-            const rm = document.createElement('button');
-            rm.type = 'button';
-            rm.className = 'objpick-stage-rm';
-            rm.textContent = 'Remove';
-            rm.title = 'Take this off the stage';
-            rm.addEventListener('click', () => {
-                ctx.onStageAction('remove', row);
-                // Counts, badges and the strip itself all changed.
-                refresh();
-            });
-            if (ctx.live) ctx.live.buttons.push(rm);
-            card.appendChild(rm);
-        }
-        return card;
-    }
-
     function refresh() {
         ensure();
         const { categories, cards } = buildObjectCards(ctx.getCardsInput ? ctx.getCardsInput() : {});
@@ -6486,17 +6387,6 @@ function createObjectChip(ctx) {
             grid.appendChild(empty);
         }
         for (const card of shown) grid.appendChild(cardEl(card));
-
-        const rows = ctx.getStageRows ? (ctx.getStageRows() || []) : [];
-        stage.textContent = '';
-        stage.hidden = !rows.length;
-        if (rows.length) {
-            const title = document.createElement('div');
-            title.className = 'objpick-stage-title';
-            title.textContent = 'On stage';
-            stage.appendChild(title);
-            for (const row of rows) stage.appendChild(stageEl(row));
-        }
     }
 
     function open() {
@@ -9660,6 +9550,7 @@ class Viewer {
 }
 
 // ---- js/panel.js ----
+const STAGE_CHIP_ID = 'stage';
 const LABEL_CLS = 'font-semibold text-gray-600 dark:text-zinc-300';
 const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
 const CHECK_CLS = 'custom-checkbox';
@@ -9709,6 +9600,84 @@ function rangeBlock(key, p, current, compact) {
     value.textContent = fmt(current, p.unit);
     wrap.appendChild(input);
     return { wrap, input, value };
+}
+
+// Active press-and-hold loops, so a rebuild can never leave one running.
+// Module-level because placeRangeBlock (also module-level) builds the arrows.
+const HOLDS = new Set();
+function cancelHolds() {
+    for (const stop of [...HOLDS]) stop();
+    HOLDS.clear();
+}
+
+// One arrow that steps once on touch-down, then - after a short pause -
+// repeats with an accelerating cadence. A tap is the slow, precise step;
+// holding is the fast traverse. Every live path stops on release or cancel.
+function attachHold(btn, apply) {
+    let startTimer = 0;
+    let repeatTimer = 0;
+    let stopped = true;
+    const stop = () => {
+        stopped = true;
+        clearTimeout(startTimer);
+        clearTimeout(repeatTimer);
+        startTimer = repeatTimer = 0;
+        HOLDS.delete(stop);
+    };
+    const beginRepeat = () => {
+        let gap = 120;
+        const tick = () => {
+            if (stopped) return;
+            apply();
+            gap = Math.max(40, gap - 8);
+            repeatTimer = setTimeout(tick, gap);
+        };
+        tick();
+    };
+    btn.addEventListener('pointerdown', e => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault();
+        try { btn.setPointerCapture(e.pointerId); } catch (err) { /* optional */ }
+        stopped = false;
+        HOLDS.add(stop);
+        apply();
+        startTimer = setTimeout(beginRepeat, 300);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        btn.addEventListener(ev, stop);
+    }
+    // Keyboard activation does not produce a pointerdown - one step.
+    btn.addEventListener('click', e => {
+        if (e.detail === 0) apply();
+    });
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    return stop;
+}
+
+// A small chevron button (dir -1 left / +1 right) without its own action.
+function stepArrowButton(dir, title) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'w-6 h-6 rounded border border-gray-300 dark:border-zinc-600 '
+        + 'text-gray-500 dark:text-zinc-400 hover:border-sky-400 hover:text-sky-500 '
+        + 'transition-colors flex items-center justify-center select-none';
+    b.style.touchAction = 'none';
+    b.title = title || (dir < 0 ? 'Step back' : 'Step forward');
+    b.setAttribute('aria-label', b.title);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', dir < 0 ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6');
+    svg.appendChild(path);
+    b.appendChild(svg);
+    return b;
 }
 
 // One placement slider: X, Depth or Turn as a full-width track - modern,
@@ -10159,123 +10128,7 @@ function createPanel(opts) {
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
 
-    // Active press-and-hold loops, so a rebuild can never leave one running.
-    const holds = new Set();
-    function cancelHolds() {
-        for (const stop of [...holds]) stop();
-        holds.clear();
-    }
-
-    // One arrow that steps once on touch-down, then - after a short pause -
-    // repeats with an accelerating cadence. A tap is the slow, precise step;
-    // holding is the fast traverse. Every live path stops on release, leave,
-    // cancel or a panel rebuild.
-    function attachHold(btn, apply) {
-        let startTimer = 0;
-        let repeatTimer = 0;
-        let stopped = true;
-        const stop = () => {
-            stopped = true;
-            clearTimeout(startTimer);
-            clearTimeout(repeatTimer);
-            startTimer = repeatTimer = 0;
-            holds.delete(stop);
-        };
-        const beginRepeat = () => {
-            let gap = 120;
-            const tick = () => {
-                if (stopped) return;
-                apply();
-                gap = Math.max(40, gap - 8);
-                repeatTimer = setTimeout(tick, gap);
-            };
-            tick();
-        };
-        btn.addEventListener('pointerdown', e => {
-            if (e.button !== undefined && e.button !== 0) return;
-            e.preventDefault();
-            try { btn.setPointerCapture(e.pointerId); } catch (err) { /* optional */ }
-            stopped = false;
-            holds.add(stop);
-            apply();
-            startTimer = setTimeout(beginRepeat, 300);
-        });
-        for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-            btn.addEventListener(ev, stop);
-        }
-        // Keyboard activation does not produce a pointerdown - one step.
-        btn.addEventListener('click', e => {
-            if (e.detail === 0) apply();
-        });
-        btn.addEventListener('contextmenu', e => e.preventDefault());
-        return stop;
-    }
-
-    // A small chevron button (dir -1 left / +1 right) without its own action.
-    function stepArrowButton(dir, title) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'w-6 h-6 rounded border border-gray-300 dark:border-zinc-600 '
-            + 'text-gray-500 dark:text-zinc-400 hover:border-sky-400 hover:text-sky-500 '
-            + 'transition-colors flex items-center justify-center select-none';
-        b.style.touchAction = 'none';
-        b.title = title || (dir < 0 ? 'Step back' : 'Step forward');
-        b.setAttribute('aria-label', b.title);
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('width', '14');
-        svg.setAttribute('height', '14');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2.2');
-        svg.setAttribute('stroke-linecap', 'round');
-        svg.setAttribute('stroke-linejoin', 'round');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', dir < 0 ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6');
-        svg.appendChild(path);
-        b.appendChild(svg);
-        return b;
-    }
-
     const TURN_STEP = 15; // degrees per Turn arrow step - one slider position
-
-    // The Objects tray's compact On-stage row control: a number box flanked
-    // by the same hold-to-traverse arrows as the placement sliders. Tap = one
-    // step; hold = fast traverse. The caller persists each value.
-    function stageStepBar({ label, value, min, max, step, onChange }) {
-        const w = document.createElement('div');
-        w.className = 'objpick-stage-num';
-        const sim = document.createElement('span');
-        sim.textContent = label;
-        const back = stepArrowButton(-1, `Step ${label} back`);
-        const fwd = stepArrowButton(1, `Step ${label} forward`);
-        const inp = document.createElement('input');
-        inp.type = 'number';
-        inp.step = String(step);
-        if (min != null) inp.min = String(min);
-        if (max != null) inp.max = String(max);
-        inp.setAttribute('aria-label', label);
-        const round = v => Math.round(v * 1e6) / 1e6;
-        const commit = v => {
-            let n = Number(v);
-            if (!Number.isFinite(n)) return;
-            if (min != null) n = Math.max(Number(min), n);
-            if (max != null) n = Math.min(Number(max), n);
-            n = round(n);
-            inp.value = String(n);
-            onChange(n);
-        };
-        inp.value = String(round(Number(value) || 0));
-        inp.addEventListener('change', () => commit(inp.value));
-        const nudge = dir => {
-            const cur = Number(inp.value);
-            commit((Number.isFinite(cur) ? cur : 0) + dir * step);
-        };
-        attachHold(back, () => nudge(-1));
-        attachHold(fwd, () => nudge(1));
-        w.append(sim, back, inp, fwd);
-        return w;
-    }
 
     // Placement controls for one mounted flower panel - X and Depth sliders,
     // plus a Turn (rotate) control: a slider with two stepper arrows flanking
@@ -10353,15 +10206,20 @@ function createPanel(opts) {
         getCardsInput: objectCardsInput,
         onAction: handleObjectAction,
         preview: opts.previews,
-        getStageRows: () => (opts.getDecorStage ? opts.getDecorStage() : []),
-        onStageAction: (verb, row, patch) => {
-            if (verb === 'remove' && opts.onDecorRemove) opts.onDecorRemove(row.key);
-            else if (verb === 'place' && opts.onDecorPlace) opts.onDecorPlace(row.key, patch);
-        },
-        stepBar: stageStepBar,
         live
     });
     TOOLS.splice(TOOLS.findIndex(t => t.id === 'sets') + 1, 0, objectChip.chip);
+
+    // On Stage is its own shelf chip (not a modal): the 3D viewer stays live
+    // above the controls while a placed object is moved. Objects gives it the
+    // inventory; this chip owns what is already on the floor.
+    const stageChip = {
+        id: STAGE_CHIP_ID,
+        label: 'On Stage',
+        icon: icon('M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9'),
+        show: () => true
+    };
+    TOOLS.splice(TOOLS.findIndex(t => t.id === OBJECT_CHIP_ID) + 1, 0, stageChip);
 
     let liveTheme = themeIsDark;
     let lastSignature = null;
@@ -10881,6 +10739,68 @@ function createPanel(opts) {
             + ' 3.6 3.6-1.62 3.6-3.6 3.6z');
         svg.appendChild(path);
         return svg;
+    }
+
+    // On Stage: the placed objects - one card per instance, with the same
+    // X / Height / Depth / Turn sliders as the other placement blocks. It is
+    // a shelf chip, not a modal, so the viewer keeps rendering above it.
+    function stageBlock() {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-2';
+        wrap.appendChild(heading('On Stage'));
+        const rows = opts.getDecorStage ? (opts.getDecorStage() || []) : [];
+        if (!rows.length) {
+            wrap.appendChild(emptyNote(
+                'Nothing on stage yet - add a sheet from Objects, then place it here.'));
+            return wrap;
+        }
+        for (const row of rows) {
+            const card = document.createElement('div');
+            card.className = 'mb-1.5 rounded-lg border border-gray-200 '
+                + 'dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/60 p-2';
+            const head = document.createElement('div');
+            head.className = 'flex items-center justify-between gap-2';
+            const name = document.createElement('strong');
+            name.className = 'text-xs font-semibold text-gray-700 '
+                + 'dark:text-zinc-200 truncate';
+            name.textContent = row.name || row.key;
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'shrink-0 h-7 px-2 rounded-md text-[11px] font-semibold '
+                + 'border border-red-300 text-red-600 dark:text-red-400 '
+                + 'dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/40 '
+                + 'transition-colors';
+            rm.textContent = 'Remove';
+            rm.title = 'Take this off the stage';
+            rm.addEventListener('click', () => {
+                if (opts.onDecorRemove) opts.onDecorRemove(row.key);
+                // The block itself is the removed card's owner, so force a
+                // repaint once the scene has dropped it.
+                renderIfChanged(true);
+            });
+            live.buttons.push(rm);
+            head.append(name, rm);
+            card.appendChild(head);
+            for (const [label, prop, min, max, step, unit] of [
+                ['X', 'x', -100, 100, 0.25, ' ft'],
+                ['Height', 'y', -5, 40, 0.25, ' ft'],
+                ['Depth', 'z', -100, 100, 0.25, ' ft'],
+                ['Turn', 'ry', -180, 180, 1, '\u00b0']
+            ]) {
+                const built = placeRangeBlock(`${row.key}-pos-${prop}`, label, prop,
+                    Number(row[prop]) || 0, min, max, step, unit, true);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    built.value.textContent = fmt(v, unit);
+                    if (opts.onDecorPlace) opts.onDecorPlace(row.key, { [prop]: v });
+                });
+                live.selects.push(built.input);
+                card.appendChild(built.wrap);
+            }
+            wrap.appendChild(card);
+        }
+        return wrap;
     }
 
     // This frame's own pillars, as one group that only exists while the
@@ -12278,6 +12198,9 @@ function createPanel(opts) {
             }
         } else if (activeTool === FLOWER_CHIP_ID) {
             host.appendChild(flowerChip.block());
+            anything = true;
+        } else if (activeTool === STAGE_CHIP_ID) {
+            host.appendChild(stageBlock());
             anything = true;
         } else {
             // Frame groups get sections; pillars ride inside their frame's
@@ -14091,8 +14014,8 @@ function decorPlain() {
     }));
 }
 
-// The tray's view of the same list: `key` addresses an instance in the
-// On-stage strip, `assetId` feeds the cards' placed-count badges.
+// The On Stage chip's view of the same list: `key` addresses an instance,
+// `assetId` feeds the Objects cards' placed-count badges.
 function decorStagePlain() {
     return decorObjects.map(d => {
         const asset = decorAsset(d.assetId);
@@ -14125,8 +14048,8 @@ function removeDecor(id) {
     scheduleSave();
 }
 
-// Live placement from the On-stage strip - move/turn one instance and
-// persist, without rebuilding the tray (the input keeps its own value).
+// Live placement from the On Stage chip - move/turn one instance and
+// persist without rebuilding the shelf (the slider keeps its own value).
 function setDecorPlace(id, patch) {
     const d = decorObjects.find(x => x.id === id);
     if (!d) return;

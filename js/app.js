@@ -1268,8 +1268,8 @@ function decorPlain() {
     }));
 }
 
-// The tray's view of the same list: `key` addresses an instance in the
-// On-stage strip, `assetId` feeds the cards' placed-count badges.
+// The On Stage chip's view of the same list: `key` addresses an instance,
+// `assetId` feeds the Objects cards' placed-count badges.
 function decorStagePlain() {
     return decorObjects.map(d => {
         const asset = decorAsset(d.assetId);
@@ -1302,8 +1302,8 @@ function removeDecor(id) {
     scheduleSave();
 }
 
-// Live placement from the On-stage strip - move/turn one instance and
-// persist, without rebuilding the tray (the input keeps its own value).
+// Live placement from the On Stage chip - move/turn one instance and
+// persist without rebuilding the shelf (the slider keeps its own value).
 function setDecorPlace(id, patch) {
     const d = decorObjects.find(x => x.id === id);
     if (!d) return;

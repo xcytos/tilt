@@ -762,14 +762,18 @@ check('both placement blocks offer a reset', (() => {
     && /offset: \{ x: 0, y: 0, z: 0, ry: 0 \} \}\);/.test(panel);
 })());
 check('placement offers X / Height / Depth / Turn with hold-to-traverse arrows', (() => {
-  return /function attachHold\(/.test(panel)
+  const stepAt = panel.indexOf('function stepArrowButton');
+  const holdAt = panel.indexOf('function attachHold');
+  const sliderAt = panel.indexOf('function placeRangeBlock');
+  return holdAt > -1 && /^function attachHold/m.test(panel)
+    && stepAt > -1 && /^function stepArrowButton/m.test(panel)
+    && sliderAt > stepAt && sliderAt > holdAt
+    && !/^    function stepArrowButton/m.test(panel)
     && /setTimeout\(beginRepeat, 300\)/.test(panel)
     && /pointerdown/.test(panel) && /pointerup/.test(panel)
-    && /function stageStepBar\(/.test(panel)
+    && /HOLDS\.add\(stop\)/.test(panel) && /function cancelHolds\(/.test(panel)
     && /'Height', 'y'/.test(panel)
-    && /'X', 'x'[^]*'Height', 'y'[^]*'Depth', 'z'[^]*'Turn', 'ry'/.test(panel)
-    && /stepBar: stageStepBar/.test(panel)
-    && /bar\('Y', 'y'/.test(read('js/objectchip.js'));
+    && /'X', 'x'[^]*'Height', 'y'[^]*'Depth', 'z'[^]*'Turn', 'ry'/.test(panel);
 })());
 check("a pillar's look hides behind one gear inside Pillars",
   /function gearIcon\(/.test(panel) && /'Look'/.test(panel)

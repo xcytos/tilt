@@ -493,14 +493,20 @@ check('the editor free-places decor like flower panels',
   && /onDecorPlace:/.test(appSrc)
   && /d\.model\.restY/.test(appSrc) && /DECOR_FLOAT_Y/.test(appSrc)
   && /key\.startsWith\('decor:'\)/.test(appSrc));
-check('the tray cards, actions and stage controls are wired',
+check('the tray cards and actions are wired',
   /case 'decor':/.test(panelSrc)
   && /opts\.onDecorAdd\(action\.assetId\)/.test(panelSrc)
   && /DECOR_ASSETS\.filter\(a => a\.category !== 'pillars'\)\.map/.test(panelSrc)
-  && /verb === 'place' && opts\.onDecorPlace/.test(panelSrc)
-  && /onStageAction\('place', row/.test(objchipSrc)
-  && /ctx\.stepBar/.test(objchipSrc) && /bar\('Y', 'y'/.test(objchipSrc)
-  && /type = 'number'/.test(objchipSrc));
+  && !/objpick-stage/.test(objchipSrc)
+  && !/getStageRows|onStageAction|stepBar/.test(objchipSrc));
+check('On Stage is its own shelf chip with the viewer still live',
+  /STAGE_CHIP_ID = 'stage'/.test(panelSrc)
+  && /id: STAGE_CHIP_ID/.test(panelSrc)
+  && /activeTool === STAGE_CHIP_ID/.test(panelSrc)
+  && /function stageBlock\(/.test(panelSrc)
+  && /opts\.onDecorPlace\(row\.key, \{ \[prop\]: v \}\)/.test(panelSrc)
+  && /opts\.onDecorRemove\(row\.key\)/.test(panelSrc)
+  && /t\.id === OBJECT_CHIP_ID\) \+ 1, 0, stageChip/.test(panelSrc));
 check('documents round-trip through a validating cleaner',
   /function cleanDecor/.test(projectSrc)
   && /decor: cleanDecor\(data\.decor\)/.test(projectSrc)
