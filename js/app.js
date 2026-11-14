@@ -383,7 +383,7 @@ function pillarTypeMeta(id) {
 
 function defaultPillarSlot() {
     return {
-        count: 0, place: 'outer', gap: 3,
+        count: 0, place: 'outer', gap: 3, show: true,
         offset: { x: 0, y: 0, z: 0, ry: 0 }
     };
 }
@@ -404,6 +404,7 @@ function normalisePillarSlot(v) {
     slot.place = ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer';
     const g = Number(v.gap);
     slot.gap = Number.isFinite(g) ? Math.max(-5, Math.min(40, g)) : 3;
+    slot.show = v.show !== false;
     const off = v.offset && typeof v.offset === 'object' && !Array.isArray(v.offset)
         ? v.offset : {};
     for (const [axis, lo, hi] of [['x', -200, 200], ['y', -5, 60],
@@ -883,6 +884,12 @@ function refreshPillarPlaces() {
                 ry: off.ry || 0
             };
         });
+        // Show/hide is per type: all instances of this attached set follow
+        // the one checkbox, without being unmounted.
+        const visible = slot.show !== false;
+        for (const m of models) {
+            if (m.object3D) m.object3D.visible = visible;
+        }
         const prev = savedPlaces.get(key);
         if (!prev || prev.length !== arr.length
             || arr.some((p, i) => !prev[i] || prev[i].x !== p.x
@@ -1228,6 +1235,8 @@ function placeDecor(d) {
     d.model.object3D.position.y = (d.model.restY || 0) + (d.y || 0);
     d.model.object3D.position.z = d.z;
     d.model.object3D.rotation.y = (d.ry || 0) * Math.PI / 180;
+    // Hide/show without unmounting, exactly like a flower panel.
+    d.model.object3D.visible = d.enabled !== false;
 }
 
 // entry: { id?, assetId, x?, z?, ry? } -> the live instance, or null for
@@ -1246,7 +1255,8 @@ function mountDecor(entry) {
         y: Number.isFinite(Number(entry && entry.y))
             ? Number(entry.y) : decorFloatY(asset.id),
         z: Number.isFinite(Number(entry && entry.z)) ? Number(entry.z) : 0,
-        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0
+        ry: Number.isFinite(Number(entry && entry.ry)) ? Number(entry.ry) : 0,
+        enabled: !(entry && entry.enabled === false)
     };
     decorObjects.push(d);
     placeDecor(d);
@@ -1264,7 +1274,8 @@ function unmountDecor(id) {
 // The document's snapshot: identity + placement only.
 function decorPlain() {
     return decorObjects.map(d => ({
-        id: d.id, assetId: d.assetId, x: d.x, y: d.y, z: d.z, ry: d.ry
+        id: d.id, assetId: d.assetId, x: d.x, y: d.y, z: d.z, ry: d.ry,
+        enabled: d.enabled !== false
     }));
 }
 
@@ -1276,7 +1287,8 @@ function decorStagePlain() {
         return {
             key: d.id, assetId: d.assetId,
             name: (asset && asset.name) || d.assetId,
-            x: d.x, y: d.y, z: d.z, ry: d.ry
+            x: d.x, y: d.y, z: d.z, ry: d.ry,
+            enabled: d.enabled !== false
         };
     });
 }
@@ -1311,6 +1323,7 @@ function setDecorPlace(id, patch) {
     if (Number.isFinite(Number(patch.y))) d.y = Number(patch.y);
     if (Number.isFinite(Number(patch.z))) d.z = Number(patch.z);
     if (Number.isFinite(Number(patch.ry))) d.ry = Number(patch.ry);
+    if (typeof patch.enabled === 'boolean') d.enabled = patch.enabled;
     placeDecor(d);
     scheduleSave();
 }
@@ -1680,6 +1693,7 @@ function setFramePillars(id, patch) {
             if (v !== null) slot.offset[axis] = v;
         }
     }
+    if (patch.show !== undefined) slot.show = patch.show !== false;
     if (slot.count === 1) slot.place = 'centre';
     if (slot.count === 2 && slot.place === 'centre') slot.place = 'outer';
 

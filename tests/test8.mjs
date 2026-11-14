@@ -147,7 +147,8 @@ check('unified pillar types round-trip, attached to the frame', (() => {
         selected: 'rail_large',
         types: {
           classical: { count: 1, place: 'centre', gap: 3, offset: { x: 0, y: 0, z: 0, ry: 0 } },
-          rail_large: { count: 2, place: 'outer', gap: 6, offset: { x: 1, y: 2.5, z: -1, ry: 10 } },
+          rail_large: { count: 2, place: 'outer', gap: 6, show: false,
+            offset: { x: 1, y: 2.5, z: -1, ry: 10 } },
           rail_small: { count: 0 }
         }
       }
@@ -155,9 +156,9 @@ check('unified pillar types round-trip, attached to the frame', (() => {
   }));
   const p = doc.pillars.o2tilt;
   return p.selected === 'rail_large'
-    && p.types.classical.count === 1
+    && p.types.classical.count === 1 && p.types.classical.show === true
     && p.types.rail_large.count === 2 && p.types.rail_large.gap === 6
-    && p.types.rail_large.offset.y === 2.5
+    && p.types.rail_large.offset.y === 2.5 && p.types.rail_large.show === false
     && p.types.rail_small.count === 0;
 })());
 check('old documents with a global pillar count pass through',
@@ -222,7 +223,8 @@ console.log('\nproject file: mounted flower panels');
   check('decor instances round-trip with asset id and placement', (() => {
     const doc = proj.parseProject(proj.projectToJSON({
       decor: [
-        { id: 'decor-1', assetId: 'pillar_rail_large', x: 5, y: 2, z: -3, ry: 45 },
+        { id: 'decor-1', assetId: 'pillar_rail_large', x: 5, y: 2, z: -3, ry: 45,
+          enabled: false },
         { id: 'decor-2', assetId: 'decorative_arch_panel_sheet', x: -8, z: 2, ry: 0 }
       ]
     }));
@@ -230,6 +232,7 @@ console.log('\nproject file: mounted flower panels');
       && doc.decor[0].assetId === 'pillar_rail_large'
       && doc.decor[0].x === 5 && doc.decor[0].y === 2
       && doc.decor[0].z === -3 && doc.decor[0].ry === 45
+      && doc.decor[0].enabled === false && doc.decor[1].enabled === true
       && doc.decor[1].assetId === 'decorative_arch_panel_sheet';
   })());
   check('the arch sheet floats above the floor by default', (() => {
@@ -742,7 +745,11 @@ check("the pillar options live inside the frame's own Pillars group",
   /function pillarsBlock\(/.test(panel) && /function setFramePillars\(/.test(app)
   && /framePillars: framePillarsPlain\(\)/.test(app)
   && /param-pillars-types/.test(panel)
-  && /pillarTypes/.test(panel) && /PILLAR_TYPES/.test(app));
+  && /pillarTypes/.test(panel) && /PILLAR_TYPES/.test(app)
+  && /show: showInput\.checked/.test(panel)
+  && /patch\.show !== undefined/.test(app)
+  && /m\.object3D\.visible = visible/.test(app)
+  && /slot\.show = v\.show !== false/.test(read('js/project.js')));
 check('pillars take free placement on top of their anchor', (() => {
   return /spot\.x \+ sx \+ \(off\.x \|\| 0\)|offset\.x \+ \(off\.x \|\| 0\)/.test(app)
     && /placeRangeBlock\(`pillar-pos-\$\{prop\}`/.test(panel)

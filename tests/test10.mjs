@@ -506,6 +506,8 @@ check('On Stage is its own shelf chip with the viewer still live',
   && /function stageBlock\(/.test(panelSrc)
   && /opts\.onDecorPlace\(row\.key, \{ \[prop\]: v \}\)/.test(panelSrc)
   && /opts\.onDecorRemove\(row\.key\)/.test(panelSrc)
+  && /param-decor-show-/.test(panelSrc)
+  && /enabled: showInput\.checked/.test(panelSrc)
   && /t\.id === OBJECT_CHIP_ID\) \+ 1, 0, stageChip/.test(panelSrc));
 check('documents round-trip through a validating cleaner',
   /function cleanDecor/.test(projectSrc)

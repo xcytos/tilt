@@ -1235,6 +1235,29 @@ export function createPanel(opts) {
             live.buttons.push(rm);
             head.append(name, rm);
             card.appendChild(head);
+
+            // Show/hide without taking it off the stage - same idea as the
+            // flower panel's Enabled checkbox.
+            const showRow = document.createElement('label');
+            showRow.className = 'flex items-center gap-2 text-[11px] cursor-pointer '
+                + 'mb-1 hover:text-sky-600 transition-colors';
+            const showInput = document.createElement('input');
+            showInput.type = 'checkbox';
+            showInput.id = `param-decor-show-${row.key}`;
+            showInput.className = CHECK_CLS;
+            showInput.checked = row.enabled !== false;
+            showInput.addEventListener('change', () => {
+                if (opts.onDecorPlace) {
+                    opts.onDecorPlace(row.key, { enabled: showInput.checked });
+                }
+            });
+            live.checks.push(showInput);
+            const showLabel = document.createElement('span');
+            showLabel.className = 'font-medium tracking-wide';
+            showLabel.textContent = 'Show';
+            showRow.append(showInput, showLabel);
+            card.appendChild(showRow);
+
             for (const [label, prop, min, max, step, unit] of [
                 ['X', 'x', -100, 100, 0.25, ' ft'],
                 ['Height', 'y', -5, 40, 0.25, ' ft'],
@@ -1369,6 +1392,28 @@ export function createPanel(opts) {
                 o => o.id, o => o.name);
             placeWrap.appendChild(placeRow);
             box.appendChild(placeWrap);
+        }
+
+        if (slot.count > 0) {
+            // Hide/show this attached set (classical or rail) without
+            // unmounting it - the same checkbox the flower panel has.
+            const showRow = document.createElement('label');
+            showRow.className = 'mt-2 flex items-center gap-2 text-[11px] '
+                + 'cursor-pointer hover:text-sky-600 transition-colors';
+            const showInput = document.createElement('input');
+            showInput.type = 'checkbox';
+            showInput.className = CHECK_CLS;
+            showInput.checked = slot.show !== false;
+            showInput.addEventListener('change', () => {
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: selected, show: showInput.checked });
+            });
+            live.checks.push(showInput);
+            const showLabel = document.createElement('span');
+            showLabel.className = 'font-medium tracking-wide';
+            showLabel.textContent = 'Show';
+            showRow.append(showInput, showLabel);
+            box.appendChild(showRow);
         }
 
         // The classical pillar's look, from the classical group beside this

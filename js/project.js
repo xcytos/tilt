@@ -119,7 +119,7 @@ const DOC_DEFAULT_PILLAR_TYPE = 'classical';
 
 function cleanPillarSlot(v) {
     const slot = {
-        count: 0, place: 'outer', gap: 3,
+        count: 0, place: 'outer', gap: 3, show: true,
         offset: { x: 0, y: 0, z: 0, ry: 0 }
     };
     if (!v || typeof v !== 'object' || Array.isArray(v)) return slot;
@@ -128,6 +128,7 @@ function cleanPillarSlot(v) {
     slot.count = Math.round(clampN(v.count, 0, 2, 0));
     slot.place = ['centre', 'inner', 'outer'].includes(v.place) ? v.place : 'outer';
     slot.gap = clampN(v.gap, -5, 40, 3);
+    slot.show = v.show !== false;
     slot.offset = {
         x: clampN(rawOff.x, -200, 200, 0),
         y: clampN(rawOff.y, -5, 60, 0),
@@ -373,7 +374,8 @@ function cleanDecor(raw) {
             y: clampN(e.y, -5, 60,
                 e.assetId === 'decorative_arch_panel_sheet' ? 1 : 0),
             z: clampN(e.z, -300, 300, 0),
-            ry: clampN(e.ry, -360, 360, 0)
+            ry: clampN(e.ry, -360, 360, 0),
+            enabled: e.enabled !== false
         });
     }
     return out;
