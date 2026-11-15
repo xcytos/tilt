@@ -33,6 +33,9 @@
 
 * { box-sizing: border-box; }
 
+/* Author display rules beat the UA sheet; make hidden authoritative. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -56,6 +59,7 @@ button { font: inherit; color: inherit; }
     top: 0;
     z-index: 20;
     padding-top: env(safe-area-inset-top);
+    background: var(--bg);
     background: color-mix(in srgb, var(--bg) 82%, transparent);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -164,6 +168,7 @@ button { font: inherit; color: inherit; }
     z-index: 15;
     margin: 1rem -1rem 0;
     padding: 0.7rem 1rem 0.65rem;
+    background: var(--bg);
     background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -241,7 +246,7 @@ button { font: inherit; color: inherit; }
     align-items: center;
     gap: 6px;
     padding: 0.35rem 0.7rem;
-    min-height: 34px;
+    min-height: 40px;
     border-radius: 999px;
     border: 1px solid var(--line);
     background: var(--surface);
@@ -294,7 +299,7 @@ button { font: inherit; color: inherit; }
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
-    min-height: 34px;
+    min-height: 40px;
     padding: 0 0.4rem;
 }
 
@@ -327,6 +332,7 @@ button { font: inherit; color: inherit; }
 }
 
 .card:hover {
+    border-color: var(--line);
     border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
     box-shadow: var(--shadow);
     transform: translateY(-2px);
@@ -337,6 +343,7 @@ button { font: inherit; color: inherit; }
 .thumb {
     position: relative;
     aspect-ratio: 4 / 3;
+    background: var(--bg-2);
     background:
         radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent-2) 8%, transparent), transparent 60%),
         linear-gradient(180deg, var(--bg-2), var(--surface));
@@ -412,11 +419,13 @@ button { font: inherit; color: inherit; }
 
 .pill.type {
     color: var(--accent);
+    border-color: var(--line);
     border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 
 .pill.warn {
     color: #b45309;
+    border-color: var(--line);
     border-color: color-mix(in srgb, #b45309 45%, var(--line));
 }
 
@@ -471,6 +480,7 @@ button { font: inherit; color: inherit; }
 .sheet-hero {
     position: relative;
     aspect-ratio: 16 / 10;
+    background: var(--bg-2);
     background:
         radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 60%),
         linear-gradient(180deg, var(--bg-2), var(--surface));
@@ -510,6 +520,7 @@ button { font: inherit; color: inherit; }
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
+    background: var(--surface);
     background: color-mix(in srgb, var(--surface) 82%, transparent);
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -536,6 +547,7 @@ button { font: inherit; color: inherit; }
     height: var(--tap);
     border: 0;
     border-radius: 12px;
+    background: var(--surface);
     background: color-mix(in srgb, var(--surface) 82%, transparent);
     color: var(--text);
     cursor: pointer;
@@ -654,7 +666,7 @@ button { font: inherit; color: inherit; }
     /* 16px stops iOS from zooming the page when the field is focused. */
     .search input { font-size: 16px; padding: 0.4rem 0; }
     .chip {
-        min-height: 32px;
+        min-height: 40px;
         padding: 0 0.65em;
         font-size: 11.5px;
         white-space: nowrap;
@@ -662,10 +674,10 @@ button { font: inherit; color: inherit; }
     }
     .sort { flex: none; margin-left: 0; }
     .sort > span { display: none; }
-    .sort select { min-height: 32px; font-size: 12px; padding: 0 0.3rem; }
+    .sort select { min-height: 40px; font-size: 12px; padding: 0 0.3rem; }
     .type-pick > span { display: none; }
     .type-pick select {
-        min-height: 32px;
+        min-height: 40px;
         font-size: 12px;
         padding: 0 0.3rem;
         max-width: 44vw;
@@ -696,7 +708,8 @@ button { font: inherit; color: inherit; }
 }
 
 @media (pointer: coarse) {
-    .chip { min-height: 38px; }
+    .chip { min-height: 44px; }
+    .sort select, .type-pick select { min-height: 44px; }
     .card:hover { transform: none; box-shadow: none; }
 }
 

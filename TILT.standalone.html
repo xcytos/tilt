@@ -338,7 +338,7 @@
             --ui-muted: #64748b;
             --ui-line: rgba(15, 23, 42, 0.10);
             --ui-line-strong: rgba(15, 23, 42, 0.18);
-            --ui-accent: #0284c7;
+            --ui-accent: #0369a1;
             --ui-accent-ink: #0369a1;
             --ui-accent-soft: rgba(2, 132, 199, 0.10);
             --ui-danger: #dc2626;
@@ -395,6 +395,7 @@
             display: flex; align-items: center; justify-content: space-between;
             gap: 12px; min-height: var(--ui-tap);
         }
+        label.ui-row { cursor: pointer; }
         .ui-row-label {
             font-size: 13px; font-weight: 600; color: var(--ui-ink);
         }
@@ -439,7 +440,8 @@
            guess between two grey outlines. */
         .ui-seg { display: flex; flex-wrap: wrap; gap: 6px; }
         .ui-seg-btn {
-            flex: 1 1 auto; min-width: max-content; min-height: var(--ui-tap);
+            flex: 1 1 auto; min-width: auto; min-width: max-content;
+            min-height: var(--ui-tap);
             padding: 0 14px;
             border-radius: 999px; border: 1px solid var(--ui-line-strong);
             background: transparent; color: var(--ui-muted);
@@ -547,7 +549,9 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .ui-panel, .panel-body, #boot, #sheet, .sheet-card {
+            .ui-panel, .panel-body, #boot, #sheet, .sheet-card, #shelf,
+            .ui-switch-track, .ui-switch-track::after, .ui-seg-btn,
+            .ui-disclosure > summary::after {
                 transition: none !important;
             }
         }
@@ -10132,8 +10136,8 @@ function createPanel(opts) {
         + 'px-3 min-w-[60px] h-12 rounded-xl border text-[10px] font-semibold '
         + 'leading-none snap-start shrink-0 transition-colors cursor-pointer '
         + 'select-none';
-    const CHIP_ON = 'border-sky-600 bg-sky-600 text-white shadow-sm '
-        + 'dark:border-sky-500 dark:bg-sky-500 dark:text-white';
+    const CHIP_ON = 'border-sky-700 bg-sky-700 text-white shadow-sm '
+        + 'dark:border-sky-400 dark:bg-sky-400 dark:text-sky-950';
     const CHIP_OFF = 'border-transparent bg-transparent text-gray-500 '
         + 'hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10';
     const icon = paths => {

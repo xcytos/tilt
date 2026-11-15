@@ -368,8 +368,8 @@ export function createPanel(opts) {
         + 'px-3 min-w-[60px] h-12 rounded-xl border text-[10px] font-semibold '
         + 'leading-none snap-start shrink-0 transition-colors cursor-pointer '
         + 'select-none';
-    const CHIP_ON = 'border-sky-600 bg-sky-600 text-white shadow-sm '
-        + 'dark:border-sky-500 dark:bg-sky-500 dark:text-white';
+    const CHIP_ON = 'border-sky-700 bg-sky-700 text-white shadow-sm '
+        + 'dark:border-sky-400 dark:bg-sky-400 dark:text-sky-950';
     const CHIP_OFF = 'border-transparent bg-transparent text-gray-500 '
         + 'hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10';
     const icon = paths => {
