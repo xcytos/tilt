@@ -55,8 +55,10 @@
         #shelf-head {
             flex: none;
             display: flex; align-items: center; gap: 0.25rem;
-            padding: 0.2rem 0.4rem 0.25rem 0.85rem;
+            padding: 0.25rem 0.4rem 0.4rem 0.9rem;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
         }
+        .dark #shelf-head { border-bottom-color: rgba(255, 255, 255, 0.10); }
         #shelf-head > div { flex: 1 1 auto; min-width: 0; }
         #model-name {
             margin: 0; font-size: 14px; font-weight: 700; line-height: 1.2;
@@ -69,26 +71,31 @@
         }
         .dark #model-sub { color: #a1a1aa; }
         #shelf-body {
-            padding: 0.35rem 0.75rem 0.85rem;
-            max-height: min(46vh, 430px);
+            padding: 0.5rem 0.85rem 0.9rem;
+            max-height: min(50vh, 460px);
             overflow-y: auto; overflow-x: hidden;
             overscroll-behavior: contain; scrollbar-width: thin;
         }
         #toolbar {
             pointer-events: auto;
             flex: none;
-            display: flex; gap: 0.3rem; align-items: stretch;
+            display: flex; gap: 0.35rem; align-items: stretch;
             width: 100%; max-width: 480px; margin: 0 auto;
-            padding: 0.35rem 0.45rem;
+            padding: 0.4rem 0.5rem;
             overflow-x: auto; scroll-snap-type: x proximity;
             -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
             background: rgba(255,255,255,0.92);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-top: 1px solid rgba(15,23,42,0.08);
         }
+        #toolbar::-webkit-scrollbar { display: none; }
         .dark #toolbar {
             background: rgba(24,24,27,0.92);
             border-top-color: rgba(255,255,255,0.10);
+        }
+        @media (min-width: 720px) {
+            #shelf, #toolbar { max-width: 560px; }
         }
 
         /* ---- project bar: back, name, save status, overflow menu ---- */
@@ -321,6 +328,190 @@
         /* Rename opened from the raised bar must still stack over the tray. */
         body.objpick-open #sheet { z-index: 46; }
 
+        /* ---- design tokens: one neutral surface, one accent, one rhythm.
+               Every control in the shelf is built from these, so the panel
+               reads as one product instead of a pile of ad-hoc inputs. ---- */
+        :root {
+            --ui-surface: #ffffff;
+            --ui-surface-2: #f8fafc;
+            --ui-ink: #0f172a;
+            --ui-muted: #64748b;
+            --ui-line: rgba(15, 23, 42, 0.10);
+            --ui-line-strong: rgba(15, 23, 42, 0.18);
+            --ui-accent: #0284c7;
+            --ui-accent-ink: #0369a1;
+            --ui-accent-soft: rgba(2, 132, 199, 0.10);
+            --ui-danger: #dc2626;
+            --ui-radius: 14px;
+            --ui-radius-sm: 10px;
+            --ui-tap: 44px;
+        }
+        .dark {
+            --ui-surface: #1f1f23;
+            --ui-surface-2: #27272a;
+            --ui-ink: #f4f4f5;
+            --ui-muted: #a1a1aa;
+            --ui-line: rgba(255, 255, 255, 0.12);
+            --ui-line-strong: rgba(255, 255, 255, 0.22);
+            --ui-accent: #38bdf8;
+            --ui-accent-ink: #7dd3fc;
+            --ui-accent-soft: rgba(56, 189, 248, 0.14);
+            --ui-danger: #f87171;
+        }
+
+        .ui-card {
+            background: var(--ui-surface);
+            border: 1px solid var(--ui-line);
+            border-radius: var(--ui-radius);
+            padding: 10px 12px;
+            margin: 0 0 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .dark .ui-card { box-shadow: none; }
+        .ui-card-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 10px; margin-bottom: 8px;
+        }
+        .ui-card-titles { min-width: 0; }
+        .ui-kicker {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--ui-muted);
+        }
+        .ui-card-title {
+            font-size: 14px; font-weight: 650; line-height: 1.25;
+            color: var(--ui-ink);
+        }
+        .ui-desc {
+            margin: 3px 0 0; font-size: 11.5px; line-height: 1.45;
+            color: var(--ui-muted);
+        }
+        .ui-badge {
+            flex: none; padding: 3px 8px; border-radius: 999px;
+            background: var(--ui-accent-soft); color: var(--ui-accent-ink);
+            font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+        }
+        .dark .ui-badge { color: var(--ui-accent); }
+        .ui-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; min-height: var(--ui-tap);
+        }
+        .ui-row-label {
+            font-size: 13px; font-weight: 600; color: var(--ui-ink);
+        }
+        .ui-row-hint {
+            display: block; margin-top: 1px; font-size: 11px;
+            font-weight: 400; color: var(--ui-muted);
+        }
+        .ui-divider {
+            height: 1px; margin: 8px -12px; background: var(--ui-line);
+        }
+        .ui-stack { display: flex; flex-direction: column; }
+
+        /* A switch, not a bare checkbox: the whole row is the target. */
+        .ui-switch {
+            position: relative; flex: none; display: inline-block;
+            width: 46px; height: 28px;
+        }
+        .ui-switch input {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            margin: 0; opacity: 0; cursor: pointer; z-index: 1;
+        }
+        .ui-switch-track {
+            position: absolute; inset: 0; border-radius: 999px;
+            background: #cbd5e1; transition: background 0.18s ease;
+        }
+        .dark .ui-switch-track { background: #52525b; }
+        .ui-switch-track::after {
+            content: ''; position: absolute; top: 3px; left: 3px;
+            width: 22px; height: 22px; border-radius: 50%;
+            background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            transition: transform 0.18s ease;
+        }
+        .ui-switch input:checked + .ui-switch-track { background: var(--ui-accent); }
+        .ui-switch input:checked + .ui-switch-track::after {
+            transform: translateX(18px);
+        }
+        .ui-switch input:focus-visible + .ui-switch-track {
+            outline: 2px solid var(--ui-accent); outline-offset: 2px;
+        }
+
+        /* Segmented control: the active choice is a filled pill, never a
+           guess between two grey outlines. */
+        .ui-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ui-seg-btn {
+            flex: 1 1 auto; min-width: max-content; min-height: var(--ui-tap);
+            padding: 0 14px;
+            border-radius: 999px; border: 1px solid var(--ui-line-strong);
+            background: transparent; color: var(--ui-muted);
+            font: 600 12px/1 system-ui, sans-serif; cursor: pointer;
+            white-space: nowrap; transition: background 0.15s, color 0.15s,
+                border-color 0.15s, transform 0.1s;
+        }
+        .ui-seg-btn:active { transform: scale(0.98); }
+        .ui-seg-btn.is-on {
+            background: var(--ui-accent); border-color: var(--ui-accent);
+            color: #fff;
+        }
+        .dark .ui-seg-btn.is-on { color: #0b1020; }
+        .ui-seg-btn:disabled { opacity: 0.45; }
+
+        .ui-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            gap: 6px; min-height: var(--ui-tap); padding: 0 14px;
+            border-radius: var(--ui-radius-sm); border: 1px solid transparent;
+            font: 600 13px/1 system-ui, sans-serif; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .ui-btn-primary { background: var(--ui-accent); color: #fff; }
+        .dark .ui-btn-primary { color: #0b1020; }
+        .ui-btn-ghost {
+            background: transparent; border-color: var(--ui-line-strong);
+            color: var(--ui-muted);
+        }
+        .ui-btn-ghost:active { background: var(--ui-accent-soft); }
+        .ui-btn-danger {
+            background: transparent; border-color: rgba(220, 38, 38, 0.35);
+            color: var(--ui-danger);
+        }
+        .ui-btn-block { width: 100%; }
+        .ui-btn:disabled { opacity: 0.45; cursor: default; }
+
+        .ui-step {
+            flex: none; width: var(--ui-tap); height: var(--ui-tap);
+            border-radius: var(--ui-radius-sm);
+            border: 1px solid var(--ui-line-strong);
+            background: var(--ui-surface-2); color: var(--ui-ink);
+            font: 700 20px/1 system-ui, sans-serif; cursor: pointer;
+        }
+        .ui-step:active { background: var(--ui-accent-soft); }
+        .ui-step:disabled { opacity: 0.35; }
+        .ui-step-value {
+            min-width: 2.5rem; text-align: center;
+            font: 700 16px/1 system-ui, sans-serif;
+            font-variant-numeric: tabular-nums; color: var(--ui-ink);
+        }
+
+        /* Progressive disclosure for genuinely advanced controls only. */
+        .ui-disclosure {
+            margin-top: 8px; overflow: hidden; border-radius: var(--ui-radius-sm);
+            border: 1px solid var(--ui-line); background: var(--ui-surface-2);
+        }
+        .ui-disclosure > summary {
+            list-style: none; display: flex; align-items: center; gap: 8px;
+            min-height: var(--ui-tap); padding: 0 12px;
+            font-size: 12.5px; font-weight: 650; color: var(--ui-muted);
+            cursor: pointer; user-select: none;
+        }
+        .ui-disclosure > summary::-webkit-details-marker { display: none; }
+        .ui-disclosure > summary::after {
+            content: ''; margin-left: auto; width: 8px; height: 8px;
+            border-right: 2px solid currentColor;
+            border-bottom: 2px solid currentColor;
+            transform: rotate(45deg); transition: transform 0.18s;
+        }
+        .ui-disclosure[open] > summary::after { transform: rotate(-135deg); }
+        .ui-disclosure-body { padding: 2px 12px 10px; }
+
         /* ---- phones: the shelf is already the bottom dock; it just gets
                a little more room and tighter rhythm on small screens. ---- */
         @media (max-width: 640px) {
@@ -379,6 +570,31 @@
         input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
         
         .custom-checkbox { width: 1.25rem; height: 1.25rem; cursor: pointer; accent-color: #0ea5e9; }
+
+        /* Thumb-sized tracks: the whole 28px band is draggable, and the
+           readout above tells the finger exactly where it landed. */
+        #shelf-body input[type=range] { height: 28px; margin: 3px 0; }
+        #shelf-body input[type=range]::-webkit-slider-runnable-track {
+            height: 6px; border-radius: 999px; background: #cbd5e1;
+        }
+        .dark #shelf-body input[type=range]::-webkit-slider-runnable-track {
+            background: #52525b;
+        }
+        #shelf-body input[type=range]::-webkit-slider-thumb {
+            height: 22px; width: 22px; margin-top: -8px;
+            border: 2px solid #fff; background: #0284c7;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        }
+        .dark #shelf-body input[type=range]::-webkit-slider-thumb {
+            border-color: #18181b; background: #38bdf8;
+        }
+        #shelf-body input[type=range]::-moz-range-track {
+            height: 6px; border-radius: 999px; background: #cbd5e1;
+        }
+        #shelf-body input[type=range]::-moz-range-thumb {
+            height: 20px; width: 20px; border: 2px solid #fff; border-radius: 50%;
+            background: #0284c7; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        }
 
         #boot {
             position: fixed; inset: 0; z-index: 100;

@@ -112,7 +112,7 @@ function attachHold(btn, apply) {
 function stepArrowButton(dir, title) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'w-6 h-6 rounded border border-gray-300 dark:border-zinc-600 '
+    b.className = 'w-8 h-8 rounded-lg border border-gray-300 dark:border-zinc-600 '
         + 'text-gray-500 dark:text-zinc-400 hover:border-sky-400 hover:text-sky-500 '
         + 'transition-colors flex items-center justify-center select-none';
     b.style.touchAction = 'none';
@@ -120,8 +120,8 @@ function stepArrowButton(dir, title) {
     b.setAttribute('aria-label', b.title);
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
     svg.setAttribute('fill', 'none');
     svg.setAttribute('stroke', 'currentColor');
     svg.setAttribute('stroke-width', '2.2');
@@ -185,18 +185,9 @@ function placeRangeBlock(key, label, prop, value, min, max, step, unit, arrows) 
 }
 
 function toggleBlock(key, p, current) {
-    const wrap = document.createElement('label');
-    wrap.className = 'flex items-center gap-2 text-sm cursor-pointer hover:text-sky-600 transition-colors';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
+    const { row, input } = uiSwitchRow(p.label, '', current);
     input.id = `param-${key}`;
-    input.className = CHECK_CLS;
-    input.checked = !!current;
-    const span = document.createElement('span');
-    span.className = 'font-medium tracking-wide';
-    span.textContent = p.label;
-    wrap.append(input, span);
-    return { wrap, input };
+    return { wrap: row, input };
 }
 
 function heading(text) {
@@ -213,6 +204,106 @@ function modeButtonCls(active) {
             : 'bg-white/70 border-gray-300 text-gray-600 hover:border-sky-400 '
                 + 'dark:bg-zinc-800/70 dark:border-zinc-600 dark:text-zinc-300 '
                 + 'dark:hover:border-sky-500');
+}
+
+// ---- shelf building blocks -------------------------------------------
+// The shelf is a stack of cards with one subject each. These helpers keep
+// every card using the same title, switch, segmented control and button,
+// so a new block cannot drift into its own visual language.
+
+function uiCard(title, desc, kicker) {
+    const card = document.createElement('div');
+    card.className = 'ui-card';
+    const head = document.createElement('div');
+    head.className = 'ui-card-head';
+    const titles = document.createElement('div');
+    titles.className = 'ui-card-titles';
+    if (kicker) {
+        const k = document.createElement('div');
+        k.className = 'ui-kicker';
+        k.textContent = kicker;
+        titles.appendChild(k);
+    }
+    const h = document.createElement('div');
+    h.className = 'ui-card-title';
+    h.textContent = title;
+    titles.appendChild(h);
+    if (desc) {
+        const p = document.createElement('p');
+        p.className = 'ui-desc';
+        p.textContent = desc;
+        titles.appendChild(p);
+    }
+    head.appendChild(titles);
+    const body = document.createElement('div');
+    card.append(head, body);
+    return { card, head, body, titles };
+}
+
+function uiSwitchRow(label, hint, checked) {
+    const row = document.createElement('label');
+    row.className = 'ui-row';
+    const text = document.createElement('span');
+    const name = document.createElement('span');
+    name.className = 'ui-row-label';
+    name.textContent = label;
+    text.appendChild(name);
+    if (hint) {
+        const sub = document.createElement('span');
+        sub.className = 'ui-row-hint';
+        sub.textContent = hint;
+        text.appendChild(sub);
+    }
+    const sw = document.createElement('span');
+    sw.className = 'ui-switch';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!checked;
+    const track = document.createElement('span');
+    track.className = 'ui-switch-track';
+    sw.append(input, track);
+    row.append(text, sw);
+    return { row, input };
+}
+
+function uiSeg(items, activeId, onPick, keyOf, labelOf) {
+    const row = document.createElement('div');
+    row.className = 'ui-seg';
+    const buttons = new Map();
+    const paint = id => {
+        for (const [k, b] of buttons) {
+            const on = k === id;
+            b.className = 'ui-seg-btn' + (on ? ' is-on' : '');
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+    };
+    for (const it of items) {
+        const k = keyOf ? keyOf(it) : it;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ui-seg-btn';
+        btn.dataset.value = k;
+        btn.textContent = labelOf ? labelOf(it) : it;
+        btn.addEventListener('click', () => {
+            paint(k);
+            onPick && onPick(k, btn);
+        });
+        buttons.set(k, btn);
+        row.appendChild(btn);
+    }
+    paint(activeId);
+    return { row, buttons, paint };
+}
+
+function uiButton(label, variant, block) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ui-btn '
+        + (variant === 'primary' ? 'ui-btn-primary'
+            : variant === 'danger' ? 'ui-btn-danger' : 'ui-btn-ghost')
+        + (block ? ' ui-btn-block' : '');
+    b.textContent = label;
+    return b;
 }
 
 // The controls bar is generated from each mounted model's parameter schema, so
@@ -273,13 +364,14 @@ export function createPanel(opts) {
     // Five chips, the order a session usually takes, plus Shown when more
     // than one model can be on stage. Icons are tiny inline SVGs - no
     // font, no icon font, no network.
-    const CHIP_CLS = 'flex-none flex flex-col items-center justify-center gap-0.5 '
-        + 'px-3 h-12 rounded-xl border text-[10px] font-semibold leading-none '
-        + 'snap-start shrink-0 transition-colors cursor-pointer select-none';
-    const CHIP_ON = 'border-sky-500 bg-sky-50 text-sky-700 '
-        + 'dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700';
-    const CHIP_OFF = 'border-gray-200 bg-white/60 text-gray-500 hover:border-sky-400 '
-        + 'dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-400';
+    const CHIP_CLS = 'flex-none flex flex-col items-center justify-center gap-1 '
+        + 'px-3 min-w-[60px] h-12 rounded-xl border text-[10px] font-semibold '
+        + 'leading-none snap-start shrink-0 transition-colors cursor-pointer '
+        + 'select-none';
+    const CHIP_ON = 'border-sky-600 bg-sky-600 text-white shadow-sm '
+        + 'dark:border-sky-500 dark:bg-sky-500 dark:text-white';
+    const CHIP_OFF = 'border-transparent bg-transparent text-gray-500 '
+        + 'hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10';
     const icon = paths => {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
@@ -593,21 +685,14 @@ export function createPanel(opts) {
         const wrap = document.createElement('div');
         wrap.className = 'mt-1';
 
-        const enabledRow = document.createElement('label');
-        enabledRow.className = 'flex items-center gap-2 text-sm cursor-pointer '
-            + 'hover:text-sky-600 transition-colors mb-1';
-        const enabledInput = document.createElement('input');
-        enabledInput.type = 'checkbox';
-        enabledInput.className = CHECK_CLS;
-        enabledInput.checked = fp.enabled !== false;
+        const enabled = uiSwitchRow('Enabled', 'Hide it without unmounting',
+            fp.enabled !== false);
+        const enabledInput = enabled.input;
         enabledInput.addEventListener('change', () => {
             if (opts.onFlowerEnabled) opts.onFlowerEnabled(fp.id, enabledInput.checked);
         });
-        const enabledLabel = document.createElement('span');
-        enabledLabel.className = 'font-medium tracking-wide';
-        enabledLabel.textContent = 'Enabled';
-        enabledRow.append(enabledInput, enabledLabel);
-        wrap.appendChild(enabledRow);
+        live.checks.push(enabledInput);
+        wrap.appendChild(enabled.row);
 
         for (const [label, prop, min, max, step, unit] of [
             ['X', 'x', -40, 40, 0.5, ' ft'],
@@ -1033,26 +1118,18 @@ export function createPanel(opts) {
             lobeUI = { wrap, refresh: paint };
         }
 
-        // The S Curve is one open group: the shape sliders plus where
-        // this frame stands (X / Depth / Turn as tracks). Open by default -
-        // it is what the hand reaches for first. Pillars stay below.
+        // Shape is one flat card: the curve sliders, then where this frame
+        // stands. Nothing is folded here - it is what the hand reaches for
+        // first. Pillars stay below as their own subject.
         if (tool === 'shape' && shapeRanges.length) {
-            const details = document.createElement('details');
-            details.open = true;
-            details.className = 'mt-3 rounded-md border border-dashed '
-                + 'border-gray-300 dark:border-zinc-600';
-            const summary = document.createElement('summary');
-            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-            summary.textContent = 'S Curve';
-            const bodyEl = document.createElement('div');
-            bodyEl.className = 'px-2 pb-2';
+            const shape = uiCard('Shape',
+                'Tune the curve, then move the whole frame on the floor.');
             for (const [k, p] of shapeRanges) {
-                bodyEl.appendChild(addRange(k, p));
+                shape.body.appendChild(addRange(k, p));
                 // After the Lobes slider, insert the pill row + single
                 // slider for the per-lobe gaps and keep them in sync.
                 if (k === 'lobes' && lobeUI) {
-                    bodyEl.appendChild(lobeUI.wrap);
+                    shape.body.appendChild(lobeUI.wrap);
                     lobeUI.refresh();
                     rows.lobes.input.addEventListener('input', () => {
                         lobeUI.refresh();
@@ -1060,14 +1137,13 @@ export function createPanel(opts) {
                 }
             }
             const place = (currentPlaces[key] || [])[idx];
-            if (place) bodyEl.appendChild(positionBlock(key, idx, place));
-            details.append(summary, bodyEl);
-            inner.appendChild(details);
+            if (place) shape.body.appendChild(positionBlock(key, idx, place));
+            inner.appendChild(shape.card);
         }
 
         if (tool === 'colour' && normalToggles.length) {
             const row = document.createElement('div');
-            row.className = 'flex flex-wrap gap-4 pt-1';
+            row.className = 'ui-card ui-stack';
             for (const [k, p] of normalToggles) row.appendChild(addToggle(k, p));
             inner.appendChild(row);
             // The Curtains toggle owns the fabric: palettes and the RGB dial
@@ -1081,18 +1157,15 @@ export function createPanel(opts) {
         // pillar's look moved into the frame's Pillars group below.
         if (tool === 'shape' && (advancedRanges.length || advancedToggles.length)) {
             const details = document.createElement('details');
-            details.className = 'mt-2 rounded-md border border-dashed '
-                + 'border-gray-300 dark:border-zinc-600';
+            details.className = 'ui-disclosure';
             const summary = document.createElement('summary');
-            summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
             summary.append(gearIcon(), document.createTextNode('Settings'));
             const gearBody = document.createElement('div');
-            gearBody.className = 'px-2 pb-2';
+            gearBody.className = 'ui-disclosure-body';
             for (const [k, p] of advancedRanges) gearBody.appendChild(addRange(k, p));
             if (advancedToggles.length) {
                 const row = document.createElement('div');
-                row.className = 'flex flex-wrap gap-4 pt-1';
+                row.className = 'ui-stack';
                 for (const [k, p] of advancedToggles) row.appendChild(addToggle(k, p));
                 gearBody.appendChild(row);
             }
@@ -1111,23 +1184,19 @@ export function createPanel(opts) {
         return root;
     }
 
-    // Where this frame stands, as sliders: X, Depth and Turn on full-width
-    // tracks inside the S Curve group - no bare number boxes. The stage
-    // follows the thumb; applyLive parks it when a finger is on the track.
+    // Where this frame stands: X, Height, Depth and Turn on full-width
+    // tracks. Flat, not folded - placement is a first-class edit, and the
+    // arrows step it without a keyboard. The stage follows the thumb;
+    // applyLive parks it while a finger is on the track.
     function positionBlock(key, idx, place) {
-        // Folded by default: the shape sliders are what the hand
-        // reaches for; placement comes after, and the chevron opens it.
-        const wrap = document.createElement('details');
-        wrap.className = 'mt-1.5 border-t border-dashed '
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-3 pt-2 border-t border-dashed '
             + 'border-gray-300 dark:border-zinc-600';
-        const summary = document.createElement('summary');
-        summary.className = 'cursor-pointer select-none py-1.5 text-[10px] '
-            + 'font-bold uppercase tracking-wider '
-            + 'text-gray-400 dark:text-zinc-500';
-        summary.textContent = 'Placement';
-        wrap.appendChild(summary);
-        const body = document.createElement('div');
-        body.className = 'pt-1';
+        const title = document.createElement('div');
+        title.className = 'ui-kicker mb-1';
+        title.textContent = 'Placement';
+        wrap.appendChild(title);
+        const body = wrap;
 
         const refs = {};
         for (const [label, prop, min, max, step, unit] of [
@@ -1151,12 +1220,8 @@ export function createPanel(opts) {
 
         // Back to the SET's own numbers: zero the free override, let the
         // drawing speak again.
-        const reset = document.createElement('button');
-        reset.type = 'button';
-        reset.className = 'mt-0.5 w-full text-[11px] px-2 py-1 rounded border '
-            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
-            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
-        reset.textContent = 'Reset placement';
+        const reset = uiButton('Reset placement', 'ghost', true);
+        reset.classList.add('mt-1');
         reset.title = 'Zero X / Height / Depth / Turn - back to the SET drawing';
         reset.addEventListener('click', () => {
             onPlaceChange && onPlaceChange(key, idx,
@@ -1164,7 +1229,6 @@ export function createPanel(opts) {
         });
         live.buttons.push(reset);
         body.appendChild(reset);
-        wrap.appendChild(body);
 
         const slot = placeRows.get(key + ':' + idx) || {};
         Object.assign(slot, refs);
@@ -1200,31 +1264,29 @@ export function createPanel(opts) {
     // a shelf chip, not a modal, so the viewer keeps rendering above it.
     function stageBlock() {
         const wrap = document.createElement('div');
-        wrap.className = 'mb-2';
-        wrap.appendChild(heading('On Stage'));
         const rows = opts.getDecorStage ? (opts.getDecorStage() || []) : [];
         if (!rows.length) {
-            wrap.appendChild(emptyNote(
+            const empty = uiCard('On Stage',
+                'Placed decor lives here. Add a sheet from Objects, then move '
+                + 'it with the sliders below.');
+            empty.body.appendChild(emptyNote(
                 'Nothing on stage yet - add a sheet from Objects, then place it here.'));
+            wrap.appendChild(empty.card);
             return wrap;
         }
+        const intro = uiCard('On Stage',
+            'Every placed object, with Show and the same placement sliders '
+            + 'as the stage.');
+        const introBadge = document.createElement('span');
+        introBadge.className = 'ui-badge';
+        introBadge.textContent = String(rows.length);
+        intro.head.appendChild(introBadge);
+        wrap.appendChild(intro.card);
+
         for (const row of rows) {
-            const card = document.createElement('div');
-            card.className = 'mb-1.5 rounded-lg border border-gray-200 '
-                + 'dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/60 p-2';
-            const head = document.createElement('div');
-            head.className = 'flex items-center justify-between gap-2';
-            const name = document.createElement('strong');
-            name.className = 'text-xs font-semibold text-gray-700 '
-                + 'dark:text-zinc-200 truncate';
-            name.textContent = row.name || row.key;
-            const rm = document.createElement('button');
-            rm.type = 'button';
-            rm.className = 'shrink-0 h-7 px-2 rounded-md text-[11px] font-semibold '
-                + 'border border-red-300 text-red-600 dark:text-red-400 '
-                + 'dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/40 '
-                + 'transition-colors';
-            rm.textContent = 'Remove';
+            const { card, head } = uiCard(row.name || row.key);
+            const rm = uiButton('Remove', 'danger');
+            rm.classList.add('shrink-0');
             rm.title = 'Take this off the stage';
             rm.addEventListener('click', () => {
                 if (opts.onDecorRemove) opts.onDecorRemove(row.key);
@@ -1233,30 +1295,24 @@ export function createPanel(opts) {
                 renderIfChanged(true);
             });
             live.buttons.push(rm);
-            head.append(name, rm);
-            card.appendChild(head);
+            head.appendChild(rm);
 
             // Show/hide without taking it off the stage - same idea as the
-            // flower panel's Enabled checkbox.
-            const showRow = document.createElement('label');
-            showRow.className = 'flex items-center gap-2 text-[11px] cursor-pointer '
-                + 'mb-1 hover:text-sky-600 transition-colors';
-            const showInput = document.createElement('input');
-            showInput.type = 'checkbox';
+            // flower panel's Enabled switch.
+            const show = uiSwitchRow('Show', 'Keep it on stage, just hidden',
+                row.enabled !== false);
+            const showInput = show.input;
             showInput.id = `param-decor-show-${row.key}`;
-            showInput.className = CHECK_CLS;
-            showInput.checked = row.enabled !== false;
             showInput.addEventListener('change', () => {
                 if (opts.onDecorPlace) {
                     opts.onDecorPlace(row.key, { enabled: showInput.checked });
                 }
             });
             live.checks.push(showInput);
-            const showLabel = document.createElement('span');
-            showLabel.className = 'font-medium tracking-wide';
-            showLabel.textContent = 'Show';
-            showRow.append(showInput, showLabel);
-            card.appendChild(showRow);
+            card.appendChild(show.row);
+            const rule = document.createElement('div');
+            rule.className = 'ui-divider';
+            card.appendChild(rule);
 
             for (const [label, prop, min, max, step, unit] of [
                 ['X', 'x', -100, 100, 0.25, ' ft'],
@@ -1297,72 +1353,62 @@ export function createPanel(opts) {
         const slot = slotOf(selectedMeta);
 
         const wrap = document.createElement('div');
-        wrap.className = 'mt-3';
-
-        const head = document.createElement('div');
-        head.className = 'flex items-center justify-between';
-        const title = document.createElement('div');
-        title.className = 'text-[11px] font-semibold uppercase tracking-wider '
-            + 'text-gray-500 dark:text-zinc-400';
-        title.textContent = 'Pillars';
-        head.appendChild(title);
+        const { card, head } = uiCard('Pillars',
+            'Attach one or two to this frame. They travel with it.');
         const total = metaList.reduce((n, t) => n + (slotOf(t).count || 0), 0);
         const badge = document.createElement('span');
-        badge.className = 'text-[11px] text-gray-500 dark:text-zinc-400 tabular-nums';
-        badge.textContent = total ? `${total} attached` : 'None attached';
+        badge.className = 'ui-badge';
+        badge.textContent = total ? `${total} attached` : 'None yet';
         head.appendChild(badge);
-        wrap.appendChild(head);
+        wrap.appendChild(card);
 
-        // One chip per type: tapping selects it, and a type with no instances
-        // is added straight away. Several types can stand on the same frame.
-        const chipCls = on => 'px-2 py-1 rounded-md border text-[11px] font-semibold '
-            + 'transition-colors ' + (on
-                ? 'bg-sky-600 border-sky-600 text-white'
-                : 'bg-white/70 border-gray-300 text-gray-600 hover:border-sky-400 '
-                    + 'dark:bg-zinc-800/70 dark:border-zinc-600 dark:text-zinc-300');
-        const typeRow = document.createElement('div');
-        typeRow.id = 'param-pillars-types';
-        typeRow.className = 'flex flex-wrap gap-1 mt-1.5';
-        for (const t of metaList) {
+        // One segmented choice per type: tapping selects it, and a type with
+        // no instances is added straight away. Several types can stand on
+        // the same frame.
+        const typeSeg = uiSeg(metaList, selected, v => {
+            const t = metaList.find(x => x.id === v) || metaList[0];
             const s = slotOf(t);
-            const on = t.id === selected;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = chipCls(on);
-            btn.dataset.type = t.id;
-            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            btn.textContent = s.count ? `${t.label} ${s.count}` : `${t.label} +`;
-            btn.addEventListener('click', () => {
-                if (s.count === 0) {
-                    onFramePillarsChange && onFramePillarsChange(id,
-                        { type: t.id, selected: t.id, count: 1 });
-                } else {
-                    onFramePillarsChange && onFramePillarsChange(id,
-                        { type: t.id, selected: t.id });
-                }
-            });
-            live.buttons.push(btn);
-            typeRow.appendChild(btn);
-        }
-        wrap.appendChild(typeRow);
+            if (s.count === 0) {
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: t.id, selected: t.id, count: 1 });
+            } else {
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: t.id, selected: t.id });
+            }
+        }, t => t.id, t => {
+            const s = slotOf(t);
+            return s.count ? `${t.label} ${s.count}` : `${t.label} +`;
+        });
+        typeSeg.row.id = 'param-pillars-types';
+        for (const btn of typeSeg.buttons.values()) live.buttons.push(btn);
+        card.appendChild(typeSeg.row);
 
-        const box = document.createElement('div');
-        box.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
-            + 'border-gray-300 dark:border-zinc-600';
+        const rule = () => {
+            const el = document.createElement('div');
+            el.className = 'ui-divider';
+            return el;
+        };
+        card.appendChild(rule());
 
-        const row = document.createElement('div');
-        row.className = 'flex items-center gap-2';
+        // Count: a real stepper, not two tiny symbols lost in a row.
+        const countRow = document.createElement('div');
+        countRow.className = 'ui-row';
+        const countLabel = document.createElement('span');
+        countLabel.className = 'ui-row-label';
+        countLabel.textContent = 'How many';
+        const stepper = document.createElement('div');
+        stepper.className = 'flex items-center gap-2';
         const step = delta => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = delta > 0 ? '+' : '\u2212';
-            btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
-                + 'dark:border-zinc-600 text-sm font-bold leading-none '
-                + 'hover:bg-sky-50 dark:hover:bg-zinc-700 disabled:opacity-40';
+            btn.className = 'ui-step';
             const next = (slot.count || 0) + delta;
             const out = next < 0 || next > (selectedMeta.max || 2);
             btn.disabled = out;
             btn.dataset.off = out ? '1' : '0';
+            btn.setAttribute('aria-label',
+                `${delta > 0 ? 'Add' : 'Remove'} a ${selectedMeta.label} pillar`);
             btn.addEventListener('click', () => {
                 onFramePillarsChange && onFramePillarsChange(id,
                     { type: selected, count: next });
@@ -1371,157 +1417,132 @@ export function createPanel(opts) {
             return btn;
         };
         const value = document.createElement('span');
-        value.className = 'w-8 text-center text-sm font-semibold tabular-nums';
+        value.className = 'ui-step-value';
         value.textContent = String(slot.count || 0);
-        row.append(step(-1), value, step(1));
-        box.appendChild(row);
+        stepper.append(step(-1), value, step(1));
+        countRow.append(countLabel, stepper);
+        card.appendChild(countRow);
 
         if (slot.count > 0) {
-            const placeWrap = document.createElement('div');
-            placeWrap.id = 'param-pillars-place';
-            placeWrap.className = 'mt-2';
+            // Where the pair anchors: one segmented choice, labelled.
             const items = slot.count === 1
-                ? [{ id: 'centre', name: 'Centre of the O2' }]
+                ? [{ id: 'centre', name: 'Centre' }]
                 : [{ id: 'outer', name: 'Outer ends' },
-                   { id: 'inner', name: 'Inner (beside the gap)' }];
+                   { id: 'inner', name: 'Inner ends' }];
             const active = items.some(o => o.id === slot.place)
                 ? slot.place : items[0].id;
-            const { row: placeRow } = chipRow(items, active,
+            const placeSeg = uiSeg(items, active,
                 v => onFramePillarsChange && onFramePillarsChange(id,
                     { type: selected, place: v }),
                 o => o.id, o => o.name);
-            placeWrap.appendChild(placeRow);
-            box.appendChild(placeWrap);
-        }
+            placeSeg.row.id = 'param-pillars-place';
+            placeSeg.row.classList.add('mt-2');
+            for (const btn of placeSeg.buttons.values()) live.buttons.push(btn);
+            card.appendChild(placeSeg.row);
 
-        if (slot.count > 0) {
             // Hide/show this attached set (classical or rail) without
-            // unmounting it - the same checkbox the flower panel has.
-            const showRow = document.createElement('label');
-            showRow.className = 'mt-2 flex items-center gap-2 text-[11px] '
-                + 'cursor-pointer hover:text-sky-600 transition-colors';
-            const showInput = document.createElement('input');
-            showInput.type = 'checkbox';
-            showInput.className = CHECK_CLS;
-            showInput.checked = slot.show !== false;
+            // unmounting it - the same switch the flower panel has.
+            const show = uiSwitchRow('Show', 'Keep it attached, just hidden',
+                slot.show !== false);
+            const showInput = show.input;
             showInput.addEventListener('change', () => {
                 onFramePillarsChange && onFramePillarsChange(id,
                     { type: selected, show: showInput.checked });
             });
             live.checks.push(showInput);
-            const showLabel = document.createElement('span');
-            showLabel.className = 'font-medium tracking-wide';
-            showLabel.textContent = 'Show';
-            showRow.append(showInput, showLabel);
-            box.appendChild(showRow);
-        }
+            show.row.classList.add('mt-1');
+            card.appendChild(show.row);
 
-        // The classical pillar's look, from the classical group beside this
-        // frame. Rail types have no look parameters.
-        if (selected === 'classical') {
-            const pg = currentGroups.find(g => g.id === PILLAR_ID && g.owner === id
-                && (g.pillarType || 'classical') === 'classical');
-            const pm = pg && pg.models && pg.models[0];
-            if (pm && pm.params) {
-                const details = document.createElement('details');
-                details.className = 'mt-2 rounded-md border border-dashed '
-                    + 'border-gray-300 dark:border-zinc-600';
-                const summary = document.createElement('summary');
-                summary.className = 'cursor-pointer select-none px-2 py-1.5 text-[11px] '
-                    + 'font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400';
-                summary.append(gearIcon(), document.createTextNode('Look'));
-                const bodyEl = document.createElement('div');
-                bodyEl.className = 'px-2 pb-2';
-                for (const [k, p] of Object.entries(pm.params)) {
-                    if (p.type !== 'range') continue;
-                    const built = rangeBlock(`pillar-${k}`, p, pm.state[k]);
-                    built.input.addEventListener('input', e => {
-                        const v = parseFloat(e.target.value);
-                        built.value.textContent = fmt(v, p.unit);
-                        emit({ [k]: v }, pg.models);
+            card.appendChild(rule());
+            const placeTitle = document.createElement('div');
+            placeTitle.className = 'ui-kicker mb-1';
+            placeTitle.textContent = 'Placement';
+            card.appendChild(placeTitle);
+
+            const rowKey = id + ':' + selected;
+            const off = slot.offset || { x: 0, y: 0, z: 0, ry: 0 };
+            // Centre Gap: only meaningful with two pillars - symmetric spread.
+            if (slot.count === 2) {
+                const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
+                    'gap', Number(slot.gap ?? 3), -5, 40, 0.5, ' ft', true);
+                builtGap.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    builtGap.value.textContent = fmt(v, ' ft');
+                    onFramePillarsChange && onFramePillarsChange(id,
+                        { type: selected, gap: v });
+                });
+                live.selects.push(builtGap.input);
+                const gapSlot = pillarOffsetRows.get(rowKey) || {};
+                gapSlot.gap = { input: builtGap.input, value: builtGap.value };
+                pillarOffsetRows.set(rowKey, gapSlot);
+                card.appendChild(builtGap.wrap);
+            }
+            for (const [label, prop, min, max, step, unit] of [
+                ['X', 'x', -40, 40, 0.5, ' ft'],
+                ['Height', 'y', -5, 40, 0.25, ' ft'],
+                ['Depth', 'z', -40, 40, 0.5, ' ft'],
+                ['Turn', 'ry', -90, 90, 1, '\u00b0']
+            ]) {
+                const built = placeRangeBlock(`pillar-pos-${prop}`, label, prop,
+                    Number(off[prop]) || 0, min, max, step, unit, true);
+                built.input.addEventListener('input', e => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    built.value.textContent = fmt(v, unit);
+                    onFramePillarsChange && onFramePillarsChange(id, {
+                        type: selected,
+                        offset: Object.assign({}, off, { [prop]: v })
                     });
-                    bodyEl.appendChild(built.wrap);
+                });
+                live.selects.push(built.input);
+                const offSlot = pillarOffsetRows.get(rowKey) || {};
+                offSlot[prop] = { input: built.input, value: built.value };
+                pillarOffsetRows.set(rowKey, offSlot);
+                card.appendChild(built.wrap);
+            }
+
+            // Back to the bare anchor: the set stands where the place option
+            // puts it, no nudge.
+            const resetP = uiButton('Reset placement', 'ghost', true);
+            resetP.classList.add('mt-1');
+            resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Height / Depth / Turn';
+            resetP.addEventListener('click', () => {
+                onFramePillarsChange && onFramePillarsChange(id,
+                    { type: selected, gap: 3, offset: { x: 0, y: 0, z: 0, ry: 0 } });
+            });
+            live.buttons.push(resetP);
+            card.appendChild(resetP);
+
+            // The classical pillar's look, from the classical group beside
+            // this frame. Rail types have no look parameters.
+            if (selected === 'classical') {
+                const pg = currentGroups.find(g => g.id === PILLAR_ID && g.owner === id
+                    && (g.pillarType || 'classical') === 'classical');
+                const pm = pg && pg.models && pg.models[0];
+                if (pm && pm.params) {
+                    const details = document.createElement('details');
+                    details.className = 'ui-disclosure';
+                    const summary = document.createElement('summary');
+                    summary.append(gearIcon(), document.createTextNode('Look'));
+                    const bodyEl = document.createElement('div');
+                    bodyEl.className = 'ui-disclosure-body';
+                    for (const [k, p] of Object.entries(pm.params)) {
+                        if (p.type !== 'range') continue;
+                        const built = rangeBlock(`pillar-${k}`, p, pm.state[k]);
+                        built.input.addEventListener('input', e => {
+                            const v = parseFloat(e.target.value);
+                            built.value.textContent = fmt(v, p.unit);
+                            emit({ [k]: v }, pg.models);
+                        });
+                        bodyEl.appendChild(built.wrap);
+                    }
+                    details.append(summary, bodyEl);
+                    card.appendChild(details);
                 }
-                details.append(summary, bodyEl);
-                box.appendChild(details);
             }
         }
 
-        // Free numbers on top of the anchor: X / Height / Depth / Turn with
-        // the same step arrows as every other placement control.
-        const posDetails = document.createElement('details');
-        posDetails.className = 'mt-1.5 border-t border-dashed '
-            + 'border-gray-300 dark:border-zinc-600';
-        const posSummary = document.createElement('summary');
-        posSummary.className = 'cursor-pointer select-none py-1.5 text-[10px] '
-            + 'font-bold uppercase tracking-wider '
-            + 'text-gray-400 dark:text-zinc-500';
-        posSummary.textContent = 'Placement';
-        posDetails.appendChild(posSummary);
-        const posBody = document.createElement('div');
-        posBody.className = 'pt-1';
-        const rowKey = id + ':' + selected;
-        const off = slot.offset || { x: 0, y: 0, z: 0, ry: 0 };
-        // Centre Gap: only meaningful with two pillars - symmetric spread.
-        if (slot.count === 2) {
-            const builtGap = placeRangeBlock('pillar-pos-gap', 'Centre Gap',
-                'gap', Number(slot.gap ?? 3), -5, 40, 0.5, ' ft', true);
-            builtGap.input.addEventListener('input', e => {
-                const v = parseFloat(e.target.value);
-                if (!Number.isFinite(v)) return;
-                builtGap.value.textContent = fmt(v, ' ft');
-                onFramePillarsChange && onFramePillarsChange(id,
-                    { type: selected, gap: v });
-            });
-            live.selects.push(builtGap.input);
-            const gapSlot = pillarOffsetRows.get(rowKey) || {};
-            gapSlot.gap = { input: builtGap.input, value: builtGap.value };
-            pillarOffsetRows.set(rowKey, gapSlot);
-            posBody.appendChild(builtGap.wrap);
-        }
-        for (const [label, prop, min, max, step, unit] of [
-            ['X', 'x', -40, 40, 0.5, ' ft'],
-            ['Height', 'y', -5, 40, 0.25, ' ft'],
-            ['Depth', 'z', -40, 40, 0.5, ' ft'],
-            ['Turn', 'ry', -90, 90, 1, '\u00b0']
-        ]) {
-            const built = placeRangeBlock(`pillar-pos-${prop}`, label, prop,
-                Number(off[prop]) || 0, min, max, step, unit, true);
-            built.input.addEventListener('input', e => {
-                const v = parseFloat(e.target.value);
-                if (!Number.isFinite(v)) return;
-                built.value.textContent = fmt(v, unit);
-                onFramePillarsChange && onFramePillarsChange(id, {
-                    type: selected,
-                    offset: Object.assign({}, off, { [prop]: v })
-                });
-            });
-            live.selects.push(built.input);
-            const offSlot = pillarOffsetRows.get(rowKey) || {};
-            offSlot[prop] = { input: built.input, value: built.value };
-            pillarOffsetRows.set(rowKey, offSlot);
-            posBody.appendChild(built.wrap);
-        }
-
-        // Back to the bare anchor: the set stands where the place option
-        // puts it, no nudge.
-        const resetP = document.createElement('button');
-        resetP.type = 'button';
-        resetP.className = 'mt-0.5 w-full text-[11px] px-2 py-1 rounded border '
-            + 'border-gray-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 '
-            + 'hover:border-sky-400 hover:text-sky-600 transition-colors';
-        resetP.textContent = 'Reset placement';
-        resetP.title = 'Reset the Centre Gap to 3 ft and zero X / Height / Depth / Turn';
-        resetP.addEventListener('click', () => {
-            onFramePillarsChange && onFramePillarsChange(id,
-                { type: selected, gap: 3, offset: { x: 0, y: 0, z: 0, ry: 0 } });
-        });
-        live.buttons.push(resetP);
-        posBody.appendChild(resetP);
-        posDetails.appendChild(posBody);
-        box.appendChild(posDetails);
-
-        wrap.appendChild(box);
         return wrap;
     }
 
@@ -2340,10 +2361,11 @@ export function createPanel(opts) {
     // same job - so they share one heading now.
     // One look for every choice row in the app: a modern inset chip, lit
     // when active. SETs, models, rooms, pillar places - same face.
-    const chipCls = on => 'px-2.5 py-1.5 rounded-lg border text-xs transition-colors '
+    const chipCls = on => 'px-3 py-2 rounded-full border text-xs font-semibold '
+        + 'transition-colors '
         + (on
-            ? 'border-sky-500 ring-1 ring-sky-400 font-semibold bg-sky-50 dark:bg-sky-900/30'
-            : 'border-gray-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/70 '
+            ? 'border-sky-600 bg-sky-600 text-white'
+            : 'border-gray-300 dark:border-zinc-600 bg-transparent '
                 + 'hover:border-sky-400 text-gray-600 dark:text-zinc-300');
 
     function chipRow(items, activeId, onPick, keyOf, labelOf) {
