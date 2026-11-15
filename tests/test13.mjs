@@ -139,6 +139,12 @@ check('bottom sits on the ground, centred in X and Z',
   && near(sbb.min.y, 0, 1e-6)
   && near((sbb.min.x + sbb.max.x) / 2, 0, 1e-6));
 
+check('rails publish the floor lift the scene must add',
+  near(large.restY, (largeBody + 2 * CAP_H) / 2, 1e-6)
+  && near(small.restY, (smallBody + 2 * CAP_H) / 2, 1e-6)
+  && near(sheet.restY, 3, 1e-6),
+  JSON.stringify([large.restY, small.restY, sheet.restY]));
+
 check('the required nodes exist under their plan names',
   ['main_frame', 'diamond_lattice', 'left_end_support', 'right_end_support']
     .every(n => !!large.object3D.getObjectByName(n))

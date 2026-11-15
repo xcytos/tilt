@@ -1036,7 +1036,12 @@ function applyPlaces() {
         models.forEach((m, i) => {
             const p = arr[i];
             if (!m.object3D || !p) return;
-            m.object3D.position.set(p.x, p.y || 0, p.z);
+            // Placement y is height above the floor. Models whose geometry
+            // is centred on their own origin (the rail pillars) publish the
+            // lift they need to stand on the ground, so the same slider
+            // value means "on the floor" for every pillar type.
+            const restY = Number(m.restY) || 0;
+            m.object3D.position.set(p.x, (p.y || 0) + restY, p.z);
             m.object3D.rotation.y = (p.ry || 0) * Math.PI / 180;
             m.layoutX = p.x;
         });
