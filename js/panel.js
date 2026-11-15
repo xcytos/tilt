@@ -1196,7 +1196,6 @@ export function createPanel(opts) {
         title.className = 'ui-kicker mb-1';
         title.textContent = 'Placement';
         wrap.appendChild(title);
-        const body = wrap;
 
         const refs = {};
         for (const [label, prop, min, max, step, unit] of [
@@ -1215,7 +1214,7 @@ export function createPanel(opts) {
             });
             live.selects.push(built.input);
             refs[prop] = { input: built.input };
-            body.appendChild(built.wrap);
+            wrap.appendChild(built.wrap);
         }
 
         // Back to the SET's own numbers: zero the free override, let the
@@ -1228,7 +1227,7 @@ export function createPanel(opts) {
                 { x: 0, y: 0, z: 0, ry: 0 });
         });
         live.buttons.push(reset);
-        body.appendChild(reset);
+        wrap.appendChild(reset);
 
         const slot = placeRows.get(key + ':' + idx) || {};
         Object.assign(slot, refs);
