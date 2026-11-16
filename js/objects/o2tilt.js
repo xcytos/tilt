@@ -355,8 +355,11 @@ export function createO2TiltModel(initial = {}) {
     const matPole = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, roughness: 0.4 });
     const matBase = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.7, roughness: 0.2 });
     const matJoint = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.75, roughness: 0.3 });
-    const matFabric = new THREE.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.9, metalness: 0.1,
+    // Satin reads through its sheen, not through emission. The fabric is
+    // deliberately non-emissive; the serial LEDs paint local pools on it.
+    const matFabric = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff, roughness: 0.46, metalness: 0,
+        sheen: 0.35, sheenRoughness: 0.5, sheenColor: 0xfff1de,
         side: THREE.DoubleSide, envMapIntensity: 0.15
     });
 

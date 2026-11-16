@@ -101,6 +101,26 @@
       "hue": 40,
       "sat": 25
      }
+    },
+    {
+     "type": "light-string",
+     "anchor": "stripline-L-T",
+     "params": {
+      "power": 75,
+      "spacing": 5,
+      "drop": 4.5,
+      "warm": true
+     }
+    },
+    {
+     "type": "light-string",
+     "anchor": "stripline-R-T",
+     "params": {
+      "power": 75,
+      "spacing": 5,
+      "drop": 4.5,
+      "warm": true
+     }
     }
    ]
   }

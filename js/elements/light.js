@@ -6,11 +6,12 @@ import * as THREE from 'three';
 // light-strip) so the panel renders each from its own schema, and mounted
 // on ANY model's anchors through the def's `elements` list - the anchor
 // contract (getAnchors) is what makes this system model-agnostic.
-export const LIGHT_TYPES = ['light-par', 'light-led', 'light-strip'];
+export const LIGHT_TYPES = ['light-par', 'light-led', 'light-strip', 'light-string'];
 export const LIGHT_NAMES = {
     'light-par': 'PAR Light',
     'light-led': 'LED Wash',
-    'light-strip': 'Strip Light'
+    'light-strip': 'Strip Light',
+    'light-string': 'String Lights'
 };
 
 // Params stay range/toggle so registry validation, the panel and the
@@ -47,6 +48,27 @@ export const LIGHT_PARAMS = {
         length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
         sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
+    },
+    // Curtain / serial string lights: a feeder wire rides the S-curve rail
+    // and vertical drops hang from it at equal spacing. Warm white is the
+    // shop default; White is the neutral alternative. The drop wire can
+    // be black, white or transparent. Hue and Saturation live in Advanced -
+    // Saturation 0 keeps the two white presets, and raising it turns the
+    // same bulbs into a tinted string.
+    string: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
+        power:  { label: 'Power',  type: 'range', min: 0, max: 100, step: 1, value: 100, unit: '%' },
+        spacing: { label: 'Drop spacing', type: 'range', min: 0.5, max: 12, step: 0.5, value: 5, unit: ' in' },
+        drop:   { label: 'Drop length', type: 'range', min: 1, max: 10, step: 0.5, value: 4.5, unit: ' ft' },
+        warm:   { label: 'Warm white', type: 'toggle', value: true },
+        wire:   { label: 'Wire', type: 'choice', value: 'transparent', advanced: true,
+                  options: [
+                      { value: 'black', label: 'Black' },
+                      { value: 'white', label: 'White' },
+                      { value: 'transparent', label: 'Transparent' }
+                  ] },
+        hue:    { label: 'Hue', type: 'range', min: 0, max: 360, step: 1, value: 40, unit: '°', advanced: true },
+        sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%', advanced: true }
     }
 };
 
@@ -55,6 +77,30 @@ const LIGHT_THEME = {
     dark:  { env: 0.2, glow: 1.8 }
 };
 const LIGHT_DEG = Math.PI / 180;
+// Soft round falloff for the bulb halo. A DataTexture is generated once so
+// the halo works in the browser and in the headless tests (no canvas).
+const HALO_TEX = (() => {
+    const size = 32;
+    const data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const dx = ((x + 0.5) / size) * 2 - 1;
+            const dy = ((y + 0.5) / size) * 2 - 1;
+            const d = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+            const a = Math.max(0, 1 - d);
+            const i = (y * size + x) * 4;
+            data[i] = 255;
+            data[i + 1] = 255;
+            data[i + 2] = 255;
+            data[i + 3] = Math.round(255 * a * a);
+        }
+    }
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+})();
 // One real spotlight per PAR/LED fixture, never more, never shadowed:
 // the scene's own rig owns shadows and the bounded count keeps a stage
 // full of fixtures harmless. The strip is emissive only.
@@ -313,6 +359,26 @@ export function createLightModel(type = 'light-par', initial = {}) {
         blending: THREE.AdditiveBlending, depthWrite: false
     });
     const matBeam = createBeamMaterial();
+    // Curtain strings are their own material pair: warm/white emissive
+    // bulbs on a thin dark feeder. Kept separate from the strip's flex so
+    // the two fixtures never share a tint by accident.
+    const matBulb = new THREE.MeshStandardMaterial({
+        color: 0x1a1208, emissive: 0xffd9a1, emissiveIntensity: 1,
+        roughness: 0.24, metalness: 0
+    });
+    // The drop wire is a thin cable, not a bright line. All three choices
+    // stay translucent so the bulbs, not the wire, carry the string.
+    const matWire = new THREE.LineBasicMaterial({
+        color: 0x141414, transparent: true, opacity: 0.6,
+        depthWrite: false
+    });
+    // Layer 3: a tiny soft halo around each bulb. One Points draw call per
+    // string keeps the diffusion cheap; the map is a shared DataTexture.
+    const matHalo = new THREE.PointsMaterial({
+        color: 0xffd9a1, map: HALO_TEX, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+        size: 0.14, sizeAttenuation: true
+    });
 
     let spot = null;
     let beam = null;
@@ -324,12 +390,22 @@ export function createLightModel(type = 'light-par', initial = {}) {
     let wash = [];
     const WASH_DIST = 9;
     const WASH_LUX = 9;   // per point, at full power
+    // Strings get a much tighter, softer throw than the rail strip: two
+    // points per string, short range, so the drape catches local pools
+    // instead of one broad orange wash.
+    const STRING_WASH_LUX = 2.4;
+    const STRING_WASH_DIST = 4.5;
     let themeNow = 'light';
     // A strip on a stripline anchor rides its frame's own curve - the rail
     // serpentine or the hem - handed over in the fixture's local space by
     // the app on every re-place. null means a straight tube of `length`.
     let pathPts = null;
     let pathKey = '';
+    // Local Y of the floor in the fixture's own space. The app hands it
+    // over on every re-place so a drop can never pierce the stage, even
+    // when the rail is lowered or declined. -5 keeps the bare preview
+    // model standing on a notional floor.
+    let floorY = -5;
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
@@ -338,6 +414,18 @@ export function createLightModel(type = 'light-par', initial = {}) {
     // amber or purple still reads as light. The SAME tint colours the lens,
     // the visible beam and the real spotlight - what you see is what glows.
     function tintColor() {
+        if (kind === 'string') {
+            // Warm White / White are the two presets. Saturation 0 keeps
+            // them; any saturation above 0 hands the colour to the
+            // Advanced hue/sat pair.
+            const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
+            if (s01 > 0.005) {
+                const h = ((Number(state.hue) % 360) + 360) % 360;
+                const l = 0.9 - 0.24 * s01;
+                return new THREE.Color().setHSL(h / 360, s01, l, THREE.SRGBColorSpace);
+            }
+            return new THREE.Color(state.warm === false ? 0xf4f8ff : 0xffd9a1);
+        }
         const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
         const h = ((Number(state.hue) % 360) + 360) % 360;
         const l = 0.92 - 0.34 * s01;
@@ -351,10 +439,27 @@ export function createLightModel(type = 'light-par', initial = {}) {
         matBeam.uniforms.uColor.value.copy(tint);
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        matBulb.emissive.copy(tint);
+        matBulb.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        // The drop wire reads as black, white or clear. Clear is a ghost
+        // line: still visible against the curtain, but it never competes
+        // with the bulbs.
+        const wire = state.wire === 'white' || state.wire === 'transparent'
+            ? state.wire : 'black';
+        matWire.color.setHex(wire === 'white' ? 0xd8e2ee
+            : wire === 'transparent' ? 0xe8f2ff : 0x141414);
+        matWire.opacity = wire === 'transparent' ? 0.16
+            : wire === 'white' ? 0.42 : 0.55;
+        matWire.transparent = true;
+        matWire.depthWrite = false;
+        matWire.needsUpdate = true;
+        matHalo.color.copy(tint);
+        matHalo.opacity = power01() * (themeNow === 'dark' ? 0.34 : 0.22);
         matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
         for (const l of wash) {
             l.color.copy(tint);
-            l.intensity = power01() * WASH_LUX;
+            l.intensity = power01()
+                * (Number.isFinite(l.userData.lux) ? l.userData.lux : WASH_LUX);
         }
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
@@ -402,7 +507,9 @@ export function createLightModel(type = 'light-par', initial = {}) {
 
     function clearRoot() {
         for (const o of [...root.children]) {
-            o.traverse(c => { if (c.isMesh) c.geometry.dispose(); });
+            // Lines and InstancedMesh carry geometry too; dispose every
+            // geometry on the way out, not just plain meshes.
+            o.traverse(c => { if (c.geometry) c.geometry.dispose(); });
             root.remove(o);
         }
         spot = null;
@@ -413,13 +520,118 @@ export function createLightModel(type = 'light-par', initial = {}) {
     // String the wash points along the tube: local positions in, point
     // lights out - dim and short-throw, so neighbours only ever catch a
     // grazing spill like real flex does.
-    function buildWash(points) {
+    function buildWash(points, lux = WASH_LUX, dist = WASH_DIST) {
         for (const p of points) {
-            const l = new THREE.PointLight(0xffffff, 0, WASH_DIST, 2);
+            const l = new THREE.PointLight(0xffffff, 0, dist, 2);
+            l.userData.lux = lux;
             l.position.set(p.x, p.y, p.z);
             root.add(l);
             wash.push(l);
         }
+    }
+
+    // The curtain-string assembly: one feeder tube along the rail, a
+    // vertical wire at every equal-spacing sample, and one instanced set
+    // of bulbs at a fixed 4 in pitch down each wire. All of it is built
+    // from the same path the strip uses, so Swing Pan, Centre Gap, Pitch
+    // and Decline move the strings with the fabric in the same frame.
+    function stringCurve() {
+        const pts = (pathPts && pathPts.length >= 2) ? pathPts : [
+            { x: -3, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }
+        ];
+        return new THREE.CatmullRomCurve3(
+            pts.map(p => new THREE.Vector3(p.x, p.y, p.z)),
+            false, 'catmullrom', 0.5);
+    }
+
+    function stringAutoDrop(curve) {
+        const c = curve || stringCurve();
+        let lowest = Infinity;
+        for (let i = 0; i <= 48; i++) {
+            const p = c.getPoint(i / 48);
+            lowest = Math.min(lowest, p.y - floorY);
+        }
+        if (!Number.isFinite(lowest)) return 4.5;
+        return Math.max(1, Math.min(10,
+            Math.round((lowest - 0.4) * 10) / 10));
+    }
+
+    function buildString() {
+        const curve = stringCurve();
+        const length = Math.max(0.1, curve.getLength());
+        const spacingIn = Math.max(0.5, Math.min(12,
+            Number(state.spacing) || 5));
+        const spacingFt = spacingIn / 12;
+        const intervals = Math.max(1, Math.round(length / spacingFt));
+        const samples = curve.getSpacedPoints(intervals);
+
+        // The feeder itself: a slim dark tube riding the rail's curve.
+        const tubeSegs = Math.min(720, Math.max(24, intervals * 2));
+        const feeder = new THREE.Mesh(
+            new THREE.TubeGeometry(curve, tubeSegs, 0.008, 5, false),
+            matHousing);
+        feeder.name = 'string_feeder';
+        root.add(feeder);
+
+        const drop = Math.max(0.5, Math.min(10, Number(state.drop) || 4.5));
+        const floorLimit = floorY + 0.35;
+        const pitch = 4 / 12;          // 4 in / 10 cm bulb pitch
+        const wire = [];
+        const bulbs = [];
+        for (const p of samples) {
+            const bottomY = Math.max(floorLimit, p.y - drop);
+            if (p.y - bottomY < 0.08) continue;
+            wire.push(p.x, p.y, p.z, p.x, bottomY, p.z);
+            for (let y = p.y - 0.18; y >= bottomY + 0.08; y -= pitch) {
+                bulbs.push([p.x, y, p.z]);
+            }
+        }
+        if (wire.length) {
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position',
+                new THREE.Float32BufferAttribute(wire, 3));
+            const lines = new THREE.LineSegments(geo, matWire);
+            lines.name = 'string_drops';
+            root.add(lines);
+        }
+        if (bulbs.length) {
+            // A capsule lens reads as a physical LED, not a flat dot. The
+            // 4 in pitch keeps the core small at stage distance.
+            const geo = new THREE.CapsuleGeometry(0.022, 0.05, 4, 8);
+            const inst = new THREE.InstancedMesh(geo, matBulb, bulbs.length);
+            inst.name = 'string_bulbs';
+            inst.frustumCulled = false;
+            const m = new THREE.Matrix4();
+            bulbs.forEach((b, i) => {
+                m.makeTranslation(b[0], b[1], b[2]);
+                inst.setMatrixAt(i, m);
+            });
+            inst.instanceMatrix.needsUpdate = true;
+            root.add(inst);
+
+            // Layer 3: one Points draw call for all the soft halos.
+            const haloGeo = new THREE.BufferGeometry();
+            const pos = new Float32Array(bulbs.length * 3);
+            bulbs.forEach((b, i) => {
+                pos[i * 3] = b[0];
+                pos[i * 3 + 1] = b[1];
+                pos[i * 3 + 2] = b[2];
+            });
+            haloGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const halo = new THREE.Points(haloGeo, matHalo);
+            halo.name = 'string_halo';
+            halo.frustumCulled = false;
+            root.add(halo);
+        }
+
+        // The throw: two dim points per string, close to the fabric, so
+        // the folds catch local pools instead of one broad orange patch.
+        const washPts = [0.35, 0.7].map(t => {
+            const p = curve.getPoint(t);
+            const bottomY = Math.max(floorLimit, p.y - drop);
+            return { x: p.x, y: (p.y + bottomY) / 2, z: p.z };
+        });
+        buildWash(washPts, STRING_WASH_LUX, STRING_WASH_DIST);
     }
 
     function build() {
@@ -432,7 +644,7 @@ export function createLightModel(type = 'light-par', initial = {}) {
         // plate); the fixture only knows its own local frame, +Y up,
         // aiming along -Z.
         const onRail = kind === 'strip' && !!pathPts && pathPts.length >= 2;
-        if (!onRail) {
+        if (!onRail && kind !== 'string') {
             const flange = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
             flange.position.y = 0.02;
@@ -473,6 +685,8 @@ export function createLightModel(type = 'light-par', initial = {}) {
                 buildWash([{ x: -len * 0.28, y: -0.25, z: 0 },
                     { x: len * 0.28, y: -0.25, z: 0 }]);
             }
+        } else if (kind === 'string') {
+            buildString();
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
             root.add(panG);
@@ -538,15 +752,17 @@ export function createLightModel(type = 'light-par', initial = {}) {
         matHousing.envMapIntensity = t.env;
         matYoke.envMapIntensity = t.env;
         matLens.envMapIntensity = t.env;
+        matBulb.envMapIntensity = t.env;
         applyGlow();
     }
 
     function dispose() {
-        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
         root.clear();
         spot = null;
         beam = null;
-        [matHousing, matYoke, matLens, matBeam, matGlow].forEach(m => m.dispose());
+        [matHousing, matYoke, matLens, matBulb, matWire, matHalo,
+            matBeam, matGlow].forEach(m => m.dispose());
     }
 
     const model = {
@@ -581,6 +797,20 @@ export function createLightModel(type = 'light-par', initial = {}) {
             pathPts = next;
             build();
             return true;
+        },
+        // Local floor for the curtain drops. The app re-sends it on every
+        // re-place; only a real change rebuilds.
+        setFloorY(y) {
+            const next = Number.isFinite(y) ? y : -5;
+            if (Math.abs(next - floorY) < 1e-6) return false;
+            floorY = next;
+            build();
+            return true;
+        },
+        // The longest drop that still clears the floor by ~0.4 ft. The
+        // panel's Auto button writes this back through the normal params.
+        autoDrop() {
+            return stringAutoDrop();
         },
         dispose
     };

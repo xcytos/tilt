@@ -553,6 +553,10 @@ function clampElemParams(type, params, anchor) {
             if (typeof v === 'boolean') out[k] = v;
             continue;
         }
+        if (p.type === 'choice') {
+            if (p.options && p.options.some(o => o.value === v)) out[k] = v;
+            continue;
+        }
         if (p.type !== 'range') continue;
         const n = Number(v);
         if (!Number.isFinite(n)) continue;
@@ -629,8 +633,9 @@ function defaultAnchorFor(frameId, type) {
     // falls back to the base plates, then the poles. Strips clamp to the
     // curtain's own strip lines (top rail, then hem) when the frame has
     // them, else high on the rail.
-    const kinds = type === 'light-strip'
-        ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
+    const kinds = type === 'light-string'
+        ? ['stripline'] : type === 'light-strip'
+            ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
     for (const kind of kinds) {
         const pool = opts.filter(o => o.kind === kind);
         if (pool.length) {
@@ -904,6 +909,11 @@ function refreshPillarPlaces() {
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
 const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0, stripline: 0 };
+// Curtain strings rest just on top of the drape, not out in the room.
+// The strip's 0.18 ft stand-off clears the rail tube; the strings add only
+// 0.02 ft more, so the drops sit on the fabric's deepest pleat with a
+// bulb-radius of clearance instead of floating in front of it.
+const STRING_OUT = 0.02;
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -948,7 +958,7 @@ function elementSpot(owner, anchors, anchorId) {
 // the hem - read from the frame's own anchors, so the tube follows Swing
 // Pan, Centre Gap and the wave exactly. Straight mounts (pole, rail
 // clamp, base) return null: those strips keep their `length` box.
-function stripPathFor(owner, anchors, entry) {
+function stripPathFor(owner, anchors, entry, extraOut = 0) {
     const a = (anchors || []).find(x => x.id === (entry && entry.anchor));
     if (!a || a.kind !== 'stripline' || !a.normal) return null;
     const side = a.side || (/-L-/.test(a.id) ? 'L' : 'R');
@@ -964,6 +974,7 @@ function stripPathFor(owner, anchors, entry) {
     // would be swallowed whole - invisible at the top mount. The same
     // stand-off keeps the hem line clear of the fabric.
     const STRIP_OUT = 0.18;
+    const out = STRIP_OUT + Math.max(0, Number(extraOut) || 0);
     // The spot's yaw carries the mount facing; the path arrives in the
     // fixture's own space by undoing it - the frame's turn cancels out,
     // only the anchor's facing remains.
@@ -972,9 +983,9 @@ function stripPathFor(owner, anchors, entry) {
     const ap = a.position;
     return rail.map(p => {
         const q = {
-            x: p.x + a.normal.x * STRIP_OUT - ap.x,
+            x: p.x + a.normal.x * out - ap.x,
             y: (hem ? ap.y : p.y) - ap.y,
-            z: p.z + a.normal.z * STRIP_OUT - ap.z
+            z: p.z + a.normal.z * out - ap.z
         };
         return { x: q.x * c - q.z * s, y: q.y, z: q.x * s + q.z * c };
     });
@@ -1007,8 +1018,18 @@ function refreshElementPlaces() {
         // curve every re-place - Swing Pan drags move the cloth and the
         // tube together, in the same frame.
         models.forEach((m, i) => {
-            if (typeof m.setPath !== 'function') return;
             const entry = list[i];
+            if (entry && entry.type === 'light-string') {
+                const a = anchors.find(x => x.id === entry.anchor);
+                const floorLocal = -((owner.object3D.position.y || 0)
+                    + (a ? a.position.y : 0));
+                if (typeof m.setFloorY === 'function') m.setFloorY(floorLocal);
+                if (typeof m.setPath === 'function') {
+                    m.setPath(stripPathFor(owner, anchors, entry, STRING_OUT));
+                }
+                return;
+            }
+            if (typeof m.setPath !== 'function') return;
             m.setPath(entry && entry.type === 'light-strip'
                 ? stripPathFor(owner, anchors, entry) : null);
         });
@@ -1766,6 +1787,36 @@ function onElementAdd(id, type) {
         && LIGHT_PARAMS[type.slice(6)].tilt) {
         params.tilt = -86;
     }
+    // Curtain strings hang from the top strip lines only. One Add fills
+    // whichever wall has no string yet, so the usual case is both walls
+    // at once and a second tap never piles a duplicate onto the same rail.
+    if (type === 'light-string') {
+        const lines = anchorOptionsFor(id).filter(o => o.kind === 'stripline');
+        const tops = ['L', 'R'].map(s => lines
+            .find(o => o.id === `stripline-${s}-T`)).filter(Boolean);
+        // Only another string occupies a top line; a strip or PAR on the
+        // same rail must not block a curtain hanging in front of it.
+        const taken = new Set(list.filter(e => e.type === type && e.anchor)
+            .map(e => e.anchor));
+        const free = tops.filter(o => !taken.has(o.id));
+        if (!free.length || list.length + free.length > 20) return false;
+        // Only another string donates its numbers. Copying a strip's
+        // hue/sat would make a fresh curtain arrive already tinted; the
+        // schema's warm-white defaults are the intended first look.
+        const own = donor && donor.type === type
+            ? Object.assign({}, donor.params) : {};
+        for (const a of free) {
+            list.push({
+                type,
+                anchor: a.id,
+                params: clampElemParams(type, own, a.id)
+            });
+        }
+        frameElements.set(id, list);
+        scheduleSave();
+        return syncScene();
+    }
+
     // A strip on a frame with curtain strip lines lands on BOTH walls at
     // once - one Add plants the pair, the top rails first and the hems
     // once the tops carry a strip. Two hand-adds never pile onto the
@@ -1815,6 +1866,12 @@ function onElementPatch(id, index, patch) {
     }
     if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
         && patch.type !== entry.type) {
+        // Curtain strings need a top strip line; a frame without one keeps
+        // its current fixture instead of silently parking a straight run.
+        if (patch.type === 'light-string'
+            && !anchorOptionsFor(id).some(o => o.kind === 'stripline')) {
+            return false;
+        }
         // A different fixture on the same hook: fresh numbers, and possibly
         // a different hook (strips clamp to the rail, par and led to the
         // floor uplights by default). A floor mount re-seeds the uplight aim.

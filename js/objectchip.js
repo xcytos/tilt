@@ -42,7 +42,8 @@ const CATEGORY_LABELS = {
 const LIGHT_CHOICES = [
     { type: 'light-par', short: 'PAR' },
     { type: 'light-led', short: 'LED' },
-    { type: 'light-strip', short: 'Strip' }
+    { type: 'light-strip', short: 'Strip' },
+    { type: 'light-string', short: 'String' }
 ];
 
 // input: {

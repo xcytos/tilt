@@ -153,7 +153,9 @@ const elemBad = [
   ['element toggle wrong type', [{ type: 'light-par', params: { enabled: 'yes' } }],
     /elements\[0\]\.params\.enabled must be true or false/],
   ['element anchor must be a string', [{ type: 'light-led', anchor: 7 }],
-    /elements\[0\]\.anchor must be a string/]
+    /elements\[0\]\.anchor must be a string/],
+  ['element choice outside options', [{ type: 'light-string', params: { wire: 'neon' } }],
+    /elements\[0\]\.params\.wire must be one of black, white, transparent/]
 ];
 for (const [label, elements, re] of elemBad) {
   const errs = validateDef({ id: 'x', name: 'x', objects: [{ type: 'o2tilt-frame', elements }] }, types);
@@ -258,6 +260,12 @@ console.log('\n7b. the S Curve def seeds the recommended entrance rig');
         strips.length === 2
         && strips.every(e => /^stripline-[LR]-T$/.test(e.anchor)
           && e.params.hue === 40 && e.params.sat > 0 && e.params.power > 0));
+  const strings = els.filter(e => e.type === 'light-string');
+  check('two warm-white curtain strings seed both walls',
+        strings.length === 2
+        && strings.every(e => /^stripline-[LR]-T$/.test(e.anchor)
+          && e.params.warm === true && e.params.spacing > 0
+          && e.params.drop > 0 && e.params.power > 0));
   check('the rig validates against the live schemas',
         validateDef(def, types).length === 0);
 }
@@ -294,6 +302,27 @@ console.log('\n7b. the S Curve def seeds the recommended entrance rig');
     && doc.folds.includes('Strip') && doc.folds.includes('LED')
     && !doc.folds.includes('../evil'),
     JSON.stringify(doc.folds));
+}
+
+{
+  const { parseProject } =
+    await import(pathToFileURL(path.join(DECOR, 'js/project.js')).href);
+  const doc = parseProject({
+    version: 2,
+    elements: { o2tilt: [{
+      type: 'light-string', anchor: 'stripline-L-T',
+      params: { power: 70, spacing: 2, drop: 3, warm: false, wire: 'white',
+        hue: 120, sat: 60 }
+    }] }
+  });
+  const e = doc && doc.elements && doc.elements.o2tilt
+    && doc.elements.o2tilt[0];
+  check('a string light round-trips spacing, drop, tone and tint',
+    !!e && e.type === 'light-string' && e.anchor === 'stripline-L-T'
+    && e.params.spacing === 2 && e.params.drop === 3
+    && e.params.warm === false && e.params.wire === 'white'
+    && e.params.hue === 120 && e.params.sat === 60,
+    JSON.stringify(e && e.params));
 }
 
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);

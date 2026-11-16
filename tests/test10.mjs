@@ -319,6 +319,13 @@ check('a collapsed shelf always has a way back',
   && /pointerup/.test(panelSrc) && /6\)/.test(panelSrc));
 check('the toolbar is the five creative chips, in session order',
   /id: 'shown'[\s\S]*id: 'sets'[\s\S]*id: 'look'[\s\S]*id: 'colour'[\s\S]*id: 'shape'[\s\S]*id: 'pillars'/.test(panelSrc));
+check('the String group exposes tone, spacing, drop Auto and Advanced tint',
+  /id: 'light-string', name: 'String'/.test(panelSrc)
+  && /Warm White/.test(panelSrc) && /stringspacing/.test(panelSrc)
+  && /uiButton\('Auto'/.test(panelSrc)
+  && /stringhue/.test(panelSrc) && /stringsat/.test(panelSrc)
+  && /const wire = p\('wire'\)/.test(panelSrc)
+  && /wire\.options/.test(panelSrc));
 check('a project opens on Sets, falling back only when the chip is hidden',
   /let activeTool = 'sets'/.test(panelSrc)
   && /if \(!live0\.some\(t => t\.id === activeTool\)\) activeTool = 'shape'/.test(panelSrc));
@@ -393,9 +400,9 @@ const built = buildObjectCards({
     category: 'pillars', qty: 2, placed: 1 }]
 });
 check('cards cover frames, pillars, lights, flowers and decor',
-  built.cards.length === 8
+  built.cards.length === 9
   && built.cards.map(c => c.category).join(',')
-    === 'frames,frames,pillars,lights,lights,lights,flowers,pillars');
+    === 'frames,frames,pillars,lights,lights,lights,lights,flowers,pillars');
 check('the tray offers each pillar type as its own attached card', (() => {
   const b = buildObjectCards({
     pillars: { frameId: 'o2tilt', frameName: 'S Curve', types: [
@@ -419,6 +426,7 @@ check('badges carry the live counts',
   built.cards.find(c => c.key === 'pillar:classical').badge === '1/2'
   && built.cards.find(c => c.key === 'light:light-par').badge === '3'
   && built.cards.find(c => c.key === 'light:light-led').badge === 'Add'
+  && built.cards.find(c => c.key === 'light:light-string').badge === 'Add'
   && built.cards.find(c => c.key === 'decor:pillar_rail_large').badge === '1'
   && built.cards.find(c => c.key === 'frame:hoop').badge === ''
   && built.cards.find(c => c.key === 'frame:o2tilt').badge === 'On stage');

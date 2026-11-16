@@ -908,7 +908,10 @@ check('one colour square rules every hue, and the rig folds away', (() => {
     && /const strips = ofType\('light-strip'\);\n        if \(strips\.length\) \{/
       .test(panel)
     && /const STRIP_OUT = 0\.18/.test(app)
-    && /p\.x \+ a\.normal\.x \* STRIP_OUT - ap\.x/.test(app)
+    && /const out = STRIP_OUT \+/.test(app)
+    && /p\.x \+ a\.normal\.x \* out - ap\.x/.test(app)
+    && /const STRING_OUT = 0\.02/.test(app)
+    && /stripPathFor\(owner, anchors, entry, STRING_OUT\)/.test(app)
     && /const tops = \['L', 'R'\]\.map\(s => seat\(s, 'T'\)\)/.test(app)
     && /list\.length \+ pair\.length <= 20/.test(app);
 })());
@@ -951,11 +954,14 @@ check('the strip is one neon-flex assembly, not a black tube', (() => {
     && /MeshBasicMaterial/.test(light)
     && /AdditiveBlending/.test(light)
     && /const onRail = kind === 'strip'/.test(light)
-    && /matHousing, matYoke, matLens, matBeam, matGlow/.test(light)
+    && /matHousing, matYoke, matLens, matBulb, matWire, matHalo,/.test(light)
     && /THREE\.ShapeUtils\.triangulateShape/.test(light)
-    && /function buildWash\(points\)/.test(light)
-    && /new THREE\.PointLight\(0xffffff, 0, WASH_DIST, 2\)/.test(light)
+    && /function buildWash\(points, lux = WASH_LUX, dist = WASH_DIST\)/.test(light)
+    && /new THREE\.PointLight\(0xffffff, 0, dist, 2\)/.test(light)
     && /buildWash\(\[0\.18, 0\.5, 0\.82\]/.test(light)
+    && /new THREE\.CapsuleGeometry\(0\.022, 0\.05, 4, 8\)/.test(light)
+    && /name = 'string_halo'/.test(light)
+    && /buildWash\(washPts, STRING_WASH_LUX, STRING_WASH_DIST\)/.test(light)
     && /for \(const l of wash\)/.test(light)
     && !/TubeGeometry\(curve, 48, 0\.07/.test(light)
     && !/TubeGeometry\(lensCurve, 48, 0\.045/.test(light);

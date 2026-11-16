@@ -63,6 +63,11 @@ export function validateDef(def, types) {
                 }
             } else if (p.type === 'toggle') {
                 if (typeof v !== 'boolean') errs.push(`${at}.params.${k} must be true or false`);
+            } else if (p.type === 'choice') {
+                if (!p.options || !p.options.some(o => o.value === v)) {
+                    errs.push(`${at}.params.${k} must be one of `
+                        + (p.options || []).map(o => o.value).join(', '));
+                }
             }
         }
 
@@ -99,6 +104,11 @@ export function validateDef(def, types) {
                     } else if (p.type === 'toggle') {
                         if (typeof v !== 'boolean') {
                             errs.push(`${where}.params.${k} must be true or false`);
+                        }
+                    } else if (p.type === 'choice') {
+                        if (!p.options || !p.options.some(o => o.value === v)) {
+                            errs.push(`${where}.params.${k} must be one of `
+                                + (p.options || []).map(o => o.value).join(', '));
                         }
                     }
                 }

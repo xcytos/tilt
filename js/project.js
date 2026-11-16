@@ -179,7 +179,13 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // finite and bounded - so a hand-edited project cannot smuggle a thousand
 // lights into the scene. The registered list itself is mirrored here (this
 // module imports nothing); app.js re-checks against the live registry.
-const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
+const ELEM_TYPES = ['light-par', 'light-led', 'light-strip', 'light-string'];
+// String-token params (not toggles or numbers) that may survive a file.
+// Kept in sync with the light schemas; unknown keys are still dropped by
+// the app's clamp on load.
+const ELEM_CHOICES = {
+    wire: ['black', 'white', 'transparent']
+};
 // Mount-point ids: kind-Side-index (`rail-L-3`, `pole-R-1`) or the strip
 // lines (`stripline-L-T`, `stripline-R-B`). The old digit-only tail wiped
 // every stripline anchor on load, which dropped rail strips back onto a
@@ -207,9 +213,16 @@ function cleanFrameElements(raw) {
                 for (const [k, n] of Object.entries(el.params)) {
                     if (keys >= 8) break;
                     if (!ELEM_PARAM_RE.test(k)) continue;
-                    // Booleans carry the schema's flags (Shown on/off);
+                    // Booleans carry the schema's flags (Shown on/off),
+                    // short safe tokens carry choices (a wire colour), and
                     // anything else has to be a real number.
                     if (typeof n === 'boolean') {
+                        params[k] = n;
+                        keys++;
+                        continue;
+                    }
+                    if (typeof n === 'string'
+                        && ELEM_CHOICES[k] && ELEM_CHOICES[k].includes(n)) {
                         params[k] = n;
                         keys++;
                         continue;
@@ -461,6 +474,11 @@ export function applySaved(state, schema, saved) {
             changed = true;
         } else if (p.type === 'toggle') {
             if (typeof v !== 'boolean' || state[k] === v) continue;
+            state[k] = v;
+            changed = true;
+        } else if (p.type === 'choice') {
+            if (!p.options || !p.options.some(o => o.value === v)
+                || state[k] === v) continue;
             state[k] = v;
             changed = true;
         }

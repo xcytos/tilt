@@ -647,6 +647,8 @@ export function createPanel(opts) {
     // The strip group's side filter: which walls its palette and power
     // reach - left, right, or both at once.
     let stripSide = 'both';
+    // The string group's own side filter - same job, separate memory.
+    let stringSide = 'both';
     // Which sections and fixture cards the user folded away. Survives the
     // re-render an Add or retarget triggers - a fold is a preference, not
     // a accident of one paint - and the project file remembers it between
@@ -1574,13 +1576,16 @@ export function createPanel(opts) {
         }
         wrap.appendChild(head);
 
-        // What the next Add plants: PAR, LED or Strip. Panel-local - a choice
+        // What the next Add plants: PAR, LED, Strip or String. Panel-local - a choice
         // about the NEXT light, remembered across rebuilds of this block.
         const choices = [
             { id: 'light-par', name: 'PAR' },
             { id: 'light-led', name: 'LED' },
-            { id: 'light-strip', name: 'Strip' }
+            { id: 'light-strip', name: 'Strip' },
+            { id: 'light-string', name: 'String' }
         ];
+        const canString = anchors.some(o => o.kind === 'stripline');
+        if (!canString && lastAddType === 'light-string') lastAddType = 'light-par';
         const addRow = document.createElement('div');
         addRow.className = 'mt-2 flex items-center gap-2';
         const typeBtns = new Map();
@@ -1588,9 +1593,15 @@ export function createPanel(opts) {
             const btn = document.createElement('button');
             btn.type = 'button';
             const on = c.id === lastAddType;
+            const off = c.id === 'light-string' && !canString;
             btn.className = chipCls(on);
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
             btn.textContent = c.name;
+            btn.disabled = off;
+            btn.dataset.off = off ? '1' : '0';
+            btn.title = off
+                ? 'String lights need a curtain rail with strip lines'
+                : '';
             btn.addEventListener('click', () => {
                 lastAddType = c.id;
                 for (const [cid, b] of typeBtns) {
@@ -2277,6 +2288,249 @@ export function createPanel(opts) {
                 stripLower.appendChild(rmRow);
             };
             repaintStrip();
+        }
+
+        // Curtain strings: one group per wall filter, like the Strip group.
+        // The tone presets are Warm White / White; Hue and Saturation live
+        // in Advanced, where raising Saturation turns the same bulbs into
+        // a tinted string. Drop length has an Auto button that fits the
+        // rail height and keeps the bulbs clear of the floor.
+        const strings = ofType('light-string');
+        if (strings.length) {
+            const stringSec = sectionOf('String');
+            const stringMatch = e => stringSide === 'both'
+                || sideOf(e && e.anchor) === (stringSide === 'left' ? 'L' : 'R');
+            const stringLms = () => strings.filter(x => stringMatch(x.e))
+                .map(x => lmOf(x.i)).filter(Boolean);
+
+            const sideRow = document.createElement('div');
+            sideRow.className = 'mt-1 flex items-center gap-2';
+            const sideBtns = new Map();
+            for (const [val, label] of [['left', 'Left'], ['right', 'Right'],
+                ['both', 'Both']]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === stringSide;
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = 'Which wall this group of strings reaches';
+                btn.addEventListener('click', () => {
+                    if (stringSide === val) return;
+                    stringSide = val;
+                    for (const [v, b] of sideBtns) {
+                        const act = v === stringSide;
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaintString();
+                });
+                live.buttons.push(btn);
+                sideBtns.set(val, btn);
+                sideRow.appendChild(btn);
+            }
+            stringSec.appendChild(sideRow);
+
+            const stringLower = document.createElement('div');
+            stringSec.appendChild(stringLower);
+
+            const repaintString = () => {
+                stringLower.textContent = '';
+                const lms = stringLms();
+                if (!lms.length) {
+                    const note = document.createElement('p');
+                    note.className = 'mt-1 text-[11px] text-gray-400 '
+                        + 'dark:text-zinc-500';
+                    note.textContent = 'No strings on this wall.';
+                    stringLower.appendChild(note);
+                    return;
+                }
+                const holder = lms.find(lm => lm.state && lm.params);
+                const p = k => holder && holder.params[k];
+
+                const shownRow = uiSwitchRow('Shown',
+                    'Hide the strings without removing them',
+                    lms.every(lm => lm.state.enabled !== false));
+                shownRow.input.addEventListener('change', () => {
+                    emit({ enabled: shownRow.input.checked }, lms);
+                });
+                live.checks.push(shownRow.input);
+                stringLower.appendChild(shownRow.row);
+
+                const toneLab = document.createElement('div');
+                toneLab.className = 'mt-2 text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400';
+                toneLab.textContent = 'Tone';
+                stringLower.appendChild(toneLab);
+                const warmNow = !lms.some(lm => lm.state && lm.state.warm === false);
+                const toneSeg = uiSeg([
+                    { id: 'warm', label: 'Warm White' },
+                    { id: 'white', label: 'White' }
+                ], warmNow ? 'warm' : 'white', id => {
+                    const targets = lms.filter(lm => lm.params && lm.params.warm);
+                    // A preset is authoritative: picking Warm White or
+                    // White also drops any Advanced tint, so the button
+                    // always does what it says.
+                    if (targets.length) {
+                        emit({ warm: id === 'warm', sat: 0 }, targets);
+                    }
+                }, it => it.id, it => it.label);
+                for (const b of toneSeg.buttons.values()) live.buttons.push(b);
+                stringLower.appendChild(toneSeg.row);
+
+                const spacing = p('spacing');
+                if (spacing) {
+                    const built = rangeBlock('stringspacing', spacing,
+                        holder.state.spacing, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, spacing.unit);
+                        emit({ spacing: v }, lms
+                            .filter(lm => lm.params && lm.params.spacing));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                }
+
+                const drop = p('drop');
+                if (drop) {
+                    const built = rangeBlock('stringdrop', drop,
+                        holder.state.drop, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, drop.unit);
+                        emit({ drop: v }, lms
+                            .filter(lm => lm.params && lm.params.drop));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                    const auto = uiButton('Auto', 'ghost', true);
+                    auto.classList.add('mt-1');
+                    auto.title = 'Fit the drops to the rail height, clear of the floor';
+                    auto.addEventListener('click', () => {
+                        const best = Math.min(...lms
+                            .filter(lm => typeof lm.autoDrop === 'function')
+                            .map(lm => lm.autoDrop()));
+                        if (!Number.isFinite(best)) return;
+                        built.input.value = best;
+                        built.value.textContent = fmt(best, drop.unit);
+                        emit({ drop: best }, lms
+                            .filter(lm => lm.params && lm.params.drop));
+                    });
+                    live.buttons.push(auto);
+                    stringLower.appendChild(auto);
+                }
+
+                const power = p('power');
+                if (power) {
+                    const built = rangeBlock('stringpower', power,
+                        holder.state.power, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, power.unit);
+                        emit({ power: v }, lms
+                            .filter(lm => lm.params && lm.params.power));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                }
+
+                const hue = p('hue');
+                const sat = p('sat');
+                if (hue && sat) {
+                    const det = document.createElement('details');
+                    det.className = 'ui-disclosure mt-2';
+                    const sum = document.createElement('summary');
+                    sum.textContent = 'Advanced';
+                    det.appendChild(sum);
+                    const body = document.createElement('div');
+                    body.className = 'ui-disclosure-body';
+                    det.appendChild(body);
+
+                    const wire = p('wire');
+                    if (wire && wire.options) {
+                        const lab = document.createElement('div');
+                        lab.className = 'mt-2 mb-1 text-[11px] font-semibold '
+                            + 'uppercase tracking-wider text-gray-500 '
+                            + 'dark:text-zinc-400';
+                        lab.textContent = 'Wire';
+                        body.appendChild(lab);
+                        const seg = uiSeg(wire.options,
+                            holder.state.wire || wire.value, id => {
+                                emit({ wire: id }, lms
+                                    .filter(lm => lm.params && lm.params.wire));
+                            }, it => it.value, it => it.label);
+                        for (const b of seg.buttons.values()) {
+                            live.buttons.push(b);
+                        }
+                        body.appendChild(seg.row);
+                    }
+
+                    const hueBuilt = rangeBlock('stringhue', hue,
+                        holder.state.hue, true);
+                    hueBuilt.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        hueBuilt.value.textContent = fmt(v, hue.unit);
+                        const s0 = Math.max(0, Number(holder.state.sat) || 0);
+                        emit({ hue: v, sat: s0 > 0 ? s0 : 30 },
+                            lms.filter(lm => lm.params && lm.params.hue));
+                    });
+                    live.selects.push(hueBuilt.input);
+                    body.appendChild(hueBuilt.wrap);
+
+                    const satBuilt = rangeBlock('stringsat', sat,
+                        holder.state.sat, true);
+                    satBuilt.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        satBuilt.value.textContent = fmt(v, sat.unit);
+                        emit({ sat: v }, lms
+                            .filter(lm => lm.params && lm.params.sat));
+                    });
+                    live.selects.push(satBuilt.input);
+                    body.appendChild(satBuilt.wrap);
+                    stringLower.appendChild(det);
+                }
+
+                const rmRow = document.createElement('div');
+                rmRow.className = 'mt-2 flex items-center gap-1.5 flex-wrap';
+                const rmLab = document.createElement('span');
+                rmLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                rmLab.textContent = 'Fixtures';
+                rmRow.appendChild(rmLab);
+                for (const x of strings.filter(y => stringMatch(y.e))) {
+                    const side = sideOf(x.e.anchor) || '?';
+                    const where = side === 'L' ? 'left'
+                        : side === 'R' ? 'right' : side;
+                    const pair = document.createElement('span');
+                    pair.className = 'flex items-center gap-1';
+                    const shown = shownBox([lmOf(x.i)],
+                        `Show the ${where} string`, 'Show this string');
+                    if (shown) pair.appendChild(shown);
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                        + 'dark:text-zinc-400 hover:border-red-400 '
+                        + 'hover:text-red-500 transition-colors';
+                    btn.textContent = '\u00d7';
+                    btn.title = `Remove the ${where} string`;
+                    btn.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        onElementRemove && onElementRemove(id, x.i);
+                    });
+                    live.buttons.push(btn);
+                    pair.appendChild(btn);
+                    rmRow.appendChild(pair);
+                }
+                stringLower.appendChild(rmRow);
+            };
+            repaintString();
         }
         return wrap;
     }

@@ -167,13 +167,13 @@ const catalog = buildCatalog({
 
 check('the catalog reports no problems', catalog.problems.length === 0,
   catalog.problems.join('; '));
-check('22 assets: 1 model + 9 types + 5 flowers + 7 greenery',
-  catalog.assets.length === 22, String(catalog.assets.length));
-check('ids are unique', new Set(catalog.assets.map(a => a.id)).size === 22);
+check('23 assets: 1 model + 10 types + 5 flowers + 7 greenery',
+  catalog.assets.length === 23, String(catalog.assets.length));
+check('ids are unique', new Set(catalog.assets.map(a => a.id)).size === 23);
 check('8 non-empty categories, counts sum to the asset count',
   catalog.categories.length === 8
   && catalog.categories.every(c => c.count > 0)
-  && catalog.categories.reduce((n, c) => n + c.count, 0) === 22,
+  && catalog.categories.reduce((n, c) => n + c.count, 0) === 23,
   JSON.stringify(catalog.categories));
 
 const byId = Object.fromEntries(catalog.assets.map(a => [a.id, a]));
@@ -181,7 +181,8 @@ check('o2tilt is the complete set, not a bare object',
   byId.o2tilt && byId.o2tilt.assetType === 'model'
   && byId.o2tilt.primaryCategory === 'Sets & Stages'
   && byId.o2tilt.dependencies.includes('o2tilt-frame')
-  && byId.o2tilt.dependencies.includes('light-par'));
+  && byId.o2tilt.dependencies.includes('light-par')
+  && byId.o2tilt.dependencies.includes('light-string'));
 check('the frame is its own object card beside the set',
   byId['o2tilt-frame'] && byId['o2tilt-frame'].assetType === 'object'
   && byId['o2tilt-frame'].primaryCategory === 'Structures');
@@ -210,7 +211,7 @@ check('nothing needs review - every asset matched evidence',
 check('byType tallies the four real roles',
   JSON.stringify(catalog.stats.byType) === JSON.stringify(
     [{ type: 'model', count: 1 }, { type: 'object', count: 5 },
-     { type: 'element', count: 15 }, { type: 'component', count: 1 }]),
+     { type: 'element', count: 16 }, { type: 'component', count: 1 }]),
   JSON.stringify(catalog.stats.byType));
 check('the decor inventory classifies without review',
   byId.pillar_rail_large && byId.pillar_rail_large.primaryCategory === 'Pillars & Columns'
@@ -247,15 +248,15 @@ check('each type filter alone returns its advertised count',
   filterAssets(A, { type: 'model' }).length === 1
   && filterAssets(A, { type: 'object' }).length === 5
   && filterAssets(A, { type: 'component' }).length === 1
-  && filterAssets(A, { type: 'element' }).length === 15);
+  && filterAssets(A, { type: 'element' }).length === 16);
 check('a cross-filter can empty the grid (the bug this guards)',
   filterAssets(A, { type: 'model', category: 'Panels' }).length === 0
   && filterAssets(A, { type: 'component', category: 'Lighting' }).length === 0);
 check('...but every facet still shows reachable counts to escape it', (() => {
   const f = facetCounts(A, { type: 'component', category: 'Lighting' });
-  // Type rail counts under the category filter: Lighting holds 3 elements,
-  // so "All assets (3)" is a working way out; Components itself is 0+inert.
-  return f.types.all === 3 && f.types.element === 3 && f.types.component === 0
+  // Type rail counts under the category filter: Lighting holds 4 elements,
+  // so "All assets (4)" is a working way out; Components itself is 0+inert.
+  return f.types.all === 4 && f.types.element === 4 && f.types.component === 0
     // Category rail counts under the type filter: Pillars still shows 1.
     && f.categories['Pillars & Columns'] === 1 && !f.categories['Lighting']
     && f.visible === 0;
@@ -267,7 +268,7 @@ check('facet counts shrink with the search, never lie',
   && facetCounts(A, { query: 'zzz-nothing' }).visible === 0);
 check('search alone never empties a matchable query',
   filterAssets(A, { query: 'pillar' }).length === 3
-  && filterAssets(A, { query: 'light' }).length === 3);
+  && filterAssets(A, { query: 'light' }).length === 4);
 
 // ------------------------------------------------------------- 4. the page
 console.log('\nmodels page: what home/models.js actually does');

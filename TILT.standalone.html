@@ -2412,7 +2412,13 @@ const SCENE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // finite and bounded - so a hand-edited project cannot smuggle a thousand
 // lights into the scene. The registered list itself is mirrored here (this
 // module imports nothing); app.js re-checks against the live registry.
-const ELEM_TYPES = ['light-par', 'light-led', 'light-strip'];
+const ELEM_TYPES = ['light-par', 'light-led', 'light-strip', 'light-string'];
+// String-token params (not toggles or numbers) that may survive a file.
+// Kept in sync with the light schemas; unknown keys are still dropped by
+// the app's clamp on load.
+const ELEM_CHOICES = {
+    wire: ['black', 'white', 'transparent']
+};
 // Mount-point ids: kind-Side-index (`rail-L-3`, `pole-R-1`) or the strip
 // lines (`stripline-L-T`, `stripline-R-B`). The old digit-only tail wiped
 // every stripline anchor on load, which dropped rail strips back onto a
@@ -2440,9 +2446,16 @@ function cleanFrameElements(raw) {
                 for (const [k, n] of Object.entries(el.params)) {
                     if (keys >= 8) break;
                     if (!ELEM_PARAM_RE.test(k)) continue;
-                    // Booleans carry the schema's flags (Shown on/off);
+                    // Booleans carry the schema's flags (Shown on/off),
+                    // short safe tokens carry choices (a wire colour), and
                     // anything else has to be a real number.
                     if (typeof n === 'boolean') {
+                        params[k] = n;
+                        keys++;
+                        continue;
+                    }
+                    if (typeof n === 'string'
+                        && ELEM_CHOICES[k] && ELEM_CHOICES[k].includes(n)) {
                         params[k] = n;
                         keys++;
                         continue;
@@ -2694,6 +2707,11 @@ function applySaved(state, schema, saved) {
             changed = true;
         } else if (p.type === 'toggle') {
             if (typeof v !== 'boolean' || state[k] === v) continue;
+            state[k] = v;
+            changed = true;
+        } else if (p.type === 'choice') {
+            if (!p.options || !p.options.some(o => o.value === v)
+                || state[k] === v) continue;
             state[k] = v;
             changed = true;
         }
@@ -6333,7 +6351,8 @@ const CATEGORY_LABELS = {
 const LIGHT_CHOICES = [
     { type: 'light-par', short: 'PAR' },
     { type: 'light-led', short: 'LED' },
-    { type: 'light-strip', short: 'Strip' }
+    { type: 'light-strip', short: 'Strip' },
+    { type: 'light-string', short: 'String' }
 ];
 
 // input: {
@@ -6717,6 +6736,11 @@ function validateDef(def, types) {
                 }
             } else if (p.type === 'toggle') {
                 if (typeof v !== 'boolean') errs.push(`${at}.params.${k} must be true or false`);
+            } else if (p.type === 'choice') {
+                if (!p.options || !p.options.some(o => o.value === v)) {
+                    errs.push(`${at}.params.${k} must be one of `
+                        + (p.options || []).map(o => o.value).join(', '));
+                }
             }
         }
 
@@ -6753,6 +6777,11 @@ function validateDef(def, types) {
                     } else if (p.type === 'toggle') {
                         if (typeof v !== 'boolean') {
                             errs.push(`${where}.params.${k} must be true or false`);
+                        }
+                    } else if (p.type === 'choice') {
+                        if (!p.options || !p.options.some(o => o.value === v)) {
+                            errs.push(`${where}.params.${k} must be one of `
+                                + (p.options || []).map(o => o.value).join(', '));
                         }
                     }
                 }
@@ -7282,8 +7311,11 @@ function createO2TiltModel(initial = {}) {
     const matPole = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, roughness: 0.4 });
     const matBase = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.7, roughness: 0.2 });
     const matJoint = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.75, roughness: 0.3 });
-    const matFabric = new THREE.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.9, metalness: 0.1,
+    // Satin reads through its sheen, not through emission. The fabric is
+    // deliberately non-emissive; the serial LEDs paint local pools on it.
+    const matFabric = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff, roughness: 0.46, metalness: 0,
+        sheen: 0.35, sheenRoughness: 0.5, sheenColor: 0xfff1de,
         side: THREE.DoubleSide, envMapIntensity: 0.15
     });
 
@@ -8425,11 +8457,12 @@ function createDecorModel(assetId) {
 // light-strip) so the panel renders each from its own schema, and mounted
 // on ANY model's anchors through the def's `elements` list - the anchor
 // contract (getAnchors) is what makes this system model-agnostic.
-const LIGHT_TYPES = ['light-par', 'light-led', 'light-strip'];
+const LIGHT_TYPES = ['light-par', 'light-led', 'light-strip', 'light-string'];
 const LIGHT_NAMES = {
     'light-par': 'PAR Light',
     'light-led': 'LED Wash',
-    'light-strip': 'Strip Light'
+    'light-strip': 'Strip Light',
+    'light-string': 'String Lights'
 };
 
 // Params stay range/toggle so registry validation, the panel and the
@@ -8466,6 +8499,27 @@ const LIGHT_PARAMS = {
         length: { label: 'Length', type: 'range', min: 1,  max: 12,  step: 0.5, value: 6,   unit: ' ft' },
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
         sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
+    },
+    // Curtain / serial string lights: a feeder wire rides the S-curve rail
+    // and vertical drops hang from it at equal spacing. Warm white is the
+    // shop default; White is the neutral alternative. The drop wire can
+    // be black, white or transparent. Hue and Saturation live in Advanced -
+    // Saturation 0 keeps the two white presets, and raising it turns the
+    // same bulbs into a tinted string.
+    string: {
+        enabled: { label: 'Shown', type: 'toggle', value: true },
+        power:  { label: 'Power',  type: 'range', min: 0, max: 100, step: 1, value: 100, unit: '%' },
+        spacing: { label: 'Drop spacing', type: 'range', min: 0.5, max: 12, step: 0.5, value: 5, unit: ' in' },
+        drop:   { label: 'Drop length', type: 'range', min: 1, max: 10, step: 0.5, value: 4.5, unit: ' ft' },
+        warm:   { label: 'Warm white', type: 'toggle', value: true },
+        wire:   { label: 'Wire', type: 'choice', value: 'transparent', advanced: true,
+                  options: [
+                      { value: 'black', label: 'Black' },
+                      { value: 'white', label: 'White' },
+                      { value: 'transparent', label: 'Transparent' }
+                  ] },
+        hue:    { label: 'Hue', type: 'range', min: 0, max: 360, step: 1, value: 40, unit: '°', advanced: true },
+        sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 0, unit: '%', advanced: true }
     }
 };
 
@@ -8474,6 +8528,30 @@ const LIGHT_THEME = {
     dark:  { env: 0.2, glow: 1.8 }
 };
 const LIGHT_DEG = Math.PI / 180;
+// Soft round falloff for the bulb halo. A DataTexture is generated once so
+// the halo works in the browser and in the headless tests (no canvas).
+const HALO_TEX = (() => {
+    const size = 32;
+    const data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const dx = ((x + 0.5) / size) * 2 - 1;
+            const dy = ((y + 0.5) / size) * 2 - 1;
+            const d = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+            const a = Math.max(0, 1 - d);
+            const i = (y * size + x) * 4;
+            data[i] = 255;
+            data[i + 1] = 255;
+            data[i + 2] = 255;
+            data[i + 3] = Math.round(255 * a * a);
+        }
+    }
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+})();
 // One real spotlight per PAR/LED fixture, never more, never shadowed:
 // the scene's own rig owns shadows and the bounded count keeps a stage
 // full of fixtures harmless. The strip is emissive only.
@@ -8732,6 +8810,26 @@ function createLightModel(type = 'light-par', initial = {}) {
         blending: THREE.AdditiveBlending, depthWrite: false
     });
     const matBeam = createBeamMaterial();
+    // Curtain strings are their own material pair: warm/white emissive
+    // bulbs on a thin dark feeder. Kept separate from the strip's flex so
+    // the two fixtures never share a tint by accident.
+    const matBulb = new THREE.MeshStandardMaterial({
+        color: 0x1a1208, emissive: 0xffd9a1, emissiveIntensity: 1,
+        roughness: 0.24, metalness: 0
+    });
+    // The drop wire is a thin cable, not a bright line. All three choices
+    // stay translucent so the bulbs, not the wire, carry the string.
+    const matWire = new THREE.LineBasicMaterial({
+        color: 0x141414, transparent: true, opacity: 0.6,
+        depthWrite: false
+    });
+    // Layer 3: a tiny soft halo around each bulb. One Points draw call per
+    // string keeps the diffusion cheap; the map is a shared DataTexture.
+    const matHalo = new THREE.PointsMaterial({
+        color: 0xffd9a1, map: HALO_TEX, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+        size: 0.14, sizeAttenuation: true
+    });
 
     let spot = null;
     let beam = null;
@@ -8743,12 +8841,22 @@ function createLightModel(type = 'light-par', initial = {}) {
     let wash = [];
     const WASH_DIST = 9;
     const WASH_LUX = 9;   // per point, at full power
+    // Strings get a much tighter, softer throw than the rail strip: two
+    // points per string, short range, so the drape catches local pools
+    // instead of one broad orange wash.
+    const STRING_WASH_LUX = 2.4;
+    const STRING_WASH_DIST = 4.5;
     let themeNow = 'light';
     // A strip on a stripline anchor rides its frame's own curve - the rail
     // serpentine or the hem - handed over in the fixture's local space by
     // the app on every re-place. null means a straight tube of `length`.
     let pathPts = null;
     let pathKey = '';
+    // Local Y of the floor in the fixture's own space. The app hands it
+    // over on every re-place so a drop can never pierce the stage, even
+    // when the rail is lowered or declined. -5 keeps the bare preview
+    // model standing on a notional floor.
+    let floorY = -5;
 
     const power01 = () => Math.max(0, Math.min(100, state.power)) / 100;
 
@@ -8757,6 +8865,18 @@ function createLightModel(type = 'light-par', initial = {}) {
     // amber or purple still reads as light. The SAME tint colours the lens,
     // the visible beam and the real spotlight - what you see is what glows.
     function tintColor() {
+        if (kind === 'string') {
+            // Warm White / White are the two presets. Saturation 0 keeps
+            // them; any saturation above 0 hands the colour to the
+            // Advanced hue/sat pair.
+            const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
+            if (s01 > 0.005) {
+                const h = ((Number(state.hue) % 360) + 360) % 360;
+                const l = 0.9 - 0.24 * s01;
+                return new THREE.Color().setHSL(h / 360, s01, l, THREE.SRGBColorSpace);
+            }
+            return new THREE.Color(state.warm === false ? 0xf4f8ff : 0xffd9a1);
+        }
         const s01 = Math.max(0, Math.min(100, state.sat)) / 100;
         const h = ((Number(state.hue) % 360) + 360) % 360;
         const l = 0.92 - 0.34 * s01;
@@ -8770,10 +8890,27 @@ function createLightModel(type = 'light-par', initial = {}) {
         matBeam.uniforms.uColor.value.copy(tint);
         if (spot) spot.color.copy(tint);
         matLens.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        matBulb.emissive.copy(tint);
+        matBulb.emissiveIntensity = power01() * LIGHT_THEME[themeNow].glow;
+        // The drop wire reads as black, white or clear. Clear is a ghost
+        // line: still visible against the curtain, but it never competes
+        // with the bulbs.
+        const wire = state.wire === 'white' || state.wire === 'transparent'
+            ? state.wire : 'black';
+        matWire.color.setHex(wire === 'white' ? 0xd8e2ee
+            : wire === 'transparent' ? 0xe8f2ff : 0x141414);
+        matWire.opacity = wire === 'transparent' ? 0.16
+            : wire === 'white' ? 0.42 : 0.55;
+        matWire.transparent = true;
+        matWire.depthWrite = false;
+        matWire.needsUpdate = true;
+        matHalo.color.copy(tint);
+        matHalo.opacity = power01() * (themeNow === 'dark' ? 0.34 : 0.22);
         matGlow.opacity = power01() * (themeNow === 'dark' ? 0.22 : 0.14);
         for (const l of wash) {
             l.color.copy(tint);
-            l.intensity = power01() * WASH_LUX;
+            l.intensity = power01()
+                * (Number.isFinite(l.userData.lux) ? l.userData.lux : WASH_LUX);
         }
         if (spot) spot.intensity = power01() * SPOT_BASE[kind];
         if (beam) {
@@ -8821,7 +8958,9 @@ function createLightModel(type = 'light-par', initial = {}) {
 
     function clearRoot() {
         for (const o of [...root.children]) {
-            o.traverse(c => { if (c.isMesh) c.geometry.dispose(); });
+            // Lines and InstancedMesh carry geometry too; dispose every
+            // geometry on the way out, not just plain meshes.
+            o.traverse(c => { if (c.geometry) c.geometry.dispose(); });
             root.remove(o);
         }
         spot = null;
@@ -8832,13 +8971,118 @@ function createLightModel(type = 'light-par', initial = {}) {
     // String the wash points along the tube: local positions in, point
     // lights out - dim and short-throw, so neighbours only ever catch a
     // grazing spill like real flex does.
-    function buildWash(points) {
+    function buildWash(points, lux = WASH_LUX, dist = WASH_DIST) {
         for (const p of points) {
-            const l = new THREE.PointLight(0xffffff, 0, WASH_DIST, 2);
+            const l = new THREE.PointLight(0xffffff, 0, dist, 2);
+            l.userData.lux = lux;
             l.position.set(p.x, p.y, p.z);
             root.add(l);
             wash.push(l);
         }
+    }
+
+    // The curtain-string assembly: one feeder tube along the rail, a
+    // vertical wire at every equal-spacing sample, and one instanced set
+    // of bulbs at a fixed 4 in pitch down each wire. All of it is built
+    // from the same path the strip uses, so Swing Pan, Centre Gap, Pitch
+    // and Decline move the strings with the fabric in the same frame.
+    function stringCurve() {
+        const pts = (pathPts && pathPts.length >= 2) ? pathPts : [
+            { x: -3, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }
+        ];
+        return new THREE.CatmullRomCurve3(
+            pts.map(p => new THREE.Vector3(p.x, p.y, p.z)),
+            false, 'catmullrom', 0.5);
+    }
+
+    function stringAutoDrop(curve) {
+        const c = curve || stringCurve();
+        let lowest = Infinity;
+        for (let i = 0; i <= 48; i++) {
+            const p = c.getPoint(i / 48);
+            lowest = Math.min(lowest, p.y - floorY);
+        }
+        if (!Number.isFinite(lowest)) return 4.5;
+        return Math.max(1, Math.min(10,
+            Math.round((lowest - 0.4) * 10) / 10));
+    }
+
+    function buildString() {
+        const curve = stringCurve();
+        const length = Math.max(0.1, curve.getLength());
+        const spacingIn = Math.max(0.5, Math.min(12,
+            Number(state.spacing) || 5));
+        const spacingFt = spacingIn / 12;
+        const intervals = Math.max(1, Math.round(length / spacingFt));
+        const samples = curve.getSpacedPoints(intervals);
+
+        // The feeder itself: a slim dark tube riding the rail's curve.
+        const tubeSegs = Math.min(720, Math.max(24, intervals * 2));
+        const feeder = new THREE.Mesh(
+            new THREE.TubeGeometry(curve, tubeSegs, 0.008, 5, false),
+            matHousing);
+        feeder.name = 'string_feeder';
+        root.add(feeder);
+
+        const drop = Math.max(0.5, Math.min(10, Number(state.drop) || 4.5));
+        const floorLimit = floorY + 0.35;
+        const pitch = 4 / 12;          // 4 in / 10 cm bulb pitch
+        const wire = [];
+        const bulbs = [];
+        for (const p of samples) {
+            const bottomY = Math.max(floorLimit, p.y - drop);
+            if (p.y - bottomY < 0.08) continue;
+            wire.push(p.x, p.y, p.z, p.x, bottomY, p.z);
+            for (let y = p.y - 0.18; y >= bottomY + 0.08; y -= pitch) {
+                bulbs.push([p.x, y, p.z]);
+            }
+        }
+        if (wire.length) {
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position',
+                new THREE.Float32BufferAttribute(wire, 3));
+            const lines = new THREE.LineSegments(geo, matWire);
+            lines.name = 'string_drops';
+            root.add(lines);
+        }
+        if (bulbs.length) {
+            // A capsule lens reads as a physical LED, not a flat dot. The
+            // 4 in pitch keeps the core small at stage distance.
+            const geo = new THREE.CapsuleGeometry(0.022, 0.05, 4, 8);
+            const inst = new THREE.InstancedMesh(geo, matBulb, bulbs.length);
+            inst.name = 'string_bulbs';
+            inst.frustumCulled = false;
+            const m = new THREE.Matrix4();
+            bulbs.forEach((b, i) => {
+                m.makeTranslation(b[0], b[1], b[2]);
+                inst.setMatrixAt(i, m);
+            });
+            inst.instanceMatrix.needsUpdate = true;
+            root.add(inst);
+
+            // Layer 3: one Points draw call for all the soft halos.
+            const haloGeo = new THREE.BufferGeometry();
+            const pos = new Float32Array(bulbs.length * 3);
+            bulbs.forEach((b, i) => {
+                pos[i * 3] = b[0];
+                pos[i * 3 + 1] = b[1];
+                pos[i * 3 + 2] = b[2];
+            });
+            haloGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const halo = new THREE.Points(haloGeo, matHalo);
+            halo.name = 'string_halo';
+            halo.frustumCulled = false;
+            root.add(halo);
+        }
+
+        // The throw: two dim points per string, close to the fabric, so
+        // the folds catch local pools instead of one broad orange patch.
+        const washPts = [0.35, 0.7].map(t => {
+            const p = curve.getPoint(t);
+            const bottomY = Math.max(floorLimit, p.y - drop);
+            return { x: p.x, y: (p.y + bottomY) / 2, z: p.z };
+        });
+        buildWash(washPts, STRING_WASH_LUX, STRING_WASH_DIST);
     }
 
     function build() {
@@ -8851,7 +9095,7 @@ function createLightModel(type = 'light-par', initial = {}) {
         // plate); the fixture only knows its own local frame, +Y up,
         // aiming along -Z.
         const onRail = kind === 'strip' && !!pathPts && pathPts.length >= 2;
-        if (!onRail) {
+        if (!onRail && kind !== 'string') {
             const flange = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.13, 0.15, 0.04, 16), matHousing);
             flange.position.y = 0.02;
@@ -8892,6 +9136,8 @@ function createLightModel(type = 'light-par', initial = {}) {
                 buildWash([{ x: -len * 0.28, y: -0.25, z: 0 },
                     { x: len * 0.28, y: -0.25, z: 0 }]);
             }
+        } else if (kind === 'string') {
+            buildString();
         } else if (kind === 'par') {
             const { panG, tiltG } = buildYoke();
             root.add(panG);
@@ -8957,15 +9203,17 @@ function createLightModel(type = 'light-par', initial = {}) {
         matHousing.envMapIntensity = t.env;
         matYoke.envMapIntensity = t.env;
         matLens.envMapIntensity = t.env;
+        matBulb.envMapIntensity = t.env;
         applyGlow();
     }
 
     function dispose() {
-        root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+        root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
         root.clear();
         spot = null;
         beam = null;
-        [matHousing, matYoke, matLens, matBeam, matGlow].forEach(m => m.dispose());
+        [matHousing, matYoke, matLens, matBulb, matWire, matHalo,
+            matBeam, matGlow].forEach(m => m.dispose());
     }
 
     const model = {
@@ -9000,6 +9248,20 @@ function createLightModel(type = 'light-par', initial = {}) {
             pathPts = next;
             build();
             return true;
+        },
+        // Local floor for the curtain drops. The app re-sends it on every
+        // re-place; only a real change rebuilds.
+        setFloorY(y) {
+            const next = Number.isFinite(y) ? y : -5;
+            if (Math.abs(next - floorY) < 1e-6) return false;
+            floorY = next;
+            build();
+            return true;
+        },
+        // The longest drop that still clears the floor by ~0.4 ft. The
+        // panel's Auto button writes this back through the normal params.
+        autoDrop() {
+            return stringAutoDrop();
         },
         dispose
     };
@@ -10415,6 +10677,8 @@ function createPanel(opts) {
     // The strip group's side filter: which walls its palette and power
     // reach - left, right, or both at once.
     let stripSide = 'both';
+    // The string group's own side filter - same job, separate memory.
+    let stringSide = 'both';
     // Which sections and fixture cards the user folded away. Survives the
     // re-render an Add or retarget triggers - a fold is a preference, not
     // a accident of one paint - and the project file remembers it between
@@ -11342,13 +11606,16 @@ function createPanel(opts) {
         }
         wrap.appendChild(head);
 
-        // What the next Add plants: PAR, LED or Strip. Panel-local - a choice
+        // What the next Add plants: PAR, LED, Strip or String. Panel-local - a choice
         // about the NEXT light, remembered across rebuilds of this block.
         const choices = [
             { id: 'light-par', name: 'PAR' },
             { id: 'light-led', name: 'LED' },
-            { id: 'light-strip', name: 'Strip' }
+            { id: 'light-strip', name: 'Strip' },
+            { id: 'light-string', name: 'String' }
         ];
+        const canString = anchors.some(o => o.kind === 'stripline');
+        if (!canString && lastAddType === 'light-string') lastAddType = 'light-par';
         const addRow = document.createElement('div');
         addRow.className = 'mt-2 flex items-center gap-2';
         const typeBtns = new Map();
@@ -11356,9 +11623,15 @@ function createPanel(opts) {
             const btn = document.createElement('button');
             btn.type = 'button';
             const on = c.id === lastAddType;
+            const off = c.id === 'light-string' && !canString;
             btn.className = chipCls(on);
             btn.setAttribute('aria-pressed', on ? 'true' : 'false');
             btn.textContent = c.name;
+            btn.disabled = off;
+            btn.dataset.off = off ? '1' : '0';
+            btn.title = off
+                ? 'String lights need a curtain rail with strip lines'
+                : '';
             btn.addEventListener('click', () => {
                 lastAddType = c.id;
                 for (const [cid, b] of typeBtns) {
@@ -12045,6 +12318,249 @@ function createPanel(opts) {
                 stripLower.appendChild(rmRow);
             };
             repaintStrip();
+        }
+
+        // Curtain strings: one group per wall filter, like the Strip group.
+        // The tone presets are Warm White / White; Hue and Saturation live
+        // in Advanced, where raising Saturation turns the same bulbs into
+        // a tinted string. Drop length has an Auto button that fits the
+        // rail height and keeps the bulbs clear of the floor.
+        const strings = ofType('light-string');
+        if (strings.length) {
+            const stringSec = sectionOf('String');
+            const stringMatch = e => stringSide === 'both'
+                || sideOf(e && e.anchor) === (stringSide === 'left' ? 'L' : 'R');
+            const stringLms = () => strings.filter(x => stringMatch(x.e))
+                .map(x => lmOf(x.i)).filter(Boolean);
+
+            const sideRow = document.createElement('div');
+            sideRow.className = 'mt-1 flex items-center gap-2';
+            const sideBtns = new Map();
+            for (const [val, label] of [['left', 'Left'], ['right', 'Right'],
+                ['both', 'Both']]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const on = val === stringSide;
+                btn.className = chipCls(on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+                btn.textContent = label;
+                btn.title = 'Which wall this group of strings reaches';
+                btn.addEventListener('click', () => {
+                    if (stringSide === val) return;
+                    stringSide = val;
+                    for (const [v, b] of sideBtns) {
+                        const act = v === stringSide;
+                        b.className = chipCls(act);
+                        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+                    }
+                    repaintString();
+                });
+                live.buttons.push(btn);
+                sideBtns.set(val, btn);
+                sideRow.appendChild(btn);
+            }
+            stringSec.appendChild(sideRow);
+
+            const stringLower = document.createElement('div');
+            stringSec.appendChild(stringLower);
+
+            const repaintString = () => {
+                stringLower.textContent = '';
+                const lms = stringLms();
+                if (!lms.length) {
+                    const note = document.createElement('p');
+                    note.className = 'mt-1 text-[11px] text-gray-400 '
+                        + 'dark:text-zinc-500';
+                    note.textContent = 'No strings on this wall.';
+                    stringLower.appendChild(note);
+                    return;
+                }
+                const holder = lms.find(lm => lm.state && lm.params);
+                const p = k => holder && holder.params[k];
+
+                const shownRow = uiSwitchRow('Shown',
+                    'Hide the strings without removing them',
+                    lms.every(lm => lm.state.enabled !== false));
+                shownRow.input.addEventListener('change', () => {
+                    emit({ enabled: shownRow.input.checked }, lms);
+                });
+                live.checks.push(shownRow.input);
+                stringLower.appendChild(shownRow.row);
+
+                const toneLab = document.createElement('div');
+                toneLab.className = 'mt-2 text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400';
+                toneLab.textContent = 'Tone';
+                stringLower.appendChild(toneLab);
+                const warmNow = !lms.some(lm => lm.state && lm.state.warm === false);
+                const toneSeg = uiSeg([
+                    { id: 'warm', label: 'Warm White' },
+                    { id: 'white', label: 'White' }
+                ], warmNow ? 'warm' : 'white', id => {
+                    const targets = lms.filter(lm => lm.params && lm.params.warm);
+                    // A preset is authoritative: picking Warm White or
+                    // White also drops any Advanced tint, so the button
+                    // always does what it says.
+                    if (targets.length) {
+                        emit({ warm: id === 'warm', sat: 0 }, targets);
+                    }
+                }, it => it.id, it => it.label);
+                for (const b of toneSeg.buttons.values()) live.buttons.push(b);
+                stringLower.appendChild(toneSeg.row);
+
+                const spacing = p('spacing');
+                if (spacing) {
+                    const built = rangeBlock('stringspacing', spacing,
+                        holder.state.spacing, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, spacing.unit);
+                        emit({ spacing: v }, lms
+                            .filter(lm => lm.params && lm.params.spacing));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                }
+
+                const drop = p('drop');
+                if (drop) {
+                    const built = rangeBlock('stringdrop', drop,
+                        holder.state.drop, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, drop.unit);
+                        emit({ drop: v }, lms
+                            .filter(lm => lm.params && lm.params.drop));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                    const auto = uiButton('Auto', 'ghost', true);
+                    auto.classList.add('mt-1');
+                    auto.title = 'Fit the drops to the rail height, clear of the floor';
+                    auto.addEventListener('click', () => {
+                        const best = Math.min(...lms
+                            .filter(lm => typeof lm.autoDrop === 'function')
+                            .map(lm => lm.autoDrop()));
+                        if (!Number.isFinite(best)) return;
+                        built.input.value = best;
+                        built.value.textContent = fmt(best, drop.unit);
+                        emit({ drop: best }, lms
+                            .filter(lm => lm.params && lm.params.drop));
+                    });
+                    live.buttons.push(auto);
+                    stringLower.appendChild(auto);
+                }
+
+                const power = p('power');
+                if (power) {
+                    const built = rangeBlock('stringpower', power,
+                        holder.state.power, true);
+                    built.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        built.value.textContent = fmt(v, power.unit);
+                        emit({ power: v }, lms
+                            .filter(lm => lm.params && lm.params.power));
+                    });
+                    live.selects.push(built.input);
+                    stringLower.appendChild(built.wrap);
+                }
+
+                const hue = p('hue');
+                const sat = p('sat');
+                if (hue && sat) {
+                    const det = document.createElement('details');
+                    det.className = 'ui-disclosure mt-2';
+                    const sum = document.createElement('summary');
+                    sum.textContent = 'Advanced';
+                    det.appendChild(sum);
+                    const body = document.createElement('div');
+                    body.className = 'ui-disclosure-body';
+                    det.appendChild(body);
+
+                    const wire = p('wire');
+                    if (wire && wire.options) {
+                        const lab = document.createElement('div');
+                        lab.className = 'mt-2 mb-1 text-[11px] font-semibold '
+                            + 'uppercase tracking-wider text-gray-500 '
+                            + 'dark:text-zinc-400';
+                        lab.textContent = 'Wire';
+                        body.appendChild(lab);
+                        const seg = uiSeg(wire.options,
+                            holder.state.wire || wire.value, id => {
+                                emit({ wire: id }, lms
+                                    .filter(lm => lm.params && lm.params.wire));
+                            }, it => it.value, it => it.label);
+                        for (const b of seg.buttons.values()) {
+                            live.buttons.push(b);
+                        }
+                        body.appendChild(seg.row);
+                    }
+
+                    const hueBuilt = rangeBlock('stringhue', hue,
+                        holder.state.hue, true);
+                    hueBuilt.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        hueBuilt.value.textContent = fmt(v, hue.unit);
+                        const s0 = Math.max(0, Number(holder.state.sat) || 0);
+                        emit({ hue: v, sat: s0 > 0 ? s0 : 30 },
+                            lms.filter(lm => lm.params && lm.params.hue));
+                    });
+                    live.selects.push(hueBuilt.input);
+                    body.appendChild(hueBuilt.wrap);
+
+                    const satBuilt = rangeBlock('stringsat', sat,
+                        holder.state.sat, true);
+                    satBuilt.input.addEventListener('input', e => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        satBuilt.value.textContent = fmt(v, sat.unit);
+                        emit({ sat: v }, lms
+                            .filter(lm => lm.params && lm.params.sat));
+                    });
+                    live.selects.push(satBuilt.input);
+                    body.appendChild(satBuilt.wrap);
+                    stringLower.appendChild(det);
+                }
+
+                const rmRow = document.createElement('div');
+                rmRow.className = 'mt-2 flex items-center gap-1.5 flex-wrap';
+                const rmLab = document.createElement('span');
+                rmLab.className = 'text-[11px] font-semibold uppercase '
+                    + 'tracking-wider text-gray-500 dark:text-zinc-400 mr-1';
+                rmLab.textContent = 'Fixtures';
+                rmRow.appendChild(rmLab);
+                for (const x of strings.filter(y => stringMatch(y.e))) {
+                    const side = sideOf(x.e.anchor) || '?';
+                    const where = side === 'L' ? 'left'
+                        : side === 'R' ? 'right' : side;
+                    const pair = document.createElement('span');
+                    pair.className = 'flex items-center gap-1';
+                    const shown = shownBox([lmOf(x.i)],
+                        `Show the ${where} string`, 'Show this string');
+                    if (shown) pair.appendChild(shown);
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'w-7 h-7 rounded-md border border-gray-300 '
+                        + 'dark:border-zinc-600 text-xs leading-none text-gray-500 '
+                        + 'dark:text-zinc-400 hover:border-red-400 '
+                        + 'hover:text-red-500 transition-colors';
+                    btn.textContent = '\u00d7';
+                    btn.title = `Remove the ${where} string`;
+                    btn.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        onElementRemove && onElementRemove(id, x.i);
+                    });
+                    live.buttons.push(btn);
+                    pair.appendChild(btn);
+                    rmRow.appendChild(pair);
+                }
+                stringLower.appendChild(rmRow);
+            };
+            repaintString();
         }
         return wrap;
     }
@@ -13587,6 +14103,10 @@ function clampElemParams(type, params, anchor) {
             if (typeof v === 'boolean') out[k] = v;
             continue;
         }
+        if (p.type === 'choice') {
+            if (p.options && p.options.some(o => o.value === v)) out[k] = v;
+            continue;
+        }
         if (p.type !== 'range') continue;
         const n = Number(v);
         if (!Number.isFinite(n)) continue;
@@ -13663,8 +14183,9 @@ function defaultAnchorFor(frameId, type) {
     // falls back to the base plates, then the poles. Strips clamp to the
     // curtain's own strip lines (top rail, then hem) when the frame has
     // them, else high on the rail.
-    const kinds = type === 'light-strip'
-        ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
+    const kinds = type === 'light-string'
+        ? ['stripline'] : type === 'light-strip'
+            ? ['stripline', 'rail', 'pole'] : ['uplight', 'base', 'pole'];
     for (const kind of kinds) {
         const pool = opts.filter(o => o.kind === kind);
         if (pool.length) {
@@ -13938,6 +14459,11 @@ function refreshPillarPlaces() {
 // Mount height above the anchor itself: base plates sit flat on the floor,
 // pole and rail fixtures sit just proud of whatever they clamp to.
 const MOUNT_Y = { base: 0, pole: 0.12, rail: 0.12, uplight: 0, stripline: 0 };
+// Curtain strings rest just on top of the drape, not out in the room.
+// The strip's 0.18 ft stand-off clears the rail tube; the strings add only
+// 0.02 ft more, so the drops sit on the fabric's deepest pleat with a
+// bulb-radius of clearance instead of floating in front of it.
+const STRING_OUT = 0.02;
 
 // Where one light stands: its anchor on the frame it belongs to, resolved
 // after the frame has been placed, so it travels with the frame exactly as a
@@ -13982,7 +14508,7 @@ function elementSpot(owner, anchors, anchorId) {
 // the hem - read from the frame's own anchors, so the tube follows Swing
 // Pan, Centre Gap and the wave exactly. Straight mounts (pole, rail
 // clamp, base) return null: those strips keep their `length` box.
-function stripPathFor(owner, anchors, entry) {
+function stripPathFor(owner, anchors, entry, extraOut = 0) {
     const a = (anchors || []).find(x => x.id === (entry && entry.anchor));
     if (!a || a.kind !== 'stripline' || !a.normal) return null;
     const side = a.side || (/-L-/.test(a.id) ? 'L' : 'R');
@@ -13998,6 +14524,7 @@ function stripPathFor(owner, anchors, entry) {
     // would be swallowed whole - invisible at the top mount. The same
     // stand-off keeps the hem line clear of the fabric.
     const STRIP_OUT = 0.18;
+    const out = STRIP_OUT + Math.max(0, Number(extraOut) || 0);
     // The spot's yaw carries the mount facing; the path arrives in the
     // fixture's own space by undoing it - the frame's turn cancels out,
     // only the anchor's facing remains.
@@ -14006,9 +14533,9 @@ function stripPathFor(owner, anchors, entry) {
     const ap = a.position;
     return rail.map(p => {
         const q = {
-            x: p.x + a.normal.x * STRIP_OUT - ap.x,
+            x: p.x + a.normal.x * out - ap.x,
             y: (hem ? ap.y : p.y) - ap.y,
-            z: p.z + a.normal.z * STRIP_OUT - ap.z
+            z: p.z + a.normal.z * out - ap.z
         };
         return { x: q.x * c - q.z * s, y: q.y, z: q.x * s + q.z * c };
     });
@@ -14041,8 +14568,18 @@ function refreshElementPlaces() {
         // curve every re-place - Swing Pan drags move the cloth and the
         // tube together, in the same frame.
         models.forEach((m, i) => {
-            if (typeof m.setPath !== 'function') return;
             const entry = list[i];
+            if (entry && entry.type === 'light-string') {
+                const a = anchors.find(x => x.id === entry.anchor);
+                const floorLocal = -((owner.object3D.position.y || 0)
+                    + (a ? a.position.y : 0));
+                if (typeof m.setFloorY === 'function') m.setFloorY(floorLocal);
+                if (typeof m.setPath === 'function') {
+                    m.setPath(stripPathFor(owner, anchors, entry, STRING_OUT));
+                }
+                return;
+            }
+            if (typeof m.setPath !== 'function') return;
             m.setPath(entry && entry.type === 'light-strip'
                 ? stripPathFor(owner, anchors, entry) : null);
         });
@@ -14800,6 +15337,36 @@ function onElementAdd(id, type) {
         && LIGHT_PARAMS[type.slice(6)].tilt) {
         params.tilt = -86;
     }
+    // Curtain strings hang from the top strip lines only. One Add fills
+    // whichever wall has no string yet, so the usual case is both walls
+    // at once and a second tap never piles a duplicate onto the same rail.
+    if (type === 'light-string') {
+        const lines = anchorOptionsFor(id).filter(o => o.kind === 'stripline');
+        const tops = ['L', 'R'].map(s => lines
+            .find(o => o.id === `stripline-${s}-T`)).filter(Boolean);
+        // Only another string occupies a top line; a strip or PAR on the
+        // same rail must not block a curtain hanging in front of it.
+        const taken = new Set(list.filter(e => e.type === type && e.anchor)
+            .map(e => e.anchor));
+        const free = tops.filter(o => !taken.has(o.id));
+        if (!free.length || list.length + free.length > 20) return false;
+        // Only another string donates its numbers. Copying a strip's
+        // hue/sat would make a fresh curtain arrive already tinted; the
+        // schema's warm-white defaults are the intended first look.
+        const own = donor && donor.type === type
+            ? Object.assign({}, donor.params) : {};
+        for (const a of free) {
+            list.push({
+                type,
+                anchor: a.id,
+                params: clampElemParams(type, own, a.id)
+            });
+        }
+        frameElements.set(id, list);
+        scheduleSave();
+        return syncScene();
+    }
+
     // A strip on a frame with curtain strip lines lands on BOTH walls at
     // once - one Add plants the pair, the top rails first and the hems
     // once the tops carry a strip. Two hand-adds never pile onto the
@@ -14849,6 +15416,12 @@ function onElementPatch(id, index, patch) {
     }
     if (typeof patch.type === 'string' && LIGHT_TYPES.includes(patch.type)
         && patch.type !== entry.type) {
+        // Curtain strings need a top strip line; a frame without one keeps
+        // its current fixture instead of silently parking a straight run.
+        if (patch.type === 'light-string'
+            && !anchorOptionsFor(id).some(o => o.kind === 'stripline')) {
+            return false;
+        }
         // A different fixture on the same hook: fresh numbers, and possibly
         // a different hook (strips clamp to the rail, par and led to the
         // floor uplights by default). A floor mount re-seeds the uplight aim.

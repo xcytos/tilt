@@ -462,8 +462,9 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
     .replace("from 'three'", `from '${pathToFileURL(path.join(HERE, 'vendor', 'three160.js')).href}'`));
   const light = await import(pathToFileURL(lightFile).href);
 
-  check('exports the three type adaptors',
-        JSON.stringify(light.LIGHT_TYPES) === '["light-par","light-led","light-strip"]');
+  check('exports the four type adaptors',
+        JSON.stringify(light.LIGHT_TYPES)
+          === '["light-par","light-led","light-strip","light-string"]');
   check('every type has a human name',
         light.LIGHT_TYPES.every(t => typeof light.LIGHT_NAMES[t] === 'string'
           && light.LIGHT_NAMES[t]));
@@ -483,16 +484,20 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
       && typeof lm.name === 'string' && lm.subtitle
       && lm.object3D && lm.object3D.isObject3D && lm.params && lm.state
       && ['build', 'setTheme', 'setParams', 'dispose'].every(k => typeof lm[k] === 'function'));
-    check(`${type}: params are ranges/toggles with labels, state mirrors params`,
+    check(`${type}: params are ranges/toggles/choices with labels, state mirrors params`,
           Object.entries(lm.params).every(([, p]) => p.type === 'toggle'
             ? (p.label && typeof p.value === 'boolean')
-            : (p.type === 'range' && p.label
-               && p.min < p.max && p.step > 0 && typeof p.value === 'number'))
+            : p.type === 'choice'
+              ? (p.label && Array.isArray(p.options)
+                 && p.options.length > 1
+                 && p.options.some(o => o.value === p.value))
+              : (p.type === 'range' && p.label
+                 && p.min < p.max && p.step > 0 && typeof p.value === 'number'))
           && Object.keys(lm.params).every(k => k in lm.state));
 
     lm.build();
     const spots = spotsOf(lm);
-    if (type === 'light-strip') {
+    if (type === 'light-strip' || type === 'light-string') {
       check(`${type}: emissive only - no real light`, spots.length === 0,
             `${spots.length} spotlights`);
     } else {
@@ -535,7 +540,7 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
       check(`${type}: length changes the tube geometry`,
             lm.object3D.children.some(c => c.geometry && c.geometry.type === 'BoxGeometry'
               && Math.abs(c.geometry.parameters.width - 11) < 1e-9));
-    } else {
+    } else if (type !== 'light-string') {
       lm.setParams({ tilt: -60 });
       lm.build();
       const yoke = lm.object3D.children.find(c => c.type === 'Group');
@@ -544,11 +549,28 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
             !!head && Math.abs(head.rotation.x - Math.PI / 3) < 1e-9,
             head ? `rx=${head.rotation.x.toFixed(3)}` : 'no head group');
     }
-    check(`${type}: RGBW mixing - hue and sat are in the schema`,
-          lm.params.hue && lm.params.hue.min === 0 && lm.params.hue.max === 360
-          && lm.params.hue.value === 40
-          && lm.params.sat && lm.params.sat.max === 100
-          && lm.params.sat.value === 35);
+    if (type === 'light-string') {
+      check(`${type}: curtain schema - spacing, drop and warm presets`,
+            lm.params.spacing && lm.params.spacing.min === 0.5
+            && lm.params.spacing.max === 12
+            && lm.params.spacing.value === 5
+            && lm.params.drop && lm.params.drop.min === 1
+            && lm.params.drop.max === 10
+            && lm.params.warm && lm.params.warm.type === 'toggle'
+            && lm.params.warm.value === true
+            && lm.params.wire && lm.params.wire.type === 'choice'
+            && lm.params.wire.value === 'transparent'
+            && lm.params.wire.options.map(o => o.value).join(',')
+              === 'black,white,transparent'
+            && lm.params.hue && lm.params.hue.value === 40
+            && lm.params.sat && lm.params.sat.value === 0);
+    } else {
+      check(`${type}: RGBW mixing - hue and sat are in the schema`,
+            lm.params.hue && lm.params.hue.min === 0 && lm.params.hue.max === 360
+            && lm.params.hue.value === 40
+            && lm.params.sat && lm.params.sat.max === 100
+            && lm.params.sat.value === 35);
+    }
     const probeTint = m => {
       const s = spotsOf(m)[0];
       if (s) return s.color;
@@ -565,24 +587,99 @@ console.log('\nStage 3: lighting element contract (universal model + type adapto
     check(`${type}: hue/sat tint the emitted light (red at hue 0, sat 100)`,
           !!red && red.r > 0.5 && red.r > red.g && red.r > red.b,
           red ? `rgb(${red.r.toFixed(2)},${red.g.toFixed(2)},${red.b.toFixed(2)})` : 'no probe');
-    lm.setParams({ sat: 0 });
+    lm.setParams({ sat: 0, warm: false });
     lm.build();
     const white = probeTint(lm);
-    check(`${type}: saturation 0 is plain white`,
-          !!white && Math.abs(white.r - white.g) < 1e-3
-          && Math.abs(white.g - white.b) < 1e-3,
+    const plainWhite = type === 'light-string'
+      ? (!!white && white.r > 0.9 && white.g > 0.9 && white.b > 0.9
+         && white.b >= white.r)
+      : (!!white && Math.abs(white.r - white.g) < 1e-3
+         && Math.abs(white.g - white.b) < 1e-3);
+    check(`${type}: saturation 0 is plain white`, plainWhite,
           white ? `rgb(${white.r.toFixed(2)},${white.g.toFixed(2)},${white.b.toFixed(2)})` : 'no probe');
-    lm.setParams({ hue: 40, sat: 35 });
+    lm.setParams({ hue: 40, sat: type === 'light-string' ? 0 : 35, warm: true });
     lm.build();
     const warm = probeTint(lm);
     check(`${type}: the warm-white default reads warm (r > g > b)`,
           !!warm && warm.r > warm.g && warm.g > warm.b,
           warm ? `rgb(${warm.r.toFixed(2)},${warm.g.toFixed(2)},${warm.b.toFixed(2)})` : 'no probe');
     const spotD = spotsOf(lm)[0];
-    if (type !== 'light-strip') {
+    if (type === 'light-par' || type === 'light-led') {
       check(`${type}: the spot fades out at 12 ft (no spill past the wall)`,
             !!spotD && spotD.distance === 12,
             spotD ? `distance=${spotD.distance}` : 'no spot');
+    }
+    if (type === 'light-string') {
+      lm.setPath([{ x: -3, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }]);
+      lm.setFloorY(-5);
+      const bulbs = [];
+      let feeder = null, drops = null;
+      lm.object3D.traverse(o => {
+        if (o.isInstancedMesh) bulbs.push(o);
+        if (o.name === 'string_feeder') feeder = o;
+        if (o.name === 'string_drops') drops = o;
+      });
+      check(`${type}: the rail path builds a feeder, drops and bulbs`,
+            !!feeder && !!drops && bulbs.length === 1
+            && bulbs[0].count > 0,
+            `${bulbs.length} instanced sets`);
+      let halo = null;
+      const washes = [];
+      lm.object3D.traverse(o => {
+        if (o.name === 'string_halo') halo = o;
+        if (o.isPointLight) washes.push(o);
+      });
+      check(`${type}: bulbs carry a soft additive halo`,
+            !!halo && halo.isPoints
+            && halo.geometry.attributes.position.count > 0
+            && halo.material.blending === THREE.AdditiveBlending);
+      check(`${type}: two short local wash points, not a broad spill`,
+            washes.length === 2
+            && washes.every(l => l.userData.lux <= 3 && l.distance <= 5),
+            `${washes.length} point lights`);
+      check(`${type}: auto drop fits the rail and clears the floor`,
+            lm.autoDrop() > 0 && lm.autoDrop() <= 10);
+      lm.setFloorY(-2);
+      check(`${type}: a low rail shortens the automatic drop`,
+            Math.abs(lm.autoDrop() - 1.6) < 1e-9,
+            String(lm.autoDrop()));
+      lm.setParams({ spacing: 1 });
+      lm.build();
+      let before = 0;
+      lm.object3D.traverse(o => { if (o.isInstancedMesh) before = o.count; });
+      lm.setParams({ spacing: 12 });
+      lm.build();
+      let after = 0;
+      lm.object3D.traverse(o => { if (o.isInstancedMesh) after = o.count; });
+      check(`${type}: wider spacing makes fewer drops`,
+            before > 0 && after < before, `${before} -> ${after}`);
+      const wireMat = () => {
+        let hit = null;
+        lm.object3D.traverse(o => {
+          if (o.name === 'string_drops' && o.material) hit = o.material;
+        });
+        return hit;
+      };
+      lm.setParams({ wire: 'white' });
+      lm.build();
+      const wWhite = wireMat();
+      check(`${type}: white wire is a soft, thin line`,
+            !!wWhite && wWhite.color.r > 0.6 && wWhite.color.g > 0.6
+            && wWhite.transparent === true && wWhite.opacity <= 0.5,
+            wWhite ? `rgb(${wWhite.color.r.toFixed(2)},${wWhite.color.g.toFixed(2)},${wWhite.color.b.toFixed(2)})` : 'no wire');
+      lm.setParams({ wire: 'transparent' });
+      lm.build();
+      const wClear = wireMat();
+      check(`${type}: transparent wire is see-through`,
+            !!wClear && wClear.transparent === true && wClear.opacity < 0.25,
+            wClear ? `opacity=${wClear.opacity}` : 'no wire');
+      lm.setParams({ wire: 'black' });
+      lm.build();
+      const wBlack = wireMat();
+      check(`${type}: black wire is dark and subtle`,
+            !!wBlack && wBlack.color.r < 0.2 && wBlack.transparent === true
+            && wBlack.opacity >= 0.5,
+            wBlack ? `rgb(${wBlack.color.r.toFixed(2)},${wBlack.color.g.toFixed(2)},${wBlack.color.b.toFixed(2)})` : 'no wire');
     }
 
     lm.setTheme(true);
