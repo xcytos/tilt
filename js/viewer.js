@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SceneRig, DEFAULT_SCENE, isScene, computeStageSize, DEFAULT_STAGE_SIZE } from './scenes.js';
 
 const FLOOR_SIZE = 200;
@@ -123,6 +127,18 @@ export class Viewer {
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
+        // Render quality. "standard" is the baseline WebGL2 look;
+        // "cinematic" renders through an MSAA composer with bloom and
+        // doubles the key light's shadow resolution. The choice is a UI
+        // toggle (Look shelf) - the composer itself is built lazily the
+        // first time cinematic is picked, so standard never pays for it.
+        this.quality = 'standard';
+        let savedQuality = 'standard';
+        try {
+            const saved = localStorage.getItem('tilt-render-quality');
+            if (saved === 'cinematic') savedQuality = 'cinematic';
+        } catch (e) { /* storage can be denied; the default stands */ }
+
         // Image based lighting, otherwise metalness reads as flat black
         const pmrem = new THREE.PMREMGenerator(renderer);
         const roomEnv = new RoomEnvironment(renderer);
@@ -201,11 +217,22 @@ export class Viewer {
             this._watchBox.observe(container);
         }
 
+        // Re-apply a saved quality once camera, lights and scene all exist -
+        // the cinematic lane touches the key light's shadow and mounts the
+        // composer, neither of which is valid any earlier.
+        this.setQuality(savedQuality);
+
         this._raf = 0;
         this._tick = () => {
             this._raf = requestAnimationFrame(this._tick);
             this.controls.update();
-            this.renderer.render(this.scene, this.camera);
+            if (this.quality === 'cinematic' && this._composer) {
+                this._composer.render();
+                // Camera may have moved: RenderPass binds this camera each
+                // frame anyway, so no extra bookkeeping is needed.
+            } else {
+                this.renderer.render(this.scene, this.camera);
+            }
 
             if (!this._booted) {
                 this._booted = true;
@@ -446,7 +473,53 @@ export class Viewer {
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(w, h);
+        if (this._composer) {
+            this._composer.setSize(w, h);
+            this._composer.setPixelRatio(this.renderer.getPixelRatio());
+        }
         return this.camera.aspect;
+    }
+
+    // "Look shelf" quality switch. Builds the cinematic chain on first use:
+    // scenes render into a 4x-MSAA half-float target, UnrealBloom lifts
+    // emissive lamps above the threshold, OutputPass re-applies this
+    // renderer's tone mapping so rooms and the studio keep their looks.
+    setQuality(q) {
+        const next = q === 'cinematic' ? 'cinematic' : 'standard';
+        if (this.quality === next) return next;
+        this.quality = next;
+        if (next === 'cinematic') {
+            if (!this._composer) this._buildComposer();
+            // Deeper shadows only pay off under bloom, where the tone
+            // curve judges them; swap the ortho shadow's memory accordingly.
+            this.mainLight.shadow.mapSize.set(4096, 4096);
+        } else {
+            this.mainLight.shadow.mapSize.set(2048, 2048);
+        }
+        if (this.mainLight.shadow.map) {
+            this.mainLight.shadow.map.dispose();
+            this.mainLight.shadow.map = null;
+        }
+        try { localStorage.setItem('tilt-render-quality', next); } catch (e) { /* ok */ }
+        return next;
+    }
+
+    _buildComposer() {
+        const size = new THREE.Vector2();
+        this.renderer.getSize(size);
+        const ratio = this.renderer.getPixelRatio();
+        // WebGL2 gives the target real MSAA; HalfFloat keeps bloom's
+        // thresholds working above 1.0 like the emissives actually read.
+        const target = new THREE.WebGLRenderTarget(
+            size.x * ratio, size.y * ratio,
+            { samples: 4, type: THREE.HalfFloatType });
+        this._composer = new EffectComposer(this.renderer, target);
+        this._composer.setPixelRatio(ratio);
+        this._composer.setSize(size.x, size.y);
+        this._composer.addPass(new RenderPass(this.scene, this.camera));
+        this._bloom = new UnrealBloomPass(size, 0.32, 0.55, 0.85);
+        this._composer.addPass(this._bloom);
+        this._composer.addPass(new OutputPass());
     }
 
     // World bounds of a set of models, before any overlay offset is applied.

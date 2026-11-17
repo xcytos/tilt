@@ -44,6 +44,7 @@ export const ORDER = [
     'js/viewer.js',
     'js/panel.js',
     'js/editor.js',
+    'js/renderStudio.js',
     'js/app.js'
 ];
 

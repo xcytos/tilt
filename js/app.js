@@ -78,6 +78,31 @@ function fabricHex() {
     const hit = colorwayById(colorwayId);
     return hit ? hit.fabric : null;
 }
+
+// Live spec for the photoreal forge: each mounted frame's own params state
+// plus its placed spot on the ballroom floor. The forge rebuilds exactly
+// this client-side truth instead of a default prop - colors, curtain
+// toggles and set shapes all travel with it. Pillar/flower/light mounts
+// ride along later (forge covers frames today).
+function rigSpec() {
+    const frames = [];
+    for (const [key, models] of mounted) {
+        if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
+        for (const m of models) {
+            const o = m.object3D;
+            frames.push({
+                state: Object.assign({}, m.state),
+                x: o.position.x, z: o.position.z, ry: o.rotation.y
+            });
+        }
+    }
+    if (!frames.length) return null;
+    return {
+        frames,
+        fabric: fabricHex(),
+        theme: viewer.isDark ? 'dark' : 'light'
+    };
+}
 // A SET is only a starting point. After it has run, `savedPlaces` holds the
 // coordinates that are yours - one entry per instance, per group - for the
 // frames. Pillars have no coordinates of their own: `framePillars` holds
@@ -2403,6 +2428,8 @@ panel = createPanel({
     shadowInfo: () => viewer.shadowInfo(),
     onShadowToggle: on => viewer.setShadowsEnabled(on),
     onShadowBoxToggle: on => viewer.setShadowBoxVisible(on),
+    onQualityChange: guard(q => viewer.setQuality(q)),
+    renderQuality: viewer.quality,
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onElementAdd: guard((id, type) => onElementAdd(id, type)),
@@ -2597,6 +2624,32 @@ editor = createEditor({
     // Save first: the API exports what the server holds, which would
     // otherwise be the state from before the last edit.
     onExport: async () => { await saveNow(); exportDoc(); },
+    // Photoreal render studio: lazily imported so the main bundle never
+    // pays for it, and it only runs when the menu item is tapped.
+    onRender: async () => {
+        try {
+            const studio = await import('./renderStudio.js');
+            // Live camera capture: the exact-view lane gets the viewer's
+            // real position/target (three.js meters) plus fov/aspect, so
+            // Blender reproduces the view on screen - no manual shots.
+            await studio.openRenderStudio(projectName, {
+                getView: () => {
+                    const cam = viewer.getCameraState();
+                    return {
+                        position: cam.position,
+                        target: cam.target,
+                        fov: viewer.camera && viewer.camera.fov,
+                        aspect: viewer.camera && viewer.camera.aspect,
+                        scene: sceneId
+                    };
+                },
+                getRig: rigSpec
+            });
+        } catch (err) {
+            console.error('[render-studio]', err);
+            if (editor) editor.flash('Could not open the render studio');
+        }
+    },
     onSaveAs: () => saveAsProject(),
     onReset: () => resetProject(),
     isDark: viewer.isDark,

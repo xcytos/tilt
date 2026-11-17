@@ -1,4 +1,15 @@
+# runtime / environment (union of both branches + forge runtime logs)
 tests/vendor/
 tests/.tmp/
 data/
 project.json
+render-lab/node_modules/
+render-lab/out/
+forge/.token
+forge/jobs.json
+forge/artifacts/
+forge/cache/
+forge/node_modules/
+forge/*.log
+__pycache__/
+render-lab/_scenes_view.mjs

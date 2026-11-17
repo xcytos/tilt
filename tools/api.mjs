@@ -233,7 +233,12 @@ export function createApi(store) {
             const status = statusFor(err);
             if (status === 500) console.error('[api]', err);
             json(res, status, { error: messageFor(err) });
-            if (err && err.code === 'too_large') req.destroy();
+            if (err && err.code === 'too_large') {
+                // Drain the rejected upload instead of destroying the socket:
+                // destroy races the 413 flush and the client sees ECONNRESET
+                // before it can read the response (tests/test9.mjs).
+                req.resume();
+            }
             return undefined;
         }
     };

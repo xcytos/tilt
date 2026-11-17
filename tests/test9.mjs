@@ -209,7 +209,9 @@ const allSources = [];
     if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p);
-    else if (/\.(mjs|js)$/.test(e.name)) allSources.push(path.relative(DECOR, p));
+    else if (/\.(mjs|js)$/.test(e.name)) {
+      allSources.push(path.relative(DECOR, p).split(path.sep).join('/'));
+    }
   }
 })(DECOR);
 const sqliteImporters = allSources.filter(rel => SQLITE_IMPORT.test(read(rel)));

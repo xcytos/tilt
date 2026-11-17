@@ -74,7 +74,8 @@ console.log('\n4. every source module made it into the bundle');
 for (const rel of ORDER) {
   check(`bundle marker for ${rel}`, code.includes(`// ---- ${rel} ----`));
 }
-const allJs = walk(path.join(DECOR, 'js'));
+const allJs = walk(path.join(DECOR, 'js'))
+    .map(rel => rel.split(path.sep).join('/'));   // Windows walk -> POSIX ORDER keys
 const missing = allJs.filter(rel => ORDER.includes(rel) === false);
 check('ORDER covers every file under js/', missing.length === 0, missing.join(', '));
 check('ORDER entries all exist', ORDER.every(rel => fs.existsSync(path.join(DECOR, rel))));

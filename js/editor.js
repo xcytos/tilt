@@ -9,6 +9,7 @@ export function createEditor(opts) {
         hasProject = false,
         name = '',
         onHome, onSave, onRename, onDuplicate, onExport, onSaveAs, onReset,
+        onRender,
         onToggleTheme, isDark: isDark0 = false
     } = opts || {};
     let isDark = isDark0;
@@ -85,6 +86,7 @@ export function createEditor(opts) {
             { act: 'rename', label: 'Rename' },
             hasProject ? { act: 'duplicate', label: 'Duplicate' } : null,
             { act: 'export', label: 'Export file' },
+            { act: 'render', label: 'Photoreal render studio' },
             !hasProject ? { act: 'saveas', label: 'Save as project' } : null,
             { sep: true },
             { act: 'theme', label: isDark ? 'Dark mode: On' : 'Dark mode: Off' },
@@ -225,6 +227,7 @@ export function createEditor(opts) {
             if (act === 'home' || act === 'back') return void (onHome && onHome());
             if (act === 'save') return void (onSave && onSave());
             if (act === 'export') return void (onExport && onExport());
+            if (act === 'render') return void (onRender && onRender());
             if (act === 'reset') return void (onReset && onReset());
             if (act === 'theme') {
                 isDark = !isDark;

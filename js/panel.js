@@ -10,6 +10,26 @@ const VALUE_CLS = 'text-sky-600 dark:text-sky-400 font-mono';
 const CHECK_CLS = 'custom-checkbox';
 const HEADING_CLS = 'text-xs font-semibold text-gray-600 dark:text-zinc-300 mb-1';
 
+// Local TILT FORGE service (same endpoint renderStudio.js talks to).
+const FORGE = 'http://127.0.0.1:8765';
+
+// Bearer token shared with renderStudio.js through the same sessionStorage
+// cache, so whichever opens first performs the handshake once.
+async function forgeToken() {
+    try {
+        const cached = sessionStorage.getItem('tilt-forge-token');
+        if (cached) return cached;
+        const r = await fetch(FORGE + '/v1/handshake');
+        if (!r.ok) return null;
+        const body = await r.json();
+        if (body && body.token) {
+            sessionStorage.setItem('tilt-forge-token', body.token);
+            return body.token;
+        }
+    } catch (e) { /* forge offline */ }
+    return null;
+}
+
 const fmt = (value, unit) =>
     (typeof value === 'number' ? parseFloat(value.toFixed(2)) : value) + (unit || '');
 
@@ -328,6 +348,7 @@ export function createPanel(opts) {
         onFoldChange,
         onFlowerMount, onFlowerOpenStudio, onFlowerQualityChange,
         shadowInfo, onShadowToggle, onShadowBoxToggle,
+        viewerQuality = 'standard', onQualityChange,
         onShelfChange, themeIsDark = false,
         folds = []
     } = opts;
@@ -675,6 +696,10 @@ export function createPanel(opts) {
     let sections = [];
     let live = { selects: [], checks: [], buttons: [] };
     let busy = false;
+    // P-014: the Shape chip's blend job. Survives shelf re-renders (a
+    // slider drag repaints the shelf) so the status line keeps telling
+    // the truth while the forge rebuilds the .blend.
+    let blendState = null;   // { busy, text, el }
 
     const TURN_STEP = 15; // degrees per Turn arrow step - one slider position
 
@@ -891,8 +916,107 @@ export function createPanel(opts) {
     // records that so this never switches it back on.
     function applyBusy() {
         for (const group of [live.selects, live.checks, live.buttons]) {
-            for (const el of group) el.disabled = busy || el.dataset.off === '1';
+            for (const el of group) {
+                el.disabled = busy || !!(blendState && blendState.busy)
+                    || el.dataset.off === '1';
+            }
         }
+    }
+
+    // P-014: one button on the Shape chip. It ships the live-previewed
+    // shape - the exact state the stage renders, including whichever SET's
+    // shape memory is active - to the forge, which delta-rebuilds the
+    // S-curve rig inside render-lab/out/ballroom_scene.blend on the file
+    // system. No settings of its own and no download: the updated .blend
+    // lands straight where the render lane and the validator suite read it.
+    function blendBlock(groups) {
+        const wrap = document.createElement('div');
+        wrap.className = 'mt-1 pt-2 border-t border-gray-200 dark:border-zinc-700';
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'px-2.5 py-1.5 rounded-lg border text-xs font-semibold '
+            + 'border-gray-300 bg-white/70 text-gray-600 hover:border-sky-400 '
+            + 'dark:border-zinc-600 dark:bg-zinc-800/70 dark:text-zinc-300 '
+            + 'disabled:opacity-50 disabled:cursor-not-allowed';
+        btn.textContent = 'Update .blend';
+        const status = document.createElement('span');
+        status.className = 'text-[10px] text-gray-500 dark:text-zinc-400 '
+            + 'truncate flex-1 text-right';
+        status.title = 'Delta-rebuilds the S-curve rig inside '
+            + 'render-lab/out/ballroom_scene.blend via the local forge.';
+        if (!blendState) {
+            blendState = { busy: false, text: 'shape \u2192 out/ballroom_scene.blend', el: null };
+        }
+        blendState.el = status;
+        status.textContent = blendState.text;
+        btn.disabled = busy || blendState.busy;
+        row.append(btn, status);
+        wrap.appendChild(row);
+        live.buttons.push(btn);
+
+        const say = t => {
+            blendState.text = t;
+            if (blendState.el && blendState.el.isConnected) {
+                blendState.el.textContent = t;
+            }
+        };
+        const free = () => {
+            blendState.busy = false;
+            if (btn.isConnected) btn.disabled = busy;
+        };
+
+        btn.addEventListener('click', async () => {
+            const models = (groups[0] && groups[0].models || []).filter(Boolean);
+            const schema = models[0];
+            if (!schema || blendState.busy) return;
+            const params = Object.assign({}, schema.state);
+            if (Array.isArray(params.lobeGaps)) params.lobeGaps = params.lobeGaps.slice();
+            blendState.busy = true;
+            btn.disabled = true;
+            say('Updating the .blend…');
+            try {
+                const token = await forgeToken();
+                if (!token) throw new Error('forge offline');
+                const r = await fetch(FORGE + '/v1/scurve/update', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ params })
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const job = await r.json();
+                const poll = setInterval(async () => {
+                    let d;
+                    try {
+                        const jr = await fetch(FORGE + '/v1/jobs/' + job.id);
+                        if (!jr.ok) return;
+                        d = await jr.json();
+                    } catch (e) { return; }
+                    if (d.status === 'failed' || d.status === 'done') {
+                        clearInterval(poll);
+                        free();
+                        if (d.status === 'failed') {
+                            say('Update failed: ' + (d.error || 'unknown'));
+                        } else {
+                            const res = d.result || {};
+                            say('Saved v' + (res.version || '?') + ' \u00b7 '
+                                + Math.round((res.size || 0) / 1e6) + ' MB');
+                        }
+                    } else {
+                        say((d.detail || 'Updating the .blend…')
+                            + ' (' + (d.progress || 0) + '%)');
+                    }
+                }, 1200);
+            } catch (err) {
+                free();
+                say('Forge offline (' + ((err && err.message) || 'no connection') + ')');
+            }
+        });
+        return wrap;
     }
 
     // One collapsible block of parameters for one preset. `targets` is the
@@ -2726,6 +2850,49 @@ export function createPanel(opts) {
                 shadowRefs.paint = paint;
                 wrap.appendChild(box);
             }
+
+            // Render quality: real-time cinematic lane (bloom + deep
+            // shadows) vs the standard WebGL look. The chips repaint
+            // locally the same way the shadow buttons above do - the
+            // viewer stays the source of truth for what is actually on.
+            let quality = viewerQuality === 'cinematic' ? 'cinematic' : 'standard';
+            const qwrap = document.createElement('div');
+            qwrap.className = 'mt-3 pt-2 border-t border-dashed '
+                + 'border-gray-300 dark:border-zinc-600';
+            qwrap.appendChild(heading('Render quality'));
+            const qrow = document.createElement('div');
+            qrow.className = 'flex flex-wrap gap-2';
+            const Q_OPTS = [['standard', 'Standard'], ['cinematic', 'Cinematic']];
+            const paintQ = () => {
+                for (const b of qBtn) {
+                    const on = b.dataset.quality === quality;
+                    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    b.className = chipCls(on);
+                }
+            };
+            const qBtn = [];
+            for (const [qid, label] of Q_OPTS) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.dataset.quality = qid;
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    if (quality === qid) return;
+                    quality = qid;
+                    paintQ();
+                    onQualityChange && onQualityChange(qid);
+                });
+                qBtn.push(btn);
+                live.buttons.push(btn);
+                qrow.appendChild(btn);
+            }
+            paintQ();
+            qwrap.appendChild(qrow);
+            const qnote = document.createElement('div');
+            qnote.className = 'text-[11px] text-gray-500 dark:text-zinc-400';
+            qnote.textContent = 'Cinematic: bloom + 4K shadows, heavier on weak GPUs';
+            qwrap.appendChild(qnote);
+            wrap.appendChild(qwrap);
         }
         return wrap;
     }
@@ -2983,6 +3150,11 @@ export function createPanel(opts) {
             if (frameGroups.length) {
                 frameGroups.forEach((g, i) => host.appendChild(
                     section(g, frameGroups.length > 1, i === 0, activeTool)));
+                // The Shape chip owns the shape->blend action; every other
+                // tool stays sections only.
+                if (activeTool === 'shape') {
+                    host.appendChild(blendBlock(frameGroups));
+                }
                 anything = true;
             }
         }
