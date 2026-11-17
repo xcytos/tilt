@@ -10,7 +10,7 @@
 // camera to it (see render-lab/render_from_blend.py exact-view branch).
 // Studio presets stay available as a secondary, clearly demoted lane.
 
-const FORGE = 'http://127.0.0.1:8765';
+const STUDIO_FORGE = 'http://127.0.0.1:8765';
 
 const QUALITY = [
     { id: 'draft', label: 'Draft', samples: 128, res: [1280, 720] },
@@ -51,11 +51,11 @@ function el(tag, cls, text) {
 
 // Bearer token: fetched once from the handshake endpoint, cached in
 // sessionStorage so the studio never re-fires it during an app session.
-async function forgeToken() {
+async function studioForgeToken() {
     try {
         const cached = sessionStorage.getItem('tilt-forge-token');
         if (cached) return cached;
-        const r = await fetch(FORGE + '/v1/handshake');
+        const r = await fetch(STUDIO_FORGE + '/v1/handshake');
         if (!r.ok) return null;
         const body = await r.json();
         if (body && body.token) {
@@ -103,7 +103,7 @@ function selRow(options, picked, single) {
 export async function openRenderStudio(name, opts) {
     // Forge reachable? Everything below is meaningless without it - the
     // token probe doubles as the reachability check.
-    const token = await forgeToken();
+    const token = await studioForgeToken();
     // A render started in a previous modal session (the tab reload, the
     // scrim got closed) can be reattached: the job id + submit time live
     // in sessionStorage and the poll resumes from the live job record.
@@ -283,7 +283,7 @@ export async function openRenderStudio(name, opts) {
             status.textContent = 'Sending job to Forge… (view: '
                 + (spec.view ? 'your current camera' : 'studio presets') + ')';
             setBar(1);
-            const r = await fetch(FORGE + '/v1/render.json', {
+            const r = await fetch(STUDIO_FORGE + '/v1/render.json', {
                 method: 'POST',
                 headers: {
                     'Authorization': 'Bearer ' + token,
@@ -325,7 +325,7 @@ export async function openRenderStudio(name, opts) {
                 + 'border-gray-200 dark:border-zinc-700 bg-gray-50 '
                 + 'dark:bg-zinc-800');
             const img = document.createElement('img');
-            img.src = FORGE + '/v1/artifact/' + id + '/' + file;
+            img.src = STUDIO_FORGE + '/v1/artifact/' + id + '/' + file;
             img.alt = file;
             img.loading = 'lazy';
             img.className = 'w-full h-32 object-cover';
@@ -344,7 +344,7 @@ export async function openRenderStudio(name, opts) {
         async function pollTick() {
             let data;
             try {
-                const jr = await fetch(FORGE + '/v1/jobs/' + id);
+                const jr = await fetch(STUDIO_FORGE + '/v1/jobs/' + id);
                 if (!jr.ok) return;
                 data = await jr.json();
             } catch (e) { return; }
@@ -386,7 +386,7 @@ export async function openRenderStudio(name, opts) {
     // Reattach on open: a job submitted before the modal closed (or the tab
     // reloaded) resumes the bar where Forge is now.
     if (reattachMeta && token) {
-        fetch(FORGE + '/v1/jobs/' + reattachMeta.id)
+        fetch(STUDIO_FORGE + '/v1/jobs/' + reattachMeta.id)
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (!data || data.status === 'failed') {
