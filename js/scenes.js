@@ -36,18 +36,33 @@ const SIZE_MARGIN_X = 3.5;   // aisle between the outermost panel and the stage 
 const SIZE_MARGIN_Z = 3;     // room in front of / behind the deepest element
 const SIZE_W_MIN = 44, SIZE_W_MAX = 140;
 const SIZE_D_MIN = 18, SIZE_D_MAX = 60;
+// Front wedding-furniture band (blend parity, render_ballroom.py): the
+// thrones/sofas stand clear of the rig by ~2 ft, the loveseat is 4.86 ft
+// deep, and the stage keeps 1 ft to spare in front of them. The band is
+// measured from the rig's front face, so a rig that swings toward the
+// audience (pan/decline) drags the stage depth with it.
+const FURN_GAP_Z = 1.99;
+const FURN_DEPTH_Z = 4.86;
+const FURN_CLEAR_Z = 1;
 
 // Turn a content bounding box (feet, world) into the stage that holds it.
 // Pure math, no three.js - the viewer feeds it a Box3's min/max and this
 // returns the room dimensions. Odd sizes round UP to the next 2 ft so the
-// stage never clips what it was measured against.
+// stage never clips what it was measured against. Extents are taken from
+// the stage centre (not the raw span): the stage is centred on the origin,
+// so an off-centre rig must be covered on BOTH sides, and the front
+// furniture band reserves space for the wedding setup at the stage front.
 export function computeStageSize(fp) {
     if (!fp || !Number.isFinite(fp.minX) || !Number.isFinite(fp.maxX)
         || !Number.isFinite(fp.minZ) || !Number.isFinite(fp.maxZ)) {
         return Object.assign({}, DEFAULT_STAGE_SIZE);
     }
-    const spanW = fp.maxX - fp.minX + SIZE_MARGIN_X * 2;
-    const spanD = fp.maxZ - fp.minZ + SIZE_MARGIN_Z * 2;
+    const spanW = (Math.max(Math.abs(fp.minX), Math.abs(fp.maxX))
+        + SIZE_MARGIN_X) * 2;
+    const furnD = -fp.minZ + FURN_GAP_Z + FURN_DEPTH_Z + FURN_CLEAR_Z;
+    const spanD = Math.max(
+        Math.max(Math.abs(fp.minZ), Math.abs(fp.maxZ)) + SIZE_MARGIN_Z,
+        furnD) * 2;
     const w = Math.min(SIZE_W_MAX,
         Math.max(SIZE_W_MIN, Math.ceil(spanW / 2) * 2));
     const d = Math.min(SIZE_D_MAX,
@@ -257,9 +272,13 @@ function sceneRoom(group, size, floorColor, wallColor, skirtColor, carpetColor, 
     const midY = size.wallH / 2 - size.h;
     sceneWall(group, size.wallX * 2 + 6, size.wallH, wall,
         0, midY, size.wallZ, Math.PI);
-    sceneWall(group, size.wallZ + 28, size.wallH, wall,
+    // Side walls run to (or past) the front table row at any stage depth:
+    // the front ends sit at -d/4-24 only while d is small, so the length
+    // tracks the dining band (-d/2-19 back-of-row) once the stage grows.
+    const wallLen = Math.max(size.wallZ + 28, size.d + 27);
+    sceneWall(group, wallLen, size.wallH, wall,
         -size.wallX, midY, -6, Math.PI / 2);
-    sceneWall(group, size.wallZ + 28, size.wallH, wall,
+    sceneWall(group, wallLen, size.wallH, wall,
         size.wallX, midY, -6, -Math.PI / 2);
     sceneBox(group, size.w, size.h - MAT_T, size.d,
         sceneMat(skirtColor, { roughness: 0.85 }),
@@ -293,7 +312,8 @@ function sceneModernCeiling(group, size) {
     const ceilY = size.wallH - size.h;
     const w = size.wallX * 2;
     const back = size.wallZ;
-    const front = -(size.d / 2 + 14);
+    // slab edge lands 1 ft past the front table rows (-d/2-19)
+    const front = -(size.d / 2 + 19);
     const depth = back - front;
     const cz = (back + front) / 2;
     sceneBox(group, w + 4, 0.25, depth + 2,
@@ -426,11 +446,15 @@ function sceneDiningTables(group, size, aisle) {
     const goldMat = sceneMat(0xd9c48a, { metalness: 0.55, roughness: 0.4 });
     const bloomMat = sceneMat(0x7a1f2b, { roughness: 0.85 });
     const sites = [];
-    const rows = [-size.d / 2 - 4.5, -size.d / 2 - 13.5];
+    // Rows anchor off the stage edge, so the layout follows any recalc.
+    // Row 1's stage-facing chair ring reaches 1.08 ft past its centre -
+    // 5.25 ft out keeps every chair body clear of the skirt by ~0.5 ft.
+    const rows = [-size.d / 2 - 5.25, -size.d / 2 - 14.25];
     if (aisle) {
         // Ceremony layout: two blocks of tables either side of a central
-        // open aisle running straight to the stage steps.
-        const inner = Math.max(9, size.w * 0.15);
+        // open aisle running straight to the stage steps (inner column
+        // starts far enough out that chair rings clear the steps by ~1 ft).
+        const inner = Math.max(10, size.w * 0.15);
         const outer = inner + 11;
         for (const sx of [-1, 1]) {
             for (const x of [inner, outer]) {
@@ -545,7 +569,8 @@ function sceneCofferedCeiling(group, size) {
     const mark = group.children.length;
     const ceilY = size.wallH - size.h;
     const back = size.wallZ;
-    const front = -(size.d / 2 + 18);   // reaches over the dance floor
+    // slab edge lands 1 ft past the front table rows (-d/2-19)
+    const front = -(size.d / 2 + 18.5);
     const depth = back - front;
     const cz = (back + front) / 2;
     const w = size.wallX * 2;

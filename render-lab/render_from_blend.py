@@ -84,7 +84,23 @@ if PRESET == "exact-view":
     print("exact-view loc=%s tgt=%s hfov=%.1f lens=%.1fmm"
           % (tuple(loc), tuple(tgt), math.degrees(hfov), camc.lens))
 elif PRESET in SHOTS:
-    S = SHOTS[PRESET]
+    S = dict(SHOTS[PRESET])
+    if PRESET == "det-table" and SRC:
+        # the banquet rows anchor off the stage edge (-d/2-14.25); the
+        # prepared blend carries its scene_data.json / ballroom_data.json
+        # right beside it, so the look target can track a recalc'd stage.
+        for _dn in ("scene_data.json", "ballroom_data.json"):
+            _dp = os.path.join(os.path.dirname(os.path.abspath(SRC)), _dn)
+            if os.path.isfile(_dp):
+                try:
+                    _sz = (json.load(open(_dp)) or {}).get("size")
+                except Exception:
+                    _sz = None
+                if _sz:
+                    S["loc"] = (7, 4.4, -(_sz["d"] / 2 + 14.25) + 5.0)
+                    S["look"] = (0.35 * _sz["w"], S["look"][1],
+                                 -(_sz["d"] / 2 + 14.25))
+                break
     # SHOTS are authored in three.js feet; import lands at (x, -z, y).
     loc = mathutils.Vector((S["loc"][0] * FT, -S["loc"][2] * FT, S["loc"][1] * FT))
     tgt = mathutils.Vector((S["look"][0] * FT, -S["look"][2] * FT, S["look"][1] * FT))

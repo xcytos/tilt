@@ -8,14 +8,22 @@ import * as THREE from 'three';
 export const DEFAULT_STAGE_SIZE = { w: 60, d: 16, h: 1.2, wallX: 30, wallZ: 16, wallH: 26 };
 const SIZE_MARGIN_X = 3.5, SIZE_MARGIN_Z = 3;
 const SIZE_W_MIN = 44, SIZE_W_MAX = 140, SIZE_D_MIN = 18, SIZE_D_MAX = 60;
+// Front wedding-furniture band - parity with js/scenes.js computeStageSize
+// (thrones/sofas clear the rig by ~2 ft, 4.86 ft loveseat depth, 1 ft spare).
+const FURN_GAP_Z = 1.99;
+const FURN_DEPTH_Z = 4.86;
+const FURN_CLEAR_Z = 1;
 
+// Extents measured from the stage CENTRE (the stage is origin-centred) plus
+// the front furniture band, so an off-centre rig cannot hang off an edge.
 export function computeStageSize(fp) {
     if (!fp || !Number.isFinite(fp.minX) || !Number.isFinite(fp.maxX)
         || !Number.isFinite(fp.minZ) || !Number.isFinite(fp.maxZ)) {
         return { ...DEFAULT_STAGE_SIZE };
     }
-    const spanW = fp.maxX - fp.minX + SIZE_MARGIN_X * 2;
-    const spanD = fp.maxZ - fp.minZ + SIZE_MARGIN_Z * 2;
+    const spanW = (Math.max(Math.abs(fp.minX), Math.abs(fp.maxX)) + SIZE_MARGIN_X) * 2;
+    const furnD = -fp.minZ + FURN_GAP_Z + FURN_DEPTH_Z + FURN_CLEAR_Z;
+    const spanD = Math.max(Math.max(Math.abs(fp.minZ), Math.abs(fp.maxZ)) + SIZE_MARGIN_Z, furnD) * 2;
     const w = Math.min(SIZE_W_MAX, Math.max(SIZE_W_MIN, Math.ceil(spanW / 2) * 2));
     const d = Math.min(SIZE_D_MAX, Math.max(SIZE_D_MIN, Math.ceil(spanD / 2) * 2));
     return {
@@ -53,16 +61,20 @@ function lamp(list, x, y, z, watts, color) {
 
 export function buildBallroom(group, size, opts) {
     const lamps = [];
-    const footFront = -(size.d / 2 + 18);
+    // slab edge lands 1 ft past the front table rows (-d/2-19), parity with
+    // js/scenes.js sceneCofferedCeiling
+    const footFront = -(size.d / 2 + 18.5);
+    // side walls run to (or past) the front table row at any stage depth
+    const wallLen = Math.max(size.wallZ + 28, size.d + 27);
 
     // sceneRoom: plank ground, cream walls, skirt volume, carpet on the stage
     boxShadow(group, 'floor', Math.max(170, size.wallX * 2 + 50), 0.12, Math.max(120, size.wallZ * 2 + 40),
         mat(0xcbb694, { roughness: 0.9 }), 0, -size.h - 0.06, 0);
     boxShadow(group, 'wall', size.wallX * 2 + 6, size.wallH, 0.12,
         mat(0xefe6d6, { roughness: 0.95 }), 0, size.wallH / 2 - size.h, size.wallZ);
-    boxShadow(group, 'wall', 0.12, size.wallH, size.wallZ + 28,
+    boxShadow(group, 'wall', 0.12, size.wallH, wallLen,
         mat(0xefe6d6, { roughness: 0.95 }), -size.wallX, size.wallH / 2 - size.h, -6);
-    boxShadow(group, 'wall', 0.12, size.wallH, size.wallZ + 28,
+    boxShadow(group, 'wall', 0.12, size.wallH, wallLen,
         mat(0xefe6d6, { roughness: 0.95 }), size.wallX, size.wallH / 2 - size.h, -6);
     // stage skirt: plausible plank-infill block sunk below y=0, top just under the carpet
     boxShadow(group, 'skirt', size.w, size.h - MAT_T, size.d,
@@ -169,7 +181,9 @@ export function buildBallroom(group, size, opts) {
     }
 
     // gala dinner tables + chairs (canvas textures are null in node -> plain colors)
-    const rowsZ = [-size.d / 2 - 4.5, -size.d / 2 - 13.5];
+    // Rows anchor off the stage edge; row 1's stage-facing chair ring reaches
+    // 1.08 ft past its centre - 5.25 ft out keeps chairs clear of the skirt.
+    const rowsZ = [-size.d / 2 - 5.25, -size.d / 2 - 14.25];
     const xCol = Math.min(size.wallX - 8, size.w * 0.35);
     const sites = [];
     for (const sx of [-1, 1]) for (const z of rowsZ) sites.push({ x: sx * xCol, z });
