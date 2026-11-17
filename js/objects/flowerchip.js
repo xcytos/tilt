@@ -124,6 +124,7 @@ export function createFlowerChip(ctx) {
         wrap.appendChild(sectionTitle('In this scene'));
         for (const fp of mounted) {
             const card = document.createElement('div');
+            card.dataset.selection = 'flower:' + fp.id;
             card.className = 'mb-1.5 rounded-lg border border-gray-200 '
                 + 'dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/60 p-2';
             const head = document.createElement('div');

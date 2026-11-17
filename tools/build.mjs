@@ -41,6 +41,7 @@ export const ORDER = [
     'js/objects/decor.js',
     'js/elements/light.js',
     'js/preview.js',
+    'js/selection.js',
     'js/viewer.js',
     'js/panel.js',
     'js/editor.js',

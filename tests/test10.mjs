@@ -4,6 +4,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildObjectCards } from '../js/objectchip.js';
+import {
+  selectionForModel, chipsForSelection, nextSelectionChip
+} from '../js/selection.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DECOR = path.resolve(HERE, '..');
@@ -346,6 +349,83 @@ const standalone = read('TILT.standalone.html');
 check('the standalone build carries the bar too',
   standalone.includes('id="topbar"') && standalone.includes('createEditor')
   && /<title>TILT<\/title>/.test(standalone));
+
+console.log('\neditor: scene selection and chip cycling');
+const frameModel = { object3D: {} };
+const pillarModel = { object3D: {}, pillarType: 'classical' };
+const lightModel = { object3D: {}, elementOf: { frameId: 'o2tilt', index: 2 } };
+const flowerModel = { object3D: {} };
+const decorModel = { object3D: {} };
+const mounted = new Map([
+  ['o2tilt', [frameModel]],
+  ['pillar:o2tilt:classical', [pillarModel]],
+  ['light:o2tilt', [lightModel]]
+]);
+const parsePillarKey = key => {
+  if (!key.startsWith('pillar:')) return null;
+  const [, frameId, type] = key.split(':');
+  return { frameId, type };
+};
+const elementKey = id => 'light:' + id;
+const lookups = {
+  mounted,
+  flowers: [{ id: 'panel-1', model: flowerModel }],
+  decor: [{ id: 'decor-1', model: decorModel }],
+  parsePillarKey, elementKey
+};
+const frameSel = selectionForModel(frameModel, lookups);
+const pillarSel = selectionForModel(pillarModel, lookups);
+const lightSel = selectionForModel(lightModel, lookups);
+const flowerSel = selectionForModel(flowerModel, lookups);
+const decorSel = selectionForModel(decorModel, lookups);
+
+check('a frame tap resolves to its mounted frame',
+  frameSel && frameSel.kind === 'frame' && frameSel.key === 'frame:o2tilt',
+  JSON.stringify(frameSel));
+check('a fixture folds into its frame; pillars, flowers and decor keep identity',
+  pillarSel && pillarSel.kind === 'pillar' && pillarSel.focus === 'pillar:o2tilt:classical'
+  && lightSel && lightSel.kind === 'frame' && lightSel.key === 'frame:o2tilt'
+  && flowerSel && flowerSel.kind === 'flower' && flowerSel.focus === 'flower:panel-1'
+  && decorSel && decorSel.kind === 'decor' && decorSel.focus === 'decor:decor-1',
+  JSON.stringify([pillarSel, lightSel, flowerSel, decorSel]));
+check('a frame cycles Shape, Colour, Lights - no pillars or look',
+  chipsForSelection(frameSel).join(',') === 'shape,colour,lights'
+  && nextSelectionChip(frameSel, 0, true).chip === 'colour'
+  && nextSelectionChip(frameSel, 1, true).chip === 'lights'
+  && nextSelectionChip(lightSel, 1, true).chip === 'lights');
+check('a different object resets the cycle to its first chip',
+  nextSelectionChip(frameSel, 2, false).chip === 'shape'
+  && nextSelectionChip(pillarSel, 0, true).chip === 'pillars');
+check('the viewer raycasts mounted models and outlines real geometry',
+  /pickAt\(clientX, clientY/.test(viewerSrc)
+  && /intersectObjects\(roots, true\)/.test(viewerSrc)
+  && /new OutlinePass/.test(viewerSrc)
+  && /selectedObjects = list/.test(viewerSrc)
+  && /this\._pickableObject\(hit\.object\)/.test(viewerSrc)
+  && !/Box3Helper/.test(viewerSrc));
+check('outlines follow the chip: assembly for Shape/Colour, lights alone for Lighting',
+  /function selectionRoots\(target, hitModel, chip\)/.test(appSrc)
+  && /if \(chip === 'lights'\) addLights\(frameId\)/.test(appSrc)
+  && /addFrame\(frameId\);\s*addLights\(frameId\);/.test(appSrc)
+  && /viewer\.setSelection\(selectionRoots\(target, hit\.model, next\.chip\)\)/.test(appSrc));
+check('outlines ride the cinematic composer, with bloom off in standard',
+  /_buildComposer\(\)/.test(viewerSrc)
+  && /this\._bloom\.enabled = this\.quality === 'cinematic'/.test(viewerSrc)
+  && /this\._composer\.addPass\(this\.outlinePass\)/.test(viewerSrc)
+  && /this\.quality === 'cinematic' \|\| outlining/.test(viewerSrc));
+check('the Look shelf reads the quality key the viewer writes',
+  /viewerQuality: viewer\.quality/.test(appSrc)
+  && /viewerQuality = 'standard'/.test(panelSrc)
+  && !/renderQuality/.test(appSrc) && !/renderQuality/.test(panelSrc));
+check('the panel can open a chip and scroll to the selected card',
+  /openChip\(id, focus\)/.test(panelSrc)
+  && /focusSelection\(focus\)/.test(panelSrc)
+  && /data-selection/.test(panelSrc));
+check('the canvas tap asks the picker before toggling the shelf',
+  /onCanvasTap && onCanvasTap\(e\.clientX, e\.clientY\)/.test(panelSrc)
+  && /onCanvasTap: \(x, y\) => selectAt\(x, y\)/.test(appSrc)
+  && /function selectAt\(clientX, clientY\)/.test(appSrc)
+  && /nextSelectionChip\(target, selectionChipIndex, same\)/.test(appSrc));
 
 // ------------------------------------------------- 5b. the Objects tray
 console.log('\neditor: the Objects chip and its CapCut tray');
@@ -731,6 +811,80 @@ try {
       && !Object.keys(afterReset.doc.presets).length
       && afterReset.name === 'Editor round trip',
       JSON.stringify(afterReset.doc));
+
+    // Each named project must keep its own local mirror. A single shared key
+    // would let an offline open of B restore A's document, then autosave it
+    // into B.
+    console.log('\neditor: per-project mirrors and reload');
+    const mirror = new Map();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: k => (mirror.has(k) ? mirror.get(k) : null),
+        setItem: (k, v) => { mirror.set(k, String(v)); },
+        removeItem: k => { mirror.delete(k); }
+      }
+    });
+    const second = await (await fetch(BASE + '/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Second editor project' })
+    })).json();
+
+    globalThis.location = { protocol: 'http:', search: '?p=' + created.id };
+    const firstMirror = await loadModule('first-mirror');
+    await firstMirror.saveProject({
+      version: 2, name: 'First', mode: 'single',
+      activeId: 'o2tilt-classic', presets: { 'o2tilt-classic': { gap: 1 } }
+    });
+    globalThis.location = { protocol: 'http:', search: '?p=' + second.id };
+    const secondMirror = await loadModule('second-mirror');
+    await secondMirror.saveProject({
+      version: 2, name: 'Second', mode: 'overlay', activeId: 'o2tilt',
+      overlayIds: ['o2tilt'], presets: { o2tilt: { gap: 2 } }
+    });
+    check('named projects save to separate mirror keys',
+      mirror.has('o2tilt-project.v1:' + created.id)
+      && mirror.has('o2tilt-project.v1:' + second.id)
+      && !mirror.has('o2tilt-project.v1'));
+
+    globalThis.location = { protocol: 'http:', search: '?p=' + created.id };
+    const firstReload = await loadModule('first-reload');
+    const firstDoc = await firstReload.loadProject();
+    check('reopening a project reloads its own saved document',
+      firstDoc && firstDoc.mode === 'single'
+      && firstDoc.presets['o2tilt-classic'].gap === 1,
+      JSON.stringify(firstDoc && { mode: firstDoc.mode, presets: firstDoc.presets }));
+    globalThis.location = { protocol: 'http:', search: '?p=' + second.id };
+    const secondReload = await loadModule('second-reload');
+    const secondDoc = await secondReload.loadProject();
+    check('...and the second project keeps its own document',
+      secondDoc && secondDoc.mode === 'overlay'
+      && secondDoc.presets.o2tilt.gap === 2,
+      JSON.stringify(secondDoc && { mode: secondDoc.mode, presets: secondDoc.presets }));
+
+    globalThis.fetch = () => Promise.reject(new Error('offline'));
+    globalThis.location = { protocol: 'http:', search: '?p=' + created.id };
+    const firstOffline = await loadModule('first-offline');
+    const firstOfflineDoc = await firstOffline.loadProject();
+    check('an offline reload uses that project\'s own mirror',
+      firstOffline.loadNotice() === 'offline'
+      && firstOfflineDoc && firstOfflineDoc.mode === 'single'
+      && firstOfflineDoc.presets['o2tilt-classic'].gap === 1,
+      JSON.stringify(firstOfflineDoc && { mode: firstOfflineDoc.mode }));
+    globalThis.location = { protocol: 'http:', search: '?p=' + second.id };
+    const secondOffline = await loadModule('second-offline');
+    const secondOfflineDoc = await secondOffline.loadProject();
+    check('...never another project\'s document',
+      secondOfflineDoc && secondOfflineDoc.mode === 'overlay'
+      && secondOfflineDoc.presets.o2tilt.gap === 2,
+      JSON.stringify(secondOfflineDoc && { mode: secondOfflineDoc.mode }));
+    globalThis.fetch = siteFetch;
+
+    await firstReload.clearProject();
+    check('clearing one project leaves the other mirror intact',
+      !mirror.has('o2tilt-project.v1:' + created.id)
+      && mirror.has('o2tilt-project.v1:' + second.id));
 
     // A URL for a project that has since been deleted.
     globalThis.location = { protocol: 'http:', search: '?p=gone404' };

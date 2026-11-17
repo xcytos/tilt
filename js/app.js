@@ -19,6 +19,9 @@ import {
     projectId, loadNotice, flushProject, renameProject, createProject,
     duplicateProject
 } from './project.js';
+import {
+    selectionForModel, chipsForSelection, nextSelectionChip
+} from './selection.js';
 
 const container = document.getElementById('canvas-container');
 const shelfBody = document.getElementById('shelf-body');
@@ -156,6 +159,7 @@ function setPresetsPlain() {
 let saveTimer = 0;
 let projectName = '';
 let dirty = false;
+let saveRev = 0;
 let thumbTimer = 0;
 let editor = null;
 
@@ -194,13 +198,13 @@ function buildDoc() {
 }
 
 async function commit() {
-    // Clear first, so an edit made while the request is in flight is not
-    // mistaken for one that has already gone out - then put it back if the
-    // write did not land, because the leaving flush is keyed off `dirty` and
-    // would otherwise skip the only retry this project ever gets.
-    dirty = false;
+    // Keep `dirty` set while the request is in flight: a reload during that
+    // window still needs the leaving flush. Only clear it when this exact
+    // revision landed; an edit made meanwhile leaves it set for the next save.
+    const rev = saveRev;
     const ok = await saveProject(buildDoc());
-    if (!ok) dirty = true;
+    if (!ok || saveRev !== rev) dirty = true;
+    else dirty = false;
     if (editor) editor.setStatus(ok || !overHttp ? 'saved' : 'offline');
     scheduleThumb();
     return ok;
@@ -241,6 +245,7 @@ async function uploadThumb() {
 
 function scheduleSave() {
     dirty = true;
+    saveRev++;
     if (editor) editor.setStatus('saving');
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
@@ -284,6 +289,67 @@ function groups() {
         });
     }
     return out;
+}
+
+let selection = null;
+let selectionChipIndex = 0;
+
+function clearSelection() {
+    selection = null;
+    selectionChipIndex = 0;
+    viewer.clearSelection();
+}
+
+// A frame and its lights are separate models, but they are one object on
+// stage. Shape and Colour outline the whole assembly; Lighting outlines only
+// the fixtures, each as its own model, so the light being edited stays legible.
+function selectionRoots(target, hitModel, chip) {
+    const roots = [];
+    const addFrame = id => {
+        for (const m of mounted.get(id) || []) roots.push(m.object3D);
+    };
+    const addLights = id => {
+        for (const m of mounted.get(elementKey(id)) || []) roots.push(m.object3D);
+    };
+    const frameId = target.kind === 'frame' ? target.id
+        : target.kind === 'light' ? target.frameId : null;
+    if (frameId) {
+        if (chip === 'lights') addLights(frameId);
+        else {
+            addFrame(frameId);
+            addLights(frameId);
+        }
+    } else if (hitModel && hitModel.object3D) {
+        roots.push(hitModel.object3D);
+    }
+    return [...new Set(roots.filter(Boolean))];
+}
+
+function selectAt(clientX, clientY) {
+    const hit = viewer.pickAt(clientX, clientY);
+    if (!hit) {
+        clearSelection();
+        return false;
+    }
+    const target = selectionForModel(hit.model, {
+        mounted,
+        flowers: flowerPanels,
+        decor: decorObjects,
+        parsePillarKey,
+        elementKey
+    });
+    if (!target) {
+        clearSelection();
+        return false;
+    }
+
+    const same = !!(selection && selection.key === target.key);
+    selection = target;
+    const next = nextSelectionChip(target, selectionChipIndex, same);
+    selectionChipIndex = next.index;
+    viewer.setSelection(selectionRoots(target, hit.model, next.chip));
+    if (panel) panel.openChip(next.chip, target.focus);
+    return true;
 }
 
 function primaryId() { return orderIds()[0] || null; }
@@ -534,11 +600,11 @@ function frameElementsFor(id) {
     return frameElements.get(id) || [];
 }
 
-// Plain document form: only frames that actually carry fixtures, values
-// copied so a later edit cannot mutate the saved snapshot.
+// Plain document form: every touched frame, including one whose list was
+// deliberately emptied, so "no fixtures" is not mistaken for "never edited".
+// Values are copied so a later edit cannot mutate the saved snapshot.
 function frameElementsPlain() {
     return Object.fromEntries([...frameElements]
-        .filter(([, list]) => list.length)
         .map(([id, list]) => [id, list.map(el => ({
             type: el.type,
             anchor: el.anchor,
@@ -2232,8 +2298,9 @@ if (savedDoc) {
         for (const [id, v] of Object.entries(savedDoc.elements)) {
             const target = remapId(id);
             if (!knownIds.has(target)) continue;
-            const list = normaliseElementList(v);
-            if (list.length) frameElements.set(target, list);
+            // An empty list is a real answer: the user removed every
+            // fixture from this frame, so do not seed the def's defaults.
+            frameElements.set(target, normaliseElementList(v));
         }
     }
     // Folded sections and cards reopen the way they were left.
@@ -2323,6 +2390,7 @@ if (savedDoc && Array.isArray(savedDoc.flowerPanels)) {
                 name: (live && live.settings && live.settings.name) || entry.name,
                 arrangementId: entry.arrangementId,
                 settings: (live && live.settings) || entry.settings,
+                enabled: entry.enabled,
                 x: entry.x, z: entry.z, ry: entry.ry
             });
         } catch (err) { console.error('[flowerpanel]', err); }
@@ -2419,6 +2487,12 @@ panel = createPanel({
         scheduleSave();
     }),
     onSelect: guard(id => activate(id)),
+    onCanvasTap: (x, y) => selectAt(x, y),
+    onToolChange: id => {
+        if (!selection) return;
+        const at = chipsForSelection(selection).indexOf(id);
+        if (at >= 0) selectionChipIndex = at;
+    },
     onModeChange: guard(next => setMode(next)),
     onToggle: guard((id, on) => toggleOverlay(id, on)),
     onSceneChange: guard(id => setScene(id)),
@@ -2429,7 +2503,7 @@ panel = createPanel({
     onShadowToggle: on => viewer.setShadowsEnabled(on),
     onShadowBoxToggle: on => viewer.setShadowBoxVisible(on),
     onQualityChange: guard(q => viewer.setQuality(q)),
-    renderQuality: viewer.quality,
+    viewerQuality: viewer.quality,
     onSetChange: guard(id => setLayout(id)),
     onFramePillarsChange: guard((id, patch) => setFramePillars(id, patch)),
     onElementAdd: guard((id, type) => onElementAdd(id, type)),

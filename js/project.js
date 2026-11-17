@@ -201,7 +201,7 @@ function cleanFrameElements(raw) {
     let frames = 0, total = 0;
     for (const [id, v] of Object.entries(raw)) {
         if (frames >= PLACE_KEYS || total >= ELEM_TOTAL) break;
-        if (!PLACE_KEY_RE.test(id) || !Array.isArray(v) || !v.length) continue;
+        if (!PLACE_KEY_RE.test(id) || !Array.isArray(v)) continue;
         const list = [];
         for (const el of v) {
             if (list.length >= ELEM_PER_FRAME || total >= ELEM_TOTAL) break;
@@ -240,10 +240,10 @@ function cleanFrameElements(raw) {
             });
             total++;
         }
-        if (list.length) {
-            out[id] = list;
-            frames++;
-        }
+        // Keep the empty list: it records that this frame's fixtures were
+        // removed, which stops the def's defaults from being seeded again.
+        out[id] = list;
+        frames++;
     }
     return out;
 }
@@ -490,10 +490,17 @@ export function projectToJSON(project) {
     return JSON.stringify(project, null, 2);
 }
 
+// A named project gets its own mirror key. A single shared key would let an
+// offline open of project B restore project A's last document - and then
+// autosave that document back into B.
+function localKey() {
+    return target ? `${STORAGE_KEY}:${target}` : STORAGE_KEY;
+}
+
 function readLocal() {
     if (!hasLocal()) return null;
     try {
-        return parseProject(localStorage.getItem(STORAGE_KEY));
+        return parseProject(localStorage.getItem(localKey()));
     } catch {
         return null;
     }
@@ -565,7 +572,7 @@ export async function saveProject(project) {
         }
     }
     if (hasLocal()) {
-        try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+        try { localStorage.setItem(localKey(), json); } catch { /* quota */ }
     }
     if (typeof window !== 'undefined') {
         window.__tiltSave = { at: Date.now(), ok: onDisk, status, target };
@@ -580,7 +587,7 @@ export async function saveProject(project) {
 export function flushProject(project) {
     const json = projectToJSON(project);
     if (hasLocal()) {
-        try { localStorage.setItem(STORAGE_KEY, json); } catch { /* quota */ }
+        try { localStorage.setItem(localKey(), json); } catch { /* quota */ }
     }
     if (!served()) return false;
     try {
@@ -609,7 +616,7 @@ export async function clearProject() {
         } catch { /* offline */ }
     }
     if (hasLocal()) {
-        try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+        try { localStorage.removeItem(localKey()); } catch { /* ignore */ }
     }
 }
 

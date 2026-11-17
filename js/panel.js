@@ -340,6 +340,7 @@ export function createPanel(opts) {
         colorways = [], colorway = '', fabricColor = null,
         recipes = [], recipe = '',
         onSelect, onToggle, onModeChange, onParamsChange,
+        onCanvasTap, onToolChange,
         onSceneChange, onColorwayChange, onRgbChange, onAddColor, onRecipeChange,
         onSetChange, onFramePillarsChange,
         onElementAdd, onElementRemove, onElementPatch, onElementCount,
@@ -467,6 +468,7 @@ export function createPanel(opts) {
                 activeTool = t.id;
                 setShelfOpen(true);
                 renderIfChanged(true);
+                onToolChange && onToolChange(t.id);
             });
             live.buttons.push(chip);
             toolbarEl.appendChild(chip);
@@ -624,16 +626,25 @@ export function createPanel(opts) {
     // down. A real orbit-drag never counts - only a still tap under 6px.
     const canvasHost = document.getElementById('canvas-container');
     if (canvasHost) {
-        let downX = 0, downY = 0;
+        let downX = 0, downY = 0, downId = null;
         canvasHost.addEventListener('pointerdown', e => {
+            if (downId !== null) {
+                downId = null;
+                return;
+            }
+            downId = e.pointerId;
             downX = e.clientX;
             downY = e.clientY;
         });
         canvasHost.addEventListener('pointerup', e => {
+            if (e.pointerId !== downId) return;
+            downId = null;
             if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+            if (onCanvasTap && onCanvasTap(e.clientX, e.clientY)) return;
             if (!shelfEl) return;
             setShelfOpen(shelfEl.classList.contains('closed'));
         });
+        canvasHost.addEventListener('pointercancel', () => { downId = null; });
     }
 
     let currentMode = mode;
@@ -799,6 +810,17 @@ export function createPanel(opts) {
 
     const host = document.createElement('div');
     body.appendChild(host);
+
+    function focusSelection(key) {
+        if (!key) return;
+        const target = Array.from(host.querySelectorAll('[data-selection]'))
+            .find(el => el.dataset.selection === key);
+        if (!target) return;
+        if (target.tagName === 'DETAILS') target.open = true;
+        if (target.scrollIntoView) target.scrollIntoView({
+            block: 'nearest', inline: 'nearest', behavior: 'smooth'
+        });
+    }
 
     function emit(partial, targets) {
         onParamsChange && onParamsChange(partial, targets);
@@ -1048,6 +1070,7 @@ export function createPanel(opts) {
             root = document.createElement('div');
             inner = root;
         }
+        root.dataset.selection = 'frame:' + key;
 
         const rows = {};
         const normalToggles = [];
@@ -1410,6 +1433,7 @@ export function createPanel(opts) {
 
         for (const row of rows) {
             const { card, head } = uiCard(row.name || row.key);
+            card.dataset.selection = 'decor:' + row.key;
             const rm = uiButton('Remove', 'danger');
             rm.classList.add('shrink-0');
             rm.title = 'Take this off the stage';
@@ -1480,6 +1504,7 @@ export function createPanel(opts) {
         const wrap = document.createElement('div');
         const { card, head } = uiCard('Pillars',
             'Attach one or two to this frame. They travel with it.');
+        card.dataset.selection = 'pillar:' + id + ':' + selected;
         const total = metaList.reduce((n, t) => n + (slotOf(t).count || 0), 0);
         const badge = document.createElement('span');
         badge.className = 'ui-badge';
@@ -1933,6 +1958,7 @@ export function createPanel(opts) {
             const card = document.createElement('details');
             const foldKey = `${typeFilter}:${i}`;
             card.open = !folded.has(foldKey);
+            card.dataset.selection = 'light:' + id + ':' + i;
             card.className = 'mt-2 px-2 py-2 rounded-md border border-dashed '
                 + 'border-gray-300 dark:border-zinc-600';
             card.addEventListener('toggle', () => {
@@ -3201,6 +3227,20 @@ export function createPanel(opts) {
     return {
         get model() { return current; },
         get mode() { return currentMode; },
+
+        openChip(id, focus) {
+            const live = TOOLS.filter(t => t.show());
+            const tool = live.find(t => t.id === id)
+                || live.find(t => t.id === 'shape') || live[0];
+            if (!tool) return false;
+            objectChip.close();
+            activeTool = tool.id;
+            setShelfOpen(true);
+            renderIfChanged(true);
+            focusSelection(focus);
+            onToolChange && onToolChange(tool.id);
+            return true;
+        },
 
         // One call, one re-render: the composition root refreshes everything
         // after a scene sync and this only repaints if something visible moved.

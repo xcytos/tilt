@@ -290,6 +290,14 @@ console.log('\nproject file: mounted flower panels');
       && !('enabled' in els[1].params) && els[1].params.power === 50;
   })());
 
+  check('an emptied fixture list is remembered, not reseeded on reload', (() => {
+    const doc = proj.parseProject(proj.projectToJSON({
+      elements: { 'frame-1': [] }
+    }));
+    return Array.isArray(doc.elements['frame-1'])
+      && doc.elements['frame-1'].length === 0;
+  })());
+
 console.log('\nflower studio: a save reaches the open editor');
 check('studio and editor share one BroadcastChannel name', (() => {
   const editor = read('js/app.js');
@@ -532,9 +540,12 @@ check('app writes on a debounce, not on every drag', /function scheduleSave\(\)/
   && /async function commit\(\)[\s\S]{0,400}saveProject\(/.test(app));
 // Clearing `dirty` before the PATCH is known to have landed leaves the
 // leaving flush with nothing to retry, which is how a project silently
-// kept its old display type and controls.
-check('a failed write keeps the project dirty for the leaving flush',
-  /async function commit\(\)\s*\{[\s\S]{0,600}?if \(!ok\) dirty = true;/.test(app));
+// kept its old display type and controls. The revision check keeps a save
+// that was overtaken by an edit dirty as well.
+const commitSrc = (app.match(/async function commit\(\)[\s\S]*?\n\}/) || [''])[0];
+check('a failed or superseded write keeps the project dirty for the leaving flush',
+  /if \(!ok \|\| saveRev !== rev\) dirty = true;/.test(commitSrc)
+  && commitSrc.indexOf('dirty = false') > commitSrc.indexOf('await saveProject'));
 check('boot restores the project before the first sync',
   /await loadProject\(\)/.test(app)
   && app.indexOf('await loadProject()') < app.indexOf('await syncScene()'));
@@ -798,6 +809,12 @@ check('the lighting rig travels through the document',
   /elements: frameElementsPlain\(\)/.test(app)
   && /savedDoc\.elements/.test(app)
   && /defElementsOf\(def\)/.test(app));
+check('an emptied rig is saved as empty and not seeded again',
+  /function frameElementsPlain\(\)[\s\S]*?Object\.fromEntries\(\[\.\.\.frameElements\]\s*\n\s*\.map/.test(app)
+  && /frameElements\.set\(target, normaliseElementList\(v\)\)/.test(app)
+  && /out\[id\] = list;/.test(read('js/project.js')));
+check('a hidden flower panel is still hidden after reload',
+  /enabled: entry\.enabled,/.test(app));
 check('the floor-PAR spacing travels through the document',
   (() => {
     const proj = read('js/project.js');

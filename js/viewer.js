@@ -4,6 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SceneRig, DEFAULT_SCENE, isScene, computeStageSize, DEFAULT_STAGE_SIZE } from './scenes.js';
 
@@ -108,6 +109,12 @@ export class Viewer {
         this.scene.background = this._bgColor;
         this.sceneId = null;
 
+        this.raycaster = new THREE.Raycaster();
+        this.raycaster.params.Line.threshold = 0.08;
+        this._pickModels = new Map();
+        this._selectionRoot = null;
+        this.outlinePass = null;
+
         this.camera = new THREE.PerspectiveCamera(
             45, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.set(0, 8, -25);
@@ -132,6 +139,8 @@ export class Viewer {
         // doubles the key light's shadow resolution. The choice is a UI
         // toggle (Look shelf) - the composer itself is built lazily the
         // first time cinematic is picked, so standard never pays for it.
+        // Selection also needs a composer for OutlinePass; that reuses the
+        // same chain with bloom switched off.
         this.quality = 'standard';
         let savedQuality = 'standard';
         try {
@@ -226,7 +235,10 @@ export class Viewer {
         this._tick = () => {
             this._raf = requestAnimationFrame(this._tick);
             this.controls.update();
-            if (this.quality === 'cinematic' && this._composer) {
+            const outlining = !!(this.outlinePass
+                && this.outlinePass.selectedObjects.length);
+            if (this._composer
+                && (this.quality === 'cinematic' || outlining)) {
                 this._composer.render();
                 // Camera may have moved: RenderPass binds this camera each
                 // frame anyway, so no extra bookkeeping is needed.
@@ -262,6 +274,7 @@ export class Viewer {
             o.receiveShadow = true;
         });
         this.models.push(model);
+        this._pickModels.set(model.object3D, model);
         if (model.setTheme) model.setTheme(this.isDark);
         return model;
     }
@@ -270,6 +283,12 @@ export class Viewer {
         const i = this.models.indexOf(model);
         if (i < 0) return false;
         this.models.splice(i, 1);
+        this._pickModels.delete(model.object3D);
+        if (this._selectionRoot === model.object3D
+            || (this.outlinePass
+                && this.outlinePass.selectedObjects.includes(model.object3D))) {
+            this.clearSelection();
+        }
         this.scene.remove(model.object3D);
         if (model.dispose) model.dispose();
         return true;
@@ -277,6 +296,99 @@ export class Viewer {
 
     clearModels() {
         while (this.models.length) this.removeModel(this.models[0]);
+    }
+
+    _modelForObject(object) {
+        let o = object;
+        while (o) {
+            const model = this._pickModels.get(o);
+            if (model) return model;
+            o = o.parent;
+        }
+        return null;
+    }
+
+    _pickableObject(object) {
+        let o = object;
+        while (o) {
+            if (o.userData && (o.userData.noFraming || o.userData.noPick)) {
+                return false;
+            }
+            o = o.parent;
+        }
+        return true;
+    }
+
+    pickAt(clientX, clientY, tolerance = 18) {
+        const canvas = this.renderer.domElement;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+
+        const ndc = new THREE.Vector2(
+            ((clientX - rect.left) / rect.width) * 2 - 1,
+            -((clientY - rect.top) / rect.height) * 2 + 1);
+        this.camera.updateMatrixWorld();
+        this.raycaster.setFromCamera(ndc, this.camera);
+
+        const roots = this._pickRoots();
+        const hits = this.raycaster.intersectObjects(roots, true);
+        for (const hit of hits) {
+            const model = this._modelForObject(hit.object);
+            if (model && model.object3D.visible && this._pickableObject(hit.object)) {
+                return { model, object: hit.object, point: hit.point };
+            }
+        }
+
+        return this._pickAround(ndc, rect, tolerance);
+    }
+
+    _pickRoots() {
+        const roots = [];
+        for (const model of this.models) {
+            if (model.object3D && model.object3D.visible) roots.push(model.object3D);
+        }
+        return roots;
+    }
+
+    _pickAround(ndc, rect, tolerance) {
+        const roots = this._pickRoots();
+        if (!roots.length || !(tolerance > 0)) return null;
+        const step = Math.max(4, tolerance / 3);
+        for (let radius = step; radius <= tolerance + 0.01; radius += step) {
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                const x = (ndc.x * 0.5 + 0.5) * rect.width
+                    + Math.cos(angle) * radius;
+                const y = (-ndc.y * 0.5 + 0.5) * rect.height
+                    + Math.sin(angle) * radius;
+                const sample = new THREE.Vector2(
+                    (x / rect.width) * 2 - 1,
+                    -((y / rect.height) * 2 - 1));
+                this.raycaster.setFromCamera(sample, this.camera);
+                const hits = this.raycaster.intersectObjects(roots, true);
+                for (const hit of hits) {
+                    const model = this._modelForObject(hit.object);
+                    if (model && model.object3D.visible
+                        && this._pickableObject(hit.object)) {
+                        return { model, object: hit.object, point: hit.point };
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    setSelection(roots) {
+        const list = (Array.isArray(roots) ? roots : [roots])
+            .filter(Boolean);
+        if (list.length && !this._composer) this._buildComposer();
+        this._selectionRoot = list[0] || null;
+        if (this.outlinePass) this.outlinePass.selectedObjects = list;
+    }
+
+    clearSelection() {
+        this._selectionRoot = null;
+        if (this.outlinePass) this.outlinePass.selectedObjects = [];
     }
 
     setTheme(isDark) {
@@ -490,10 +602,12 @@ export class Viewer {
         this.quality = next;
         if (next === 'cinematic') {
             if (!this._composer) this._buildComposer();
+            if (this._bloom) this._bloom.enabled = true;
             // Deeper shadows only pay off under bloom, where the tone
             // curve judges them; swap the ortho shadow's memory accordingly.
             this.mainLight.shadow.mapSize.set(4096, 4096);
         } else {
+            if (this._bloom) this._bloom.enabled = false;
             this.mainLight.shadow.mapSize.set(2048, 2048);
         }
         if (this.mainLight.shadow.map) {
@@ -518,7 +632,17 @@ export class Viewer {
         this._composer.setSize(size.x, size.y);
         this._composer.addPass(new RenderPass(this.scene, this.camera));
         this._bloom = new UnrealBloomPass(size, 0.32, 0.55, 0.85);
+        this._bloom.enabled = this.quality === 'cinematic';
         this._composer.addPass(this._bloom);
+        this.outlinePass = new OutlinePass(
+            new THREE.Vector2(1, 1), this.scene, this.camera);
+        this.outlinePass.edgeStrength = 3.5;
+        this.outlinePass.edgeGlow = 0;
+        this.outlinePass.edgeThickness = 1;
+        this.outlinePass.pulsePeriod = 0;
+        this.outlinePass.visibleEdgeColor.set(0x38bdf8);
+        this.outlinePass.hiddenEdgeColor.set(0x0284c7);
+        this._composer.addPass(this.outlinePass);
         this._composer.addPass(new OutputPass());
     }
 
@@ -630,7 +754,9 @@ export class Viewer {
         this.stop();
         window.removeEventListener('resize', this._onResize);
         if (this._watchBox) this._watchBox.disconnect();
+        this.clearSelection();
         this.clearModels();
+        if (this._composer) this._composer.dispose();
         this.rig.dispose();
         this.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
         [this.matFloor].forEach(m => m.dispose());
