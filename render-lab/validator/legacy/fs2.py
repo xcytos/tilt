@@ -1,4 +1,4 @@
-﻿import sys, importlib.util
+import sys, importlib.util
 spec = importlib.util.spec_from_file_location("fs2", r"C:\Users\syedm\Downloads\tools\TILT\forge\forge_server.py")
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)

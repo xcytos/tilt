@@ -1,0 +1,21 @@
+# Normalize text to LF in the repo and on checkout: the node test suite
+# asserts source contracts with \n-anchored regexes, so CRLF working
+# files (core.autocrlf) make them fail on Windows.
+* text=auto
+*.js text eol=lf
+*.mjs text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+*.webmanifest text eol=lf
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.glb binary
+*.bin binary
+*.db binary

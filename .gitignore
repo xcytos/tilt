@@ -12,3 +12,4 @@ forge/cache/
 forge/node_modules/
 forge/*.log
 __pycache__/
+render-lab/_scenes_view.mjs
