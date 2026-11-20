@@ -185,3 +185,7 @@
   .fullness-presets .btn{min-height:44px}
   .gr-generate .btn{min-height:48px}
 }
+
+@media(prefers-reduced-motion:reduce){
+  .chip,.seg label,.config-chip .chip-chevron,.adv > summary::after{transition:none!important}
+}

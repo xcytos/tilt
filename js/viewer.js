@@ -16,6 +16,56 @@ const THEME = {
     dark:  { bg: 0x18181b, ambient: 0.4, key: 2.0, floorEnv: 0.05 }
 };
 
+// One device-level contract for the render controls the Look shelf exposes.
+// The old quality key is still read once so existing sessions keep their
+// choice; new writes go to the versioned object.
+const RENDER_PREFS_KEY = 'tilt-render-prefs-v1';
+const LEGACY_QUALITY_KEY = 'tilt-render-quality';
+const DEFAULT_RENDER_PREFS = Object.freeze({
+    quality: 'standard',
+    shadows: true,
+    shadowBox: false
+});
+
+function readRenderPrefs() {
+    const prefs = { ...DEFAULT_RENDER_PREFS };
+    try {
+        if (typeof localStorage === 'undefined') return prefs;
+        const raw = localStorage.getItem(RENDER_PREFS_KEY);
+        if (raw) {
+            const saved = JSON.parse(raw);
+            if (saved && typeof saved === 'object') {
+                if (saved.quality === 'standard' || saved.quality === 'cinematic') {
+                    prefs.quality = saved.quality;
+                }
+                if (saved.shadows === true || saved.shadows === false) {
+                    prefs.shadows = saved.shadows;
+                }
+                if (saved.shadowBox === true || saved.shadowBox === false) {
+                    prefs.shadowBox = saved.shadowBox;
+                }
+            }
+        } else {
+            const legacy = localStorage.getItem(LEGACY_QUALITY_KEY);
+            if (legacy === 'standard' || legacy === 'cinematic') {
+                prefs.quality = legacy;
+            }
+        }
+    } catch (e) { /* storage can be denied; the defaults stand */ }
+    return prefs;
+}
+
+function writeRenderPrefs(patch) {
+    const next = { ...readRenderPrefs(), ...patch };
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(RENDER_PREFS_KEY, JSON.stringify(next));
+            // Keep the old key in step for bundles opened before this change.
+            localStorage.setItem(LEGACY_QUALITY_KEY, next.quality);
+        }
+    } catch (e) { /* storage can be denied; the session still works */ }
+}
+
 const FRAME_DIR = new THREE.Vector3(0, 4, -25).normalize();
 
 // Breathing room between side-by-side models in "all at once" mode.
@@ -127,10 +177,11 @@ export class Viewer {
             throw err;
         }
         this.renderer = renderer;
+        const savedRenderPrefs = readRenderPrefs();
         this.resize();
         this._framedAspect = this.camera.aspect;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.enabled = savedRenderPrefs.shadows;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
@@ -142,11 +193,6 @@ export class Viewer {
         // Selection also needs a composer for OutlinePass; that reuses the
         // same chain with bloom switched off.
         this.quality = 'standard';
-        let savedQuality = 'standard';
-        try {
-            const saved = localStorage.getItem('tilt-render-quality');
-            if (saved === 'cinematic') savedQuality = 'cinematic';
-        } catch (e) { /* storage can be denied; the default stands */ }
 
         // Image based lighting, otherwise metalness reads as flat black
         const pmrem = new THREE.PMREMGenerator(renderer);
@@ -226,10 +272,13 @@ export class Viewer {
             this._watchBox.observe(container);
         }
 
-        // Re-apply a saved quality once camera, lights and scene all exist -
-        // the cinematic lane touches the key light's shadow and mounts the
-        // composer, neither of which is valid any earlier.
-        this.setQuality(savedQuality);
+        // Re-apply saved render preferences once camera, lights and scene
+        // all exist - the cinematic lane touches the key light's shadow and
+        // mounts the composer, neither of which is valid any earlier. Boot
+        // restore never writes back: storage is only touched by a user edit.
+        this.setQuality(savedRenderPrefs.quality, false);
+        this.setShadowsEnabled(savedRenderPrefs.shadows, false);
+        this.setShadowBoxVisible(savedRenderPrefs.shadowBox, false);
 
         this._raf = 0;
         this._tick = () => {
@@ -538,18 +587,21 @@ export class Viewer {
 
     // Toggling shadowMap.enabled needs every material recompiled, or the
     // old lighting programs keep running with stale defines.
-    setShadowsEnabled(on) {
-        this.renderer.shadowMap.enabled = !!on;
+    setShadowsEnabled(on, persist = true) {
+        const next = !!on;
+        this.renderer.shadowMap.enabled = next;
         this.scene.traverse((o) => {
             if (!(o.isMesh || o.isInstancedMesh)) return;
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             for (const m of mats) if (m) m.needsUpdate = true;
         });
+        if (persist) writeRenderPrefs({ shadows: next });
+        return next;
     }
 
     // Wireframe of the key light's shadow frustum, so a camera orbit
     // shows exactly which tables sit inside the box and which do not.
-    setShadowBoxVisible(on) {
+    setShadowBoxVisible(on, persist = true) {
         if (on && !this._shadowBox) {
             const L = this.mainLight;
             const cam = L.shadow.camera;
@@ -573,6 +625,7 @@ export class Viewer {
             this.scene.add(box);
         }
         if (this._shadowBox) this._shadowBox.visible = !!on;
+        if (persist) writeRenderPrefs({ shadowBox: !!on });
     }
 
     // Match the camera and the drawing buffer to whatever box the canvas
@@ -596,7 +649,7 @@ export class Viewer {
     // scenes render into a 4x-MSAA half-float target, UnrealBloom lifts
     // emissive lamps above the threshold, OutputPass re-applies this
     // renderer's tone mapping so rooms and the studio keep their looks.
-    setQuality(q) {
+    setQuality(q, persist = true) {
         const next = q === 'cinematic' ? 'cinematic' : 'standard';
         if (this.quality === next) return next;
         this.quality = next;
@@ -614,7 +667,7 @@ export class Viewer {
             this.mainLight.shadow.map.dispose();
             this.mainLight.shadow.map = null;
         }
-        try { localStorage.setItem('tilt-render-quality', next); } catch (e) { /* ok */ }
+        if (persist) writeRenderPrefs({ quality: next });
         return next;
     }
 

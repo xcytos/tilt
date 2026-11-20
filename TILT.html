@@ -7,15 +7,20 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#0b1020">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: { extend: {} }
-        }
-    </script>
+    <!-- Tailwind compiled ahead of time: the editor must style itself with
+         no runtime CDN. Regenerate after markup/class changes with:
+         npx tailwindcss@3.4.17 -c tailwind.config.cjs \
+             -i tools/tailwind.input.css -o css/tailwind.css --minify -->
+    <link rel="stylesheet" href="./css/tailwind.css">
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
+
+        /* Keyboard-only focus ring for every interactive control. Pointer
+           clicks stay clean; :focus-visible only lights up for keyboards. */
+        :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+            outline: 2px solid #0284c7;
+            outline-offset: 2px;
+        }
         #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; overflow: hidden; }
         
         /* ---- dock: the contextual shelf and the tool bar, docked to the
@@ -558,6 +563,8 @@
         
         input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; margin: 8px 0; }
         input[type=range]:focus { outline: none; }
+        /* Pointer drags do not need a ring; keyboard arrows do. */
+        input[type=range]:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; border-radius: 999px; }
         input[type=range]::-webkit-slider-runnable-track { 
             width: 100%; height: 6px; cursor: pointer; border-radius: 3px; 
             background: #cbd5e1; 
@@ -622,8 +629,8 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+          "three": "./vendor/three/build/three.module.js",
+          "three/addons/": "./vendor/three/examples/jsm/"
         }
       }
     </script>

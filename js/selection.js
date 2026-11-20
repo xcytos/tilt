@@ -27,7 +27,7 @@ export function selectionForModel(model, lookups = {}) {
     } = lookups;
 
     // A frame's fixtures are separate models, but tapping one should not
-    // break the S Curve into parts. Fold the hit back onto its frame so the
+    // break the frame into parts. Fold the hit back onto its frame so the
     // body, the curtain and the lights share one outline and one chip cycle.
     if (model.elementOf && elementKey) {
         const { frameId } = model.elementOf;

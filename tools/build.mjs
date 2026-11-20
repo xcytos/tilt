@@ -9,6 +9,7 @@ const ROOT = path.resolve(HERE, '..');
 export const ORDER = [
     'js/scenes.js',
     'js/layouts.js',
+    'js/setShape.js',
     'js/colorways.js',
     'js/recipes.js',
     'js/project.js',
@@ -50,6 +51,9 @@ export const ORDER = [
 ];
 
 const ENTRY_TAG = '<script type="module" src="./js/app.js"></script>';
+// TILT.html links the compiled Tailwind sheet; the standalone file must be
+// one document with no fetches at all, so the build inlines it in place.
+const TAILWIND_TAG = '<link rel="stylesheet" href="./css/tailwind.css">';
 
 function read(rel) {
     return fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -145,7 +149,17 @@ export function buildTo(out) {
     // Function replacer: the bundle is full of `$&`, `$'` and friends
     // (regex sources, template strings), and a string replacement would
     // silently expand them and splice HTML tail into the module.
-    const built = html.replace(ENTRY_TAG, () => script);
+    let built = html.replace(ENTRY_TAG, () => script);
+
+    // The editor sheet stays a local file; the standalone copy inlines it so
+    // it keeps working with no network at all.
+    if (!built.includes(TAILWIND_TAG)) {
+        throw new Error(`TILT.html no longer contains ${TAILWIND_TAG}`);
+    }
+    const cssPath = path.join(ROOT, 'css', 'tailwind.css');
+    const css = fs.readFileSync(cssPath, 'utf8');
+    built = built.replace(TAILWIND_TAG,
+        () => `<style>\n${css}\n    </style>`);
 
     fs.writeFileSync(out, built);
     return built;

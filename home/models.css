@@ -191,6 +191,11 @@ button { font: inherit; color: inherit; }
 
 .search svg { color: var(--muted); flex: none; }
 
+.search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .search input {
     flex: 1;
     min-width: 0;

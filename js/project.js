@@ -8,6 +8,7 @@
 // Layout data only: no three.js, so this import still resolves in the plain
 // Node the tests run the parser under.
 import { LAYOUT_IDS } from './layouts.js';
+import { SET_SHAPE_KEYS } from './setShape.js';
 import { COLORWAY_IDS, DEFAULT_COLORWAY } from './colorways.js';
 // Pure (no three.js): the flower arrangement's authority for turning whatever a
 // document carries into a full, clamped settings object.
@@ -284,7 +285,6 @@ const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
 // The shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
-const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 // Colours you saved yourself: appended after the board palettes, never
 // replacing them. Capped so a document cannot grow a paint shop.
 function cleanExtras(raw) {
@@ -310,7 +310,7 @@ function cleanSetPresets(raw) {
     for (const [id, v] of Object.entries(raw)) {
         if (!LAYOUT_IDS.includes(id) || !v || typeof v !== 'object') continue;
         const shape = {};
-        for (const k of DOC_SET_SHAPE_KEYS) {
+        for (const k of SET_SHAPE_KEYS) {
             const n = Number(v[k]);
             if (Number.isFinite(n)) shape[k] = n;
         }

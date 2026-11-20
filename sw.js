@@ -1,11 +1,14 @@
 // TILT offline shell. The app is a static shell over a local SQLite API, so
 // the worker caches the pages, modules and icons only - never /api/ answers
 // or project.json, which are state and must always come from the server.
-const VERSION = 'tilt-v2';
+const VERSION = 'tilt-v3';
 const SHELL = [
     '/',
     '/index.html',
     '/TILT.html',
+    // The editor styles are local now (compiled Tailwind, no CDN), so the
+    // offline shell has to carry them or the page lands unstyled.
+    '/css/tailwind.css',
     '/manifest.webmanifest',
     '/icon-192.png',
     '/icon-512.png'

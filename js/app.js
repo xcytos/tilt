@@ -8,6 +8,7 @@ import { SCENES, DEFAULT_SCENE, isScene } from './scenes.js';
 import { LAYOUTS, LAYOUT_IDS, layoutById } from './layouts.js';
 import { COLORWAYS, DEFAULT_COLORWAY, colorwayById } from './colorways.js';
 import { RECIPES, recipeById, recipeFor } from './recipes.js';
+import { SET_SHAPE_KEYS } from './setShape.js';
 import { createO2TiltModel, PARAMS } from './objects/o2tilt.js';
 import { createPillarModel, PILLAR_PARAMS, PILLAR_ID, PILLAR_DEF } from './objects/pillar.js';
 import { createFlowerPanelModel, FLOWERPANEL_PARAMS, FLOWERPANEL_ID } from './objects/flowerpanel.js';
@@ -142,7 +143,8 @@ let rebuildQueued = false;
 const savedPresets = {};
 // Each SET remembers its own shape sliders (Center Gap, Swing Pan, Pitch,
 // the two Declines, Lobes): switching a SET is a conversion, not a nudge.
-const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
+// The key list lives in setShape.js so project.js accepts exactly what this
+// side writes; applying a SET still reads each frame model's own schema.
 let setPresets = Object.create(null);
 
 function setPresetsPlain() {
@@ -1594,35 +1596,42 @@ function applySetParams(id) {
         ? Object.assign({}, (lay && lay.params) || {}, (id && setPresets[id]) || {})
         : null;
     if (!src) return false;
-    const patch = {};
-    for (const k of SET_SHAPE_KEYS) {
-        const meta = PARAMS[k];
-        const v = Number(src[k]);
-        if (!meta || !Number.isFinite(v)) continue;
-        patch[k] = Math.max(meta.min, Math.min(meta.max, v));
-    }
-    // Lobe gaps always travel with the SET: a drawing or an old preset
-    // without them restores the default 1 ft gap on every lobe.
-    {
-        const meta = PARAMS.lobeGaps;
-        const count = meta.count || 11;
-        const srcGaps = Array.isArray(src.lobeGaps) ? src.lobeGaps : [];
-        patch.lobeGaps = Array.from({ length: count }, (_, i) => {
-            const n = Number(srcGaps[i]);
-            return Number.isFinite(n)
-                ? Math.max(meta.min, Math.min(meta.max, n)) : meta.value;
-        });
-    }
-    if (!Object.keys(patch).length) return null;
+    // Apply through each frame's registered schema, not a shared S Curve
+    // constant: a new frame type brings its own ranges and lobe layout.
+    const applied = {};
     for (const [key, models] of mounted) {
         if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
         for (const m of models) {
-            if (!m.setParams) continue;
+            if (!m.setParams || !m.params) continue;
+            const patch = {};
+            for (const [k, meta] of Object.entries(m.params)) {
+                if (k === 'lobeGaps' || meta.type !== 'range') continue;
+                const v = Number(src[k]);
+                if (!Number.isFinite(v)) continue;
+                const lo = Number(meta.min), hi = Number(meta.max);
+                patch[k] = Number.isFinite(lo) && Number.isFinite(hi)
+                    ? Math.max(lo, Math.min(hi, v)) : v;
+            }
+            // Lobe gaps always travel with the SET: a drawing or an old
+            // preset without them restores the default gap on every lobe.
+            const gapMeta = m.params.lobeGaps;
+            if (gapMeta) {
+                const count = gapMeta.count || 11;
+                const srcGaps = Array.isArray(src.lobeGaps) ? src.lobeGaps : [];
+                patch.lobeGaps = Array.from({ length: count }, (_, i) => {
+                    const n = Number(srcGaps[i]);
+                    return Number.isFinite(n)
+                        ? Math.max(gapMeta.min, Math.min(gapMeta.max, n))
+                        : gapMeta.value;
+                });
+            }
+            if (!Object.keys(patch).length) continue;
             m.setParams(patch);
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], patch);
+            Object.assign(applied, patch);
         }
     }
-    return patch;
+    return Object.keys(applied).length ? applied : null;
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`

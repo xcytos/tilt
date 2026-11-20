@@ -55,8 +55,15 @@ check('the viewport covers the notch', /viewport-fit=cover/.test(modelsHtml));
 check('the stylesheet is local', modelsHtml.includes('href="./home/models.css"'));
 check('the script is a module (it drives three.js factories)',
   /<script type="module" src="\.\/home\/models\.js"><\/script>/.test(modelsHtml));
-check('it carries the same importmap as the editor',
-  /<script type="importmap">/.test(modelsHtml) && /three@0\.160\.0/.test(modelsHtml));
+check('it carries the same importmap as the editor', (() => {
+  const block = src => {
+    const m = /<script type="importmap">([\s\S]*?)<\/script>/.exec(src);
+    return m ? m[1].replace(/\s+/g, ' ').trim() : '';
+  };
+  return /<script type="importmap">/.test(modelsHtml)
+    && block(modelsHtml) === block(read('TILT.html'))
+    && block(modelsHtml).includes('./vendor/three/');
+})());
 check('the theme is decided before first paint, on the shared key',
   /localStorage\.getItem\('o2tilt-theme'\)/.test(modelsHtml));
 check('live reload only runs over http', /EventSource\('\/__events'\)/.test(modelsHtml)

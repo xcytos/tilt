@@ -7,15 +7,22 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#0b1020">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: { extend: {} }
-        }
-    </script>
+    <!-- Tailwind compiled ahead of time: the editor must style itself with
+         no runtime CDN. Regenerate after markup/class changes with:
+         npx tailwindcss@3.4.17 -c tailwind.config.cjs \
+             -i tools/tailwind.input.css -o css/tailwind.css --minify -->
+    <style>
+*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.\!container{width:100%!important}.container{width:100%}@media (min-width:640px){.\!container{max-width:640px!important}.container{max-width:640px}}@media (min-width:768px){.\!container{max-width:768px!important}.container{max-width:768px}}@media (min-width:1024px){.\!container{max-width:1024px!important}.container{max-width:1024px}}@media (min-width:1280px){.\!container{max-width:1280px!important}.container{max-width:1280px}}@media (min-width:1536px){.\!container{max-width:1536px!important}.container{max-width:1536px}}.pointer-events-none{pointer-events:none}.visible{visibility:visible}.invisible{visibility:hidden}.collapse{visibility:collapse}.static{position:static}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.z-50{z-index:50}.-mt-px{margin-top:-1px}.mb-0\.5{margin-bottom:.125rem}.mb-1{margin-bottom:.25rem}.mb-1\.5{margin-bottom:.375rem}.mb-2{margin-bottom:.5rem}.mb-3{margin-bottom:.75rem}.ml-auto{margin-left:auto}.mr-1{margin-right:.25rem}.mt-0\.5{margin-top:.125rem}.mt-1{margin-top:.25rem}.mt-1\.5{margin-top:.375rem}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.block{display:block}.inline{display:inline}.flex{display:flex}.table{display:table}.grid{display:grid}.contents{display:contents}.hidden{display:none}.size-1{width:.25rem;height:.25rem}.h-12{height:3rem}.h-2{height:.5rem}.h-24{height:6rem}.h-3\.5{height:.875rem}.h-32{height:8rem}.h-4{height:1rem}.h-5{height:1.25rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-full{height:100%}.max-h-\[85vh\]{max-height:85vh}.w-0{width:0}.w-3\.5{width:.875rem}.w-4{width:1rem}.w-5{width:1.25rem}.w-7{width:1.75rem}.w-8{width:2rem}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\[2\.5rem\]{min-width:2.5rem}.min-w-\[60px\]{min-width:60px}.max-w-lg{max-width:32rem}.flex-1{flex:1 1 0%}.flex-none{flex:none}.shrink{flex-shrink:1}.shrink-0{flex-shrink:0}.grow{flex-grow:1}.transform{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-crosshair{cursor:crosshair}.cursor-pointer{cursor:pointer}.select-none{-webkit-user-select:none;-moz-user-select:none;user-select:none}.resize{resize:both}.snap-start{scroll-snap-align:start}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-end{align-items:flex-end}.items-center{align-items:center}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-0\.5{gap:.125rem}.gap-1{gap:.25rem}.gap-1\.5{gap:.375rem}.gap-2{gap:.5rem}.gap-4{gap:1rem}.space-y-2>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.5rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.5rem*var(--tw-space-y-reverse))}.space-y-3>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.75rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.75rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:.5rem}.rounded-md{border-radius:.375rem}.rounded-xl{border-radius:.75rem}.border{border-width:1px}.border-2{border-width:2px}.border-t{border-top-width:1px}.border-dashed{border-style:dashed}.border-black\/10{border-color:rgba(0,0,0,.1)}.border-gray-100{--tw-border-opacity:1;border-color:rgb(243 244 246/var(--tw-border-opacity,1))}.border-gray-200{--tw-border-opacity:1;border-color:rgb(229 231 235/var(--tw-border-opacity,1))}.border-gray-300{--tw-border-opacity:1;border-color:rgb(209 213 219/var(--tw-border-opacity,1))}.border-red-300{--tw-border-opacity:1;border-color:rgb(252 165 165/var(--tw-border-opacity,1))}.border-sky-500{--tw-border-opacity:1;border-color:rgb(14 165 233/var(--tw-border-opacity,1))}.border-sky-600{--tw-border-opacity:1;border-color:rgb(2 132 199/var(--tw-border-opacity,1))}.border-sky-700{--tw-border-opacity:1;border-color:rgb(3 105 161/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.border-white{--tw-border-opacity:1;border-color:rgb(255 255 255/var(--tw-border-opacity,1))}.bg-black\/40{background-color:rgba(0,0,0,.4)}.bg-gray-100{--tw-bg-opacity:1;background-color:rgb(243 244 246/var(--tw-bg-opacity,1))}.bg-gray-200{--tw-bg-opacity:1;background-color:rgb(229 231 235/var(--tw-bg-opacity,1))}.bg-gray-50{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-red-500{--tw-bg-opacity:1;background-color:rgb(239 68 68/var(--tw-bg-opacity,1))}.bg-sky-50{--tw-bg-opacity:1;background-color:rgb(240 249 255/var(--tw-bg-opacity,1))}.bg-sky-600{--tw-bg-opacity:1;background-color:rgb(2 132 199/var(--tw-bg-opacity,1))}.bg-sky-700{--tw-bg-opacity:1;background-color:rgb(3 105 161/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.bg-white\/40{background-color:hsla(0,0%,100%,.4)}.bg-white\/70{background-color:hsla(0,0%,100%,.7)}.bg-gradient-to-r{background-image:linear-gradient(to right,var(--tw-gradient-stops))}.from-sky-500{--tw-gradient-from:#0ea5e9 var(--tw-gradient-from-position);--tw-gradient-to:rgba(14,165,233,0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}.to-teal-400{--tw-gradient-to:#2dd4bf var(--tw-gradient-to-position)}.object-cover{-o-object-fit:cover;object-fit:cover}.p-2{padding:.5rem}.p-4{padding:1rem}.px-1{padding-left:.25rem;padding-right:.25rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.pb-2{padding-bottom:.5rem}.pb-3{padding-bottom:.75rem}.pr-1{padding-right:.25rem}.pt-1{padding-top:.25rem}.pt-2{padding-top:.5rem}.pt-3{padding-top:.75rem}.text-center{text-align:center}.text-right{text-align:right}.align-middle{vertical-align:middle}.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-\[9\.5px\]{font-size:9.5px}.text-base{font-size:1rem;line-height:1.5rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-xs{font-size:.75rem;line-height:1rem}.font-bold{font-weight:700}.font-medium{font-weight:500}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.ordinal{--tw-ordinal:ordinal}.ordinal,.tabular-nums{font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.tabular-nums{--tw-numeric-spacing:tabular-nums}.leading-none{line-height:1}.leading-snug{line-height:1.375}.tracking-wider{letter-spacing:.05em}.tracking-widest{letter-spacing:.1em}.text-amber-600{--tw-text-opacity:1;color:rgb(217 119 6/var(--tw-text-opacity,1))}.text-gray-400{--tw-text-opacity:1;color:rgb(156 163 175/var(--tw-text-opacity,1))}.text-gray-500{--tw-text-opacity:1;color:rgb(107 114 128/var(--tw-text-opacity,1))}.text-gray-600{--tw-text-opacity:1;color:rgb(75 85 99/var(--tw-text-opacity,1))}.text-gray-700{--tw-text-opacity:1;color:rgb(55 65 81/var(--tw-text-opacity,1))}.text-gray-800{--tw-text-opacity:1;color:rgb(31 41 55/var(--tw-text-opacity,1))}.text-gray-900{--tw-text-opacity:1;color:rgb(17 24 39/var(--tw-text-opacity,1))}.text-red-600{--tw-text-opacity:1;color:rgb(220 38 38/var(--tw-text-opacity,1))}.text-sky-600{--tw-text-opacity:1;color:rgb(2 132 199/var(--tw-text-opacity,1))}.text-sky-700{--tw-text-opacity:1;color:rgb(3 105 161/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.accent-sky-500{accent-color:#0ea5e9}.shadow{--tw-shadow:0 1px 3px 0 rgba(0,0,0,.1),0 1px 2px -1px rgba(0,0,0,.1);--tw-shadow-colored:0 1px 3px 0 var(--tw-shadow-color),0 1px 2px -1px var(--tw-shadow-color)}.shadow,.shadow-2xl{box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.shadow-2xl{--tw-shadow:0 25px 50px -12px rgba(0,0,0,.25);--tw-shadow-colored:0 25px 50px -12px var(--tw-shadow-color)}.shadow-sm{--tw-shadow:0 1px 2px 0 rgba(0,0,0,.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline{outline-style:solid}.ring{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)}.ring,.ring-1{box-shadow:var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)}.ring-1{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color)}.ring-black\/30{--tw-ring-color:rgba(0,0,0,.3)}.ring-sky-400{--tw-ring-opacity:1;--tw-ring-color:rgb(56 189 248/var(--tw-ring-opacity,1))}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.backdrop-blur-sm{--tw-backdrop-blur:blur(4px)}.backdrop-blur-sm,.backdrop-filter{-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,-webkit-backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter,-webkit-backdrop-filter;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.duration-300{transition-duration:.3s}.hover\:border-red-400:hover{--tw-border-opacity:1;border-color:rgb(248 113 113/var(--tw-border-opacity,1))}.hover\:border-sky-400:hover{--tw-border-opacity:1;border-color:rgb(56 189 248/var(--tw-border-opacity,1))}.hover\:bg-black\/5:hover{background-color:rgba(0,0,0,.05)}.hover\:bg-gray-100:hover{--tw-bg-opacity:1;background-color:rgb(243 244 246/var(--tw-bg-opacity,1))}.hover\:bg-gray-50:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\:bg-red-50:hover{--tw-bg-opacity:1;background-color:rgb(254 242 242/var(--tw-bg-opacity,1))}.hover\:bg-sky-50:hover{--tw-bg-opacity:1;background-color:rgb(240 249 255/var(--tw-bg-opacity,1))}.hover\:bg-sky-500:hover{--tw-bg-opacity:1;background-color:rgb(14 165 233/var(--tw-bg-opacity,1))}.hover\:bg-sky-700:hover{--tw-bg-opacity:1;background-color:rgb(3 105 161/var(--tw-bg-opacity,1))}.hover\:text-red-500:hover{--tw-text-opacity:1;color:rgb(239 68 68/var(--tw-text-opacity,1))}.hover\:text-sky-500:hover{--tw-text-opacity:1;color:rgb(14 165 233/var(--tw-text-opacity,1))}.hover\:text-sky-600:hover{--tw-text-opacity:1;color:rgb(2 132 199/var(--tw-text-opacity,1))}.hover\:underline:hover{text-decoration-line:underline}.disabled\:cursor-not-allowed:disabled{cursor:not-allowed}.disabled\:opacity-50:disabled{opacity:.5}.dark\:border-red-700:is(.dark *){--tw-border-opacity:1;border-color:rgb(185 28 28/var(--tw-border-opacity,1))}.dark\:border-sky-400:is(.dark *){--tw-border-opacity:1;border-color:rgb(56 189 248/var(--tw-border-opacity,1))}.dark\:border-sky-700:is(.dark *){--tw-border-opacity:1;border-color:rgb(3 105 161/var(--tw-border-opacity,1))}.dark\:border-zinc-600:is(.dark *){--tw-border-opacity:1;border-color:rgb(82 82 91/var(--tw-border-opacity,1))}.dark\:border-zinc-700:is(.dark *){--tw-border-opacity:1;border-color:rgb(63 63 70/var(--tw-border-opacity,1))}.dark\:border-zinc-800:is(.dark *){--tw-border-opacity:1;border-color:rgb(39 39 42/var(--tw-border-opacity,1))}.dark\:bg-sky-400:is(.dark *){--tw-bg-opacity:1;background-color:rgb(56 189 248/var(--tw-bg-opacity,1))}.dark\:bg-sky-900\/40:is(.dark *){background-color:rgba(12,74,110,.4)}.dark\:bg-zinc-700:is(.dark *){--tw-bg-opacity:1;background-color:rgb(63 63 70/var(--tw-bg-opacity,1))}.dark\:bg-zinc-800:is(.dark *){--tw-bg-opacity:1;background-color:rgb(39 39 42/var(--tw-bg-opacity,1))}.dark\:bg-zinc-800\/40:is(.dark *){background-color:rgba(39,39,42,.4)}.dark\:bg-zinc-800\/60:is(.dark *){background-color:rgba(39,39,42,.6)}.dark\:bg-zinc-800\/70:is(.dark *){background-color:rgba(39,39,42,.7)}.dark\:bg-zinc-900:is(.dark *){--tw-bg-opacity:1;background-color:rgb(24 24 27/var(--tw-bg-opacity,1))}.dark\:text-amber-400:is(.dark *){--tw-text-opacity:1;color:rgb(251 191 36/var(--tw-text-opacity,1))}.dark\:text-red-400:is(.dark *){--tw-text-opacity:1;color:rgb(248 113 113/var(--tw-text-opacity,1))}.dark\:text-sky-300:is(.dark *){--tw-text-opacity:1;color:rgb(125 211 252/var(--tw-text-opacity,1))}.dark\:text-sky-400:is(.dark *){--tw-text-opacity:1;color:rgb(56 189 248/var(--tw-text-opacity,1))}.dark\:text-sky-950:is(.dark *){--tw-text-opacity:1;color:rgb(8 47 73/var(--tw-text-opacity,1))}.dark\:text-zinc-100:is(.dark *){--tw-text-opacity:1;color:rgb(244 244 245/var(--tw-text-opacity,1))}.dark\:text-zinc-200:is(.dark *){--tw-text-opacity:1;color:rgb(228 228 231/var(--tw-text-opacity,1))}.dark\:text-zinc-300:is(.dark *){--tw-text-opacity:1;color:rgb(212 212 216/var(--tw-text-opacity,1))}.dark\:text-zinc-400:is(.dark *){--tw-text-opacity:1;color:rgb(161 161 170/var(--tw-text-opacity,1))}.dark\:text-zinc-500:is(.dark *){--tw-text-opacity:1;color:rgb(113 113 122/var(--tw-text-opacity,1))}.dark\:hover\:border-sky-500:hover:is(.dark *){--tw-border-opacity:1;border-color:rgb(14 165 233/var(--tw-border-opacity,1))}.dark\:hover\:bg-red-900\/40:hover:is(.dark *){background-color:rgba(127,29,29,.4)}.dark\:hover\:bg-sky-900\/40:hover:is(.dark *){background-color:rgba(12,74,110,.4)}.dark\:hover\:bg-white\/10:hover:is(.dark *){background-color:hsla(0,0%,100%,.1)}.dark\:hover\:bg-zinc-700:hover:is(.dark *){--tw-bg-opacity:1;background-color:rgb(63 63 70/var(--tw-bg-opacity,1))}.dark\:hover\:bg-zinc-700\/60:hover:is(.dark *){background-color:rgba(63,63,70,.6)}.dark\:hover\:bg-zinc-800:hover:is(.dark *){--tw-bg-opacity:1;background-color:rgb(39 39 42/var(--tw-bg-opacity,1))}.dark\:hover\:text-sky-400:hover:is(.dark *){--tw-text-opacity:1;color:rgb(56 189 248/var(--tw-text-opacity,1))}@media (min-width:640px){.sm\:items-center{align-items:center}}
+    </style>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; transition: background-color 0.3s; }
+
+        /* Keyboard-only focus ring for every interactive control. Pointer
+           clicks stay clean; :focus-visible only lights up for keyboards. */
+        :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+            outline: 2px solid #0284c7;
+            outline-offset: 2px;
+        }
         #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; overflow: hidden; }
         
         /* ---- dock: the contextual shelf and the tool bar, docked to the
@@ -558,6 +565,8 @@
         
         input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; margin: 8px 0; }
         input[type=range]:focus { outline: none; }
+        /* Pointer drags do not need a ring; keyboard arrows do. */
+        input[type=range]:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; border-radius: 999px; }
         input[type=range]::-webkit-slider-runnable-track { 
             width: 100%; height: 6px; cursor: pointer; border-radius: 3px; 
             background: #cbd5e1; 
@@ -622,8 +631,8 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+          "three": "./vendor/three/build/three.module.js",
+          "three/addons/": "./vendor/three/examples/jsm/"
         }
       }
     </script>
@@ -2220,6 +2229,16 @@ function layoutById(id) {
     return LAYOUTS.find(l => l.id === id) || null;
 }
 
+// ---- js/setShape.js ----
+// SET drawings are S Curve drawings. These are the only shape keys a SET
+// preset carries: app.js writes them when a frame slider moves, and
+// project.js accepts them from disk. Frame application itself reads each
+// model's own registered params schema, so this list never becomes the
+// generic frame-shape contract.
+const SET_SHAPE_KEYS = Object.freeze([
+    'gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'
+]);
+
 // ---- js/colorways.js ----
 // Fabric palettes straight from the design boards. Pure data - the project
 // parser checks the saved id against this list and it has to parse in plain
@@ -2547,7 +2566,6 @@ const LEGACY_LAYOUT = { 'divided-entrance': 'classic-symmetry' };
 
 // The shape sliders, remembered per SET so each drawing keeps the look
 // you left it with. Ranges are clamped in app.js, which owns the schema.
-const DOC_SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
 // Colours you saved yourself: appended after the board palettes, never
 // replacing them. Capped so a document cannot grow a paint shop.
 function cleanExtras(raw) {
@@ -2573,7 +2591,7 @@ function cleanSetPresets(raw) {
     for (const [id, v] of Object.entries(raw)) {
         if (!LAYOUT_IDS.includes(id) || !v || typeof v !== 'object') continue;
         const shape = {};
-        for (const k of DOC_SET_SHAPE_KEYS) {
+        for (const k of SET_SHAPE_KEYS) {
             const n = Number(v[k]);
             if (Number.isFinite(n)) shape[k] = n;
         }
@@ -8538,7 +8556,7 @@ const LIGHT_PARAMS = {
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
         sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
     },
-    // Curtain / serial string lights: a feeder wire rides the S-curve rail
+    // Curtain / serial string lights: a feeder wire rides the frame's rail
     // and vertical drops hang from it at equal spacing. Warm white is the
     // shop default; White is the neutral alternative. The drop wire can
     // be black, white or transparent. Hue and Saturation live in Advanced -
@@ -8596,7 +8614,7 @@ const HALO_TEX = (() => {
 const SPOT_BASE = { par: 2.2, led: 1.4 };
 
 // ---- the neon-flex strip assembly --------------------------------------
-// One S-curve route in, three pieces out - an aluminium U-channel, the
+// One frame route in, three pieces out - an aluminium U-channel, the
 // rounded neon flex seated inside it, and an optional soft halo. Every
 // piece is swept from the SAME resampled path with an EXPLICIT upright
 // frame (world-up transported into each binormal), never a Frenet frame:
@@ -9146,7 +9164,7 @@ function createLightModel(type = 'light-par', initial = {}) {
         if (kind === 'strip') {
             if (onRail) {
                 // The full neon-flex assembly, continuous end to end from
-                // the one S-curve route: low-profile U-channel, rounded
+                // the one frame route: low-profile U-channel, rounded
                 // emissive flex seated inside and rising clear of the rim,
                 // faint halo shell - all swept on the same upright frames.
                 const asm = stripAssembly(pathPts);
@@ -9535,7 +9553,7 @@ function selectionForModel(model, lookups = {}) {
     } = lookups;
 
     // A frame's fixtures are separate models, but tapping one should not
-    // break the S Curve into parts. Fold the hit back onto its frame so the
+    // break the frame into parts. Fold the hit back onto its frame so the
     // body, the curtain and the lights share one outline and one chip cycle.
     if (model.elementOf && elementKey) {
         const { frameId } = model.elementOf;
@@ -9612,6 +9630,56 @@ const THEME = {
     light: { bg: 0xf3f4f6, ambient: 0.8, key: 1.5, floorEnv: 0.1 },
     dark:  { bg: 0x18181b, ambient: 0.4, key: 2.0, floorEnv: 0.05 }
 };
+
+// One device-level contract for the render controls the Look shelf exposes.
+// The old quality key is still read once so existing sessions keep their
+// choice; new writes go to the versioned object.
+const RENDER_PREFS_KEY = 'tilt-render-prefs-v1';
+const LEGACY_QUALITY_KEY = 'tilt-render-quality';
+const DEFAULT_RENDER_PREFS = Object.freeze({
+    quality: 'standard',
+    shadows: true,
+    shadowBox: false
+});
+
+function readRenderPrefs() {
+    const prefs = { ...DEFAULT_RENDER_PREFS };
+    try {
+        if (typeof localStorage === 'undefined') return prefs;
+        const raw = localStorage.getItem(RENDER_PREFS_KEY);
+        if (raw) {
+            const saved = JSON.parse(raw);
+            if (saved && typeof saved === 'object') {
+                if (saved.quality === 'standard' || saved.quality === 'cinematic') {
+                    prefs.quality = saved.quality;
+                }
+                if (saved.shadows === true || saved.shadows === false) {
+                    prefs.shadows = saved.shadows;
+                }
+                if (saved.shadowBox === true || saved.shadowBox === false) {
+                    prefs.shadowBox = saved.shadowBox;
+                }
+            }
+        } else {
+            const legacy = localStorage.getItem(LEGACY_QUALITY_KEY);
+            if (legacy === 'standard' || legacy === 'cinematic') {
+                prefs.quality = legacy;
+            }
+        }
+    } catch (e) { /* storage can be denied; the defaults stand */ }
+    return prefs;
+}
+
+function writeRenderPrefs(patch) {
+    const next = { ...readRenderPrefs(), ...patch };
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(RENDER_PREFS_KEY, JSON.stringify(next));
+            // Keep the old key in step for bundles opened before this change.
+            localStorage.setItem(LEGACY_QUALITY_KEY, next.quality);
+        }
+    } catch (e) { /* storage can be denied; the session still works */ }
+}
 
 const FRAME_DIR = new THREE.Vector3(0, 4, -25).normalize();
 
@@ -9724,10 +9792,11 @@ class Viewer {
             throw err;
         }
         this.renderer = renderer;
+        const savedRenderPrefs = readRenderPrefs();
         this.resize();
         this._framedAspect = this.camera.aspect;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.enabled = savedRenderPrefs.shadows;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
@@ -9739,11 +9808,6 @@ class Viewer {
         // Selection also needs a composer for OutlinePass; that reuses the
         // same chain with bloom switched off.
         this.quality = 'standard';
-        let savedQuality = 'standard';
-        try {
-            const saved = localStorage.getItem('tilt-render-quality');
-            if (saved === 'cinematic') savedQuality = 'cinematic';
-        } catch (e) { /* storage can be denied; the default stands */ }
 
         // Image based lighting, otherwise metalness reads as flat black
         const pmrem = new THREE.PMREMGenerator(renderer);
@@ -9823,10 +9887,13 @@ class Viewer {
             this._watchBox.observe(container);
         }
 
-        // Re-apply a saved quality once camera, lights and scene all exist -
-        // the cinematic lane touches the key light's shadow and mounts the
-        // composer, neither of which is valid any earlier.
-        this.setQuality(savedQuality);
+        // Re-apply saved render preferences once camera, lights and scene
+        // all exist - the cinematic lane touches the key light's shadow and
+        // mounts the composer, neither of which is valid any earlier. Boot
+        // restore never writes back: storage is only touched by a user edit.
+        this.setQuality(savedRenderPrefs.quality, false);
+        this.setShadowsEnabled(savedRenderPrefs.shadows, false);
+        this.setShadowBoxVisible(savedRenderPrefs.shadowBox, false);
 
         this._raf = 0;
         this._tick = () => {
@@ -10135,18 +10202,21 @@ class Viewer {
 
     // Toggling shadowMap.enabled needs every material recompiled, or the
     // old lighting programs keep running with stale defines.
-    setShadowsEnabled(on) {
-        this.renderer.shadowMap.enabled = !!on;
+    setShadowsEnabled(on, persist = true) {
+        const next = !!on;
+        this.renderer.shadowMap.enabled = next;
         this.scene.traverse((o) => {
             if (!(o.isMesh || o.isInstancedMesh)) return;
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             for (const m of mats) if (m) m.needsUpdate = true;
         });
+        if (persist) writeRenderPrefs({ shadows: next });
+        return next;
     }
 
     // Wireframe of the key light's shadow frustum, so a camera orbit
     // shows exactly which tables sit inside the box and which do not.
-    setShadowBoxVisible(on) {
+    setShadowBoxVisible(on, persist = true) {
         if (on && !this._shadowBox) {
             const L = this.mainLight;
             const cam = L.shadow.camera;
@@ -10170,6 +10240,7 @@ class Viewer {
             this.scene.add(box);
         }
         if (this._shadowBox) this._shadowBox.visible = !!on;
+        if (persist) writeRenderPrefs({ shadowBox: !!on });
     }
 
     // Match the camera and the drawing buffer to whatever box the canvas
@@ -10193,7 +10264,7 @@ class Viewer {
     // scenes render into a 4x-MSAA half-float target, UnrealBloom lifts
     // emissive lamps above the threshold, OutputPass re-applies this
     // renderer's tone mapping so rooms and the studio keep their looks.
-    setQuality(q) {
+    setQuality(q, persist = true) {
         const next = q === 'cinematic' ? 'cinematic' : 'standard';
         if (this.quality === next) return next;
         this.quality = next;
@@ -10211,7 +10282,7 @@ class Viewer {
             this.mainLight.shadow.map.dispose();
             this.mainLight.shadow.map = null;
         }
-        try { localStorage.setItem('tilt-render-quality', next); } catch (e) { /* ok */ }
+        if (persist) writeRenderPrefs({ quality: next });
         return next;
     }
 
@@ -14729,7 +14800,8 @@ let rebuildQueued = false;
 const savedPresets = {};
 // Each SET remembers its own shape sliders (Center Gap, Swing Pan, Pitch,
 // the two Declines, Lobes): switching a SET is a conversion, not a nudge.
-const SET_SHAPE_KEYS = ['gap', 'pan', 'pitch', 'decline', 'declineIn', 'lobes'];
+// The key list lives in setShape.js so project.js accepts exactly what this
+// side writes; applying a SET still reads each frame model's own schema.
 let setPresets = Object.create(null);
 
 function setPresetsPlain() {
@@ -16181,35 +16253,42 @@ function applySetParams(id) {
         ? Object.assign({}, (lay && lay.params) || {}, (id && setPresets[id]) || {})
         : null;
     if (!src) return false;
-    const patch = {};
-    for (const k of SET_SHAPE_KEYS) {
-        const meta = PARAMS[k];
-        const v = Number(src[k]);
-        if (!meta || !Number.isFinite(v)) continue;
-        patch[k] = Math.max(meta.min, Math.min(meta.max, v));
-    }
-    // Lobe gaps always travel with the SET: a drawing or an old preset
-    // without them restores the default 1 ft gap on every lobe.
-    {
-        const meta = PARAMS.lobeGaps;
-        const count = meta.count || 11;
-        const srcGaps = Array.isArray(src.lobeGaps) ? src.lobeGaps : [];
-        patch.lobeGaps = Array.from({ length: count }, (_, i) => {
-            const n = Number(srcGaps[i]);
-            return Number.isFinite(n)
-                ? Math.max(meta.min, Math.min(meta.max, n)) : meta.value;
-        });
-    }
-    if (!Object.keys(patch).length) return null;
+    // Apply through each frame's registered schema, not a shared S Curve
+    // constant: a new frame type brings its own ranges and lobe layout.
+    const applied = {};
     for (const [key, models] of mounted) {
         if (key.startsWith(PILLAR_ID) || key.startsWith(ELEM_PREFIX)) continue;
         for (const m of models) {
-            if (!m.setParams) continue;
+            if (!m.setParams || !m.params) continue;
+            const patch = {};
+            for (const [k, meta] of Object.entries(m.params)) {
+                if (k === 'lobeGaps' || meta.type !== 'range') continue;
+                const v = Number(src[k]);
+                if (!Number.isFinite(v)) continue;
+                const lo = Number(meta.min), hi = Number(meta.max);
+                patch[k] = Number.isFinite(lo) && Number.isFinite(hi)
+                    ? Math.max(lo, Math.min(hi, v)) : v;
+            }
+            // Lobe gaps always travel with the SET: a drawing or an old
+            // preset without them restores the default gap on every lobe.
+            const gapMeta = m.params.lobeGaps;
+            if (gapMeta) {
+                const count = gapMeta.count || 11;
+                const srcGaps = Array.isArray(src.lobeGaps) ? src.lobeGaps : [];
+                patch.lobeGaps = Array.from({ length: count }, (_, i) => {
+                    const n = Number(srcGaps[i]);
+                    return Number.isFinite(n)
+                        ? Math.max(gapMeta.min, Math.min(gapMeta.max, n))
+                        : gapMeta.value;
+                });
+            }
+            if (!Object.keys(patch).length) continue;
             m.setParams(patch);
             savedPresets[m.id] = Object.assign({}, savedPresets[m.id], patch);
+            Object.assign(applied, patch);
         }
     }
-    return patch;
+    return Object.keys(applied).length ? applied : null;
 }
 
 // Reconcile the scene, re-space it, then refresh the panel. `forcePanel`

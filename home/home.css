@@ -123,6 +123,10 @@ button { font: inherit; color: inherit; }
     border: 1px solid var(--line);
 }
 .search svg { color: var(--muted); flex: none; }
+.search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
 .search input {
     flex: 1;
     min-width: 0;
@@ -255,7 +259,7 @@ button { font: inherit; color: inherit; }
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.15s;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 .chip.is-on {
     background: var(--text);

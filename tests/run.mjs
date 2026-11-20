@@ -11,7 +11,8 @@ if (!fs.existsSync(vendor)) {
     if (boot.status) process.exit(boot.status);
 }
 
-const files = fs.readdirSync(HERE).filter(f => /^test\d*\.mjs$/.test(f)).sort();
+// test.mjs, test2.mjs ... and named suites such as test14-ui-quality.mjs.
+const files = fs.readdirSync(HERE).filter(f => /^test\d*[\w-]*\.mjs$/.test(f)).sort();
 let failed = 0;
 
 for (const f of files) {

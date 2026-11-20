@@ -49,7 +49,7 @@ export const LIGHT_PARAMS = {
         hue:    { label: 'Hue',    type: 'range', min: 0, max: 360, step: 1,   value: 40,  unit: '°' },
         sat:    { label: 'Saturation', type: 'range', min: 0, max: 100, step: 1, value: 35, unit: '%' }
     },
-    // Curtain / serial string lights: a feeder wire rides the S-curve rail
+    // Curtain / serial string lights: a feeder wire rides the frame's rail
     // and vertical drops hang from it at equal spacing. Warm white is the
     // shop default; White is the neutral alternative. The drop wire can
     // be black, white or transparent. Hue and Saturation live in Advanced -
@@ -107,7 +107,7 @@ const HALO_TEX = (() => {
 const SPOT_BASE = { par: 2.2, led: 1.4 };
 
 // ---- the neon-flex strip assembly --------------------------------------
-// One S-curve route in, three pieces out - an aluminium U-channel, the
+// One frame route in, three pieces out - an aluminium U-channel, the
 // rounded neon flex seated inside it, and an optional soft halo. Every
 // piece is swept from the SAME resampled path with an EXPLICIT upright
 // frame (world-up transported into each binormal), never a Frenet frame:
@@ -657,7 +657,7 @@ export function createLightModel(type = 'light-par', initial = {}) {
         if (kind === 'strip') {
             if (onRail) {
                 // The full neon-flex assembly, continuous end to end from
-                // the one S-curve route: low-profile U-channel, rounded
+                // the one frame route: low-profile U-channel, rounded
                 // emissive flex seated inside and rising clear of the rim,
                 // faint halo shell - all swept on the same upright frames.
                 const asm = stripAssembly(pathPts);
