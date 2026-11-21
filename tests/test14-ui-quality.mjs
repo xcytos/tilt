@@ -153,6 +153,30 @@ check('vendor/three is a committed local copy, not a test fixture',
   fs.existsSync(path.join(DECOR, 'vendor/three/build/three.module.js'))
   && !/vendor\/three/.test(read('.gitignore')));
 
+// Every asset reference in the product, not just the shell the plan names.
+const walk = (dir, out = []) => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === '.git' || e.name === 'node_modules' || e.name === 'vendor'
+        || e.name === '.tmp') continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, out);
+    else if (/\.(html|css|js|mjs)$/.test(e.name)) out.push(p);
+  }
+  return out;
+};
+const EXTERNAL_ASSET = /<script[^>]+src=["']https?:\/\/|<link[^>]+href=["']https?:\/\/|url\(\s*["']?https?:\/\//;
+const offenders = walk(DECOR)
+  .filter(f => EXTERNAL_ASSET.test(fs.readFileSync(f, 'utf8')))
+  .map(f => path.relative(DECOR, f));
+check('no external script, stylesheet or url() anywhere in the product',
+  offenders.length === 0, offenders.join(', '));
+check('the Flower Studio loads three from vendor/three0128',
+  read('studio/index.html').includes('../vendor/three0128/three.min.js')
+  && fs.existsSync(path.join(DECOR, 'vendor/three0128/three.min.js')));
+check('vendored sources are exempt from whitespace checks, ours are not',
+  read('.gitattributes').includes('vendor/** -whitespace')
+  && read('.gitattributes').includes('render-lab/vendor/** -whitespace'));
+
 // -------------------------------------------- 4. focus, motion, touch
 console.log('\nfocus and motion');
 const cssFiles = ['home/home.css', 'home/models.css', 'studio/styles.css', 'TILT.html'];
@@ -190,9 +214,20 @@ const plan = read('plans/ui-quality-level-1.md');
 check('the plan is on the branch', plan.includes('TILT UI Quality'));
 check('it pins the integration base and merge target',
   plan.includes('`selection-save-reload` at `3e6f901`')
-  && plan.includes('Merge target: `selection-save-reload` only'));
+  && plan.includes('`selection-save-reload` only. No direct `main` merge.'));
 check('it records the scorecard gate',
   plan.includes('No dimension below 3') && plan.includes('3.5'));
+const scorecard = read('plans/ui-quality-level-1-scorecard.md');
+check('the scorecard scores every surface in scope',
+  (scorecard.match(/^\| \d+ \| /gm) || []).length === 10,
+  String((scorecard.match(/^\| \d+ \| /gm) || []).length));
+check('P0/P1 surfaces all clear the weighted gate',
+  ['**3.65**', '**4.00**', '**3.50**', '**3.85**'].every(s => scorecard.includes(s)));
+check('the handoff records rollback and the manual gates still open',
+  plan.includes('Merge is held') && plan.includes('Rollback:')
+  && scorecard.includes('Stage 9 manual protocol'));
+check('the Level 2 backlog is written down',
+  scorecard.includes('## Level 2 backlog') && scorecard.includes('| Medium |'));
 
 console.log('');
 if (fails) { console.log(`${fails} check(s) failed`); process.exit(1); }

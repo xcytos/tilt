@@ -19,3 +19,9 @@
 *.glb binary
 *.bin binary
 *.db binary
+
+# Vendored third-party sources are kept byte-for-byte upstream (three.js and
+# its addons). Do not reformat them, and do not let their whitespace trip
+# `git diff --check` for our own files.
+vendor/** -whitespace
+render-lab/vendor/** -whitespace

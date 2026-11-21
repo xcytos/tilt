@@ -7,8 +7,11 @@
   <title>Flower Panel Studio — MVP</title>
   <link rel="stylesheet" href="styles.css">
   <script defer src="diagnostics.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- three 0.128 (global scripts, pinned copy): the Studio must render with
+       no CDN. Regenerate alongside vendor/three/ via tools/vendor-three.mjs
+       conventions - these two files are byte-for-byte upstream. -->
+  <script defer src="../vendor/three0128/three.min.js"></script>
+  <script defer src="../vendor/three0128/OrbitControls.js"></script>
   <script defer src="js/flowers/core.js"></script>
   <script defer src="js/flowers/rose.js"></script>
   <script defer src="js/flowers/marigold.js"></script>

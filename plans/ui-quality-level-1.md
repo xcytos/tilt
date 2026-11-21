@@ -1,11 +1,13 @@
 # TILT UI Quality — Optimization Level 1
 
-Status: **implemented on `ui-quality-level-1`** (Stages 0–8 code complete; Stage 9 handoff pending)  
-Owner: UI Quality department (separate branch/team)  
-Integration base: `selection-save-reload` at `3e6f901`  
-Working branch: `ui-quality-level-1` (cut from `selection-save-reload`)  
-Merge target: `selection-save-reload` only. No direct `main` merge.  
-Baseline: 13/13 suites green before this branch; 14 suites green after Stage 8.
+- **Status:** implemented on `ui-quality-level-1`; Stages 0–8 code complete,
+  Stage 9 handoff in progress (manual screenshot/axe pass outstanding).
+- **Owner:** UI Quality department (separate branch/team).
+- **Integration base:** `selection-save-reload` at `3e6f901`.
+- **Working branch:** `ui-quality-level-1` (cut from `selection-save-reload`).
+- **Merge target:** `selection-save-reload` only. No direct `main` merge.
+- **Baseline:** 13/13 suites green before this branch; 14 suites green after
+  Stage 8.
 
 ## 1. Level 1 outcome
 
@@ -376,8 +378,39 @@ migration and stays. Guarded by `tests/test14-ui-quality.mjs`.
 | `transition: all` | Explicit property list on `.chip` | `home/home.css` |
 | Focus exceptions | `:where(...):focus-visible` ring, range `:focus-visible`, `.search:focus-within` (home + models) | `TILT.html`, `home/*.css` |
 | Reduced motion missing in Studio | `@media (prefers-reduced-motion: reduce)` block | `studio/styles.css` |
+| three via jsdelivr in the Flower Studio | Vendored as `vendor/three0128/`, loaded relatively | `studio/index.html:10-15` |
 | Offline shell | `sw.js` `tilt-v3` caches `/css/tailwind.css` | `sw.js` |
 
-Residual (Level 2): `studio/index.html` still loads three 0.128 from jsdelivr
-(separate major version, P2 surface); home/shell/studio token systems are still
-separate; Flower Studio visual pass unscored here.
+**No runtime CDN remains anywhere in the product** — every `src`/`href`/
+`url()` that used to point at unpkg, jsdelivr or cdn.tailwindcss.com now
+resolves to `vendor/three/`, `vendor/three0128/` or `css/tailwind.css`.
+
+Residual (Level 2): home/shell/studio token systems are still separate; the
+Flower Studio visual pass and the remaining P2 surfaces are scored in
+`plans/ui-quality-level-1-scorecard.md` and scheduled there.
+
+## 16. Stage 9 — release gate, rollback, handoff
+
+Gate status at handoff:
+
+| Gate | State |
+|---|---|
+| 14 suites green (`node tests/run.mjs`) | **Pass** |
+| `git diff --check` clean | **Pass** (vendor paths exempted as byte-for-byte upstream in `.gitattributes`) |
+| No runtime CDN in editor/standalone | **Pass** — and in the homepage, models page and Flower Studio too |
+| No console errors in boot/reload/selection/shadow/quality | **Open** — needs a browser; no browser automation exists here (decision §13.3) |
+| Screenshot matrix 360/390/768/1440, light/dark, P0 surfaces | **Open** — manual device pass required |
+| Keyboard-only pass on home/editor/shelf/Look shelf/tray | **Open** — manual pass required |
+| axe Critical/Serious | **Open** — manual pass required |
+| Scorecard gate (≥3.5, no dimension <3) on P0/P1 | **Provisional pass** — see scorecard; re-confirm after screenshots |
+
+**Merge is held at this point.** The plan merges into `selection-save-reload`
+only after *all* gates pass; the three manual gates above cannot be executed in
+this environment. Re-run `node tests/run.mjs` after the device pass, fill in the
+scorecard screenshots, then merge.
+
+Rollback: `git revert` the merge commit (or reset the branch to `3e6f901`).
+The storage migration is additive — `tilt-render-prefs-v1` is written only by a
+user edit, the legacy `tilt-render-quality` key is left in place and still
+read, so reverting code cannot strand anyone. Vendor and CSS files are inert
+assets.
