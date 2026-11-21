@@ -31,6 +31,24 @@
     --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 
+/* ---- shared UI token bridge (Level 2): this page's palette mapped onto
+       the canonical --ui-* vocabulary shared with TILT.html, home.css and
+       the studio. Aliases only - no token is renamed, no class changes. */
+:root {
+    --ui-bg: var(--bg);
+    --ui-surface: var(--surface);
+    --ui-line: var(--line);
+    --ui-line-strong: var(--line);   /* no second line weight here yet */
+    --ui-text: var(--text);
+    --ui-muted: var(--muted);
+    --ui-accent: var(--accent);
+    --ui-danger: var(--danger);
+    --ui-radius: var(--radius);
+    --ui-shadow: var(--shadow);
+    --ui-tap: var(--tap);
+    --ui-ring: var(--accent);        /* the focus ring colour */
+}
+
 * { box-sizing: border-box; }
 
 /* Author display rules beat the UA sheet; make hidden authoritative. */

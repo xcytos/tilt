@@ -55,12 +55,25 @@ export function createEditor(opts) {
     nameEl.textContent = currentName;
     statusEl.textContent = STATUS_TEXT[state];
 
+    // Screen readers hear the outcomes that matter - the save dropping
+    // offline and coming back, plus the short-lived confirmations - through
+    // the hidden #save-announce region. The visible #save-status changes on
+    // every save cycle, which would be noise.
+    const announceEl = document.getElementById('save-announce');
+
+    function announce(text) {
+        if (announceEl) announceEl.textContent = text;
+    }
+
     function setStatus(next) {
         if (!STATUS_TEXT[next]) return;
+        const was = state;
         state = next;
         clearTimeout(flashTimer);
         statusEl.dataset.state = next;
         statusEl.textContent = STATUS_TEXT[next];
+        if (next === 'offline') announce(STATUS_TEXT.offline);
+        else if (was === 'offline') announce(STATUS_TEXT[next]);
     }
 
     // A short-lived message in the status line - used for confirmations that
@@ -69,6 +82,7 @@ export function createEditor(opts) {
         clearTimeout(flashTimer);
         statusEl.dataset.state = 'note';
         statusEl.textContent = text;
+        announce(text);
         flashTimer = setTimeout(() => {
             statusEl.dataset.state = state;
             statusEl.textContent = STATUS_TEXT[state];

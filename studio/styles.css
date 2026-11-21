@@ -189,3 +189,26 @@
 @media(prefers-reduced-motion:reduce){
   .chip,.seg label,.config-chip .chip-chevron,.adv > summary::after{transition:none!important}
 }
+
+/* ---- shared UI token bridge (Level 2): this page's palette mapped onto
+       the canonical --ui-* vocabulary shared with TILT.html and the home
+       pages. Aliases only - no token is renamed, no class changes.
+       Stand-ins: the Studio has one line weight and one control radius, so
+       --ui-line-strong follows --line and --ui-radius is the control
+       radius; --ui-danger is the Studio's alert tone (.warning text); and
+       --ui-tap states the shared 44px target even though today's buttons
+       are 40px (tracked in the Level 2 backlog). ---- */
+:root{
+  --ui-bg:var(--paper);
+  --ui-surface:var(--panel);
+  --ui-line:var(--line);
+  --ui-line-strong:var(--line);
+  --ui-text:var(--ink);
+  --ui-muted:var(--muted);
+  --ui-accent:var(--green);
+  --ui-danger:#a76c27;
+  --ui-radius:10px;
+  --ui-shadow:var(--shadow);
+  --ui-tap:44px;
+  --ui-ring:var(--green);
+}

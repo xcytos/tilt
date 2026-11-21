@@ -64,8 +64,8 @@ remaining:  the shadow/reload acceptance matrix needs one manual run
 score:      3 / 3 / 4 / 3 / 4 / 4
 evidence:   js/panel.js:1049 (section() gates by tool), :1264/:1306 (Shape/
             Colour blocks), :1326/:1331 (Pillars/Lights blocks), :619
-            (emptyNote for every empty state), TILT.html:545-547 (44px coarse
-            pointer targets), :323/:556 (reduced motion)
+            (emptyNote for every empty state), TILT.html:556-558 (44px coarse
+            pointer targets), :323/:567 (reduced motion)
 top findings: dense controls + shelf overlay trade-off; one card body holds
             many controls (Hierarchy 3); chip/focus patterns split between
             inline Tailwind classes and the inline <style> block (Consistency 3)
@@ -78,15 +78,15 @@ remaining:  screenshots at 360/390 to confirm no overflow; focus-return pass
 ```text
 score:      4 / 3 / 4 / 4 / 4 / 4
 evidence:   index.html:46-60 (aria-label on every icon-only control), :68
-            (nav landmark), :105/:111 (empty state + action), home/home.css:54
-            (global :focus-visible), :126 (.search:focus-within), :262
-            (explicit chip transition), :570 (reduced motion), :557-561
-            (coarse pointer 44px), home/home.js:255-277 (empty/notice states)
-top findings: `#notice` (index.html:114) and `#toast` (:130) are not live
-            regions — screen readers never hear import/save feedback
-            (Medium); tokens diverge from the shell (Medium)
-fixed in:   a05bff1 (focus-within, transition, motion)
-remaining:  add aria-live in Level 2; screenshots + axe
+            (nav landmark), :105/:111 (empty state + action), home/home.css:87
+            (global :focus-visible), :159 (.search:focus-within), :295
+            (explicit chip transition), :603 (reduced motion), :595-602
+            (coarse pointer 44px), home/home.js:265-287 (empty/notice states)
+top findings: `#notice` (index.html:114) and `#toast` (:130) were not live
+            regions — screen readers never heard import/save feedback
+            (Medium, fixed); tokens diverged from the shell (Medium, fixed)
+fixed in:   a05bff1 (focus-within, transition, motion), this commit (#live)
+remaining:  screenshots + axe
 ```
 
 ## 5. Editor shell / project bar — P1, 3.85
@@ -94,13 +94,14 @@ remaining:  add aria-live in Level 2; screenshots + axe
 ```text
 score:      4 / 3 / 4 / 4 / 4 / 4
 evidence:   TILT.html:15-23 (global :focus-visible), :111/:122 (safe-area top,
-            44px bar buttons), :33 (safe-area bottom on the dock), :567
-            (range :focus-visible), js/editor.js:46-73 (saving/saved/offline
-            states), :278 (initial 'saved')
-top findings: `#save-status` (TILT.html:683) is visual-only — no role/aria-live,
-            so async save outcomes are not announced (Medium)
-fixed in:   a05bff1 (focus ring, compiled sheet, local three)
-remaining:  aria-live for save status in Level 2; screenshots + keyboard pass
+            44px bar buttons), :33 (safe-area bottom on the dock), :578
+            (range :focus-visible), js/editor.js:46-88 (saving/saved/offline
+            states), :292 (initial 'saved')
+top findings: `#save-status` (TILT.html:694) was visual-only — no role/
+            aria-live, so async save outcomes were not announced (Medium,
+            fixed via #save-announce at TILT.html:699)
+fixed in:   a05bff1 (focus ring, compiled sheet, local three), this commit
+remaining:  screenshots + keyboard pass
 ```
 
 ## 6. Flower Studio — P2, 3.15 (scheduled)
@@ -136,8 +137,8 @@ remaining:  Level 2 audit
 
 ```text
 score:      3 / 3 / 3 / 4 / 4 / 4
-evidence:   home/models.css:54 (global :focus-visible), :194 (.search:focus-within),
-            :715 (coarse pointer 44px), :721 (reduced motion), models.html:36-41
+evidence:   home/models.css:72 (global :focus-visible), :212 (.search:focus-within),
+            :733 (coarse pointer 44px), :739 (reduced motion), models.html:36-41
             (local three import map)
 top findings: split focus mechanisms between `.search:focus-within` and the
             global outline (Low)
@@ -162,7 +163,7 @@ remaining:  Level 2 (target sizes, density review)
 ```text
 score:      3 / 3 / 3 / 3 / 3 / 4
 evidence:   TILT.standalone.html (CSS inlined, no CDN, no external link),
-            sw.js:5-15 (tilt-v3 shell now carries /css/tailwind.css),
+            sw.js:8-18 (tilt-v4 shell now carries /css/tailwind.css),
             tests/test14 (pins no-CDN + inlined sheet)
 top findings: CSS is served cache-first while scripts are network-first, so a
             stylesheet can lag a deploy until background refresh (Low)
@@ -174,19 +175,28 @@ remaining:  offline cold-load test on a device
 
 ## Level 2 backlog
 
-| Sev | Finding | Evidence |
-|---|---|---|
-| Medium | `#notice` / `#toast` are not live regions | `index.html:114`, `:130` |
-| Medium | `#save-status` has no `role="status"`/`aria-live` | `TILT.html:683`, `js/editor.js:46-73` |
-| Medium | Three divergent token sets (`--bg/--surface`, `--ui-*`, `--paper`) | `home/home.css:10-25`, `TILT.html:345-360`, `studio/styles.css:1-10` |
-| Medium | Flower Studio `.picker-item` focus = colour change only | `studio/styles.css:70-71` |
-| Medium | Flower Studio base controls are 40px, 44px only in media queries | `studio/styles.css:4,38,119,169-184` |
-| Medium | Render Studio: no touch-target, motion or safe-area rules | `js/renderStudio.js` |
-| Medium | Workflow page: no 44px target rules | `workflow.html` |
-| Low | Two focus mechanisms for the search field | `home/home.css:126`, `home/models.css:194` |
-| Low | CSS cache-first vs scripts network-first | `sw.js:57-77` |
-| Low | three vendored twice (0.160 ESM + 0.128 UMD, ~1.96 MB) | `vendor/three/`, `vendor/three0128/` |
-| Low | `workflow.html` has no reduced-motion block (no motion today) | `workflow.html` |
+| Sev | Finding | Evidence | Status |
+|---|---|---|---|
+| Medium | `#notice` / `#toast` are not live regions | `index.html:114`, `:130` | fixed — `#live` region (`index.html:133`), mirrored by `announce()` (`home/home.js`) |
+| Medium | `#save-status` has no `role="status"`/`aria-live` | `TILT.html:694`, `js/editor.js:68-88` | fixed — `#save-announce` (`TILT.html:699`) carries offline + flash only |
+| Medium | Three divergent token sets (`--bg/--surface`, `--ui-*`, `--paper`) | `home/home.css:5-32`, `TILT.html:339-375`, `studio/styles.css:1-2` | fixed — canonical `--ui-*` bridge mapped on all four pages, values unchanged |
+| Medium | Flower Studio `.picker-item` focus = colour change only | `studio/styles.css:70-71` | open |
+| Medium | Flower Studio base controls are 40px, 44px only in media queries | `studio/styles.css:4,38,119,169-184` | open (`--ui-tap` already states 44px) |
+| Medium | Render Studio: no touch-target, motion or safe-area rules | `js/renderStudio.js` | open |
+| Medium | Workflow page: no 44px target rules | `workflow.html` | open |
+| Medium | Shell body keeps `bg-gray-100` in dark mode (it sits under the canvas, so `--ui-bg` does not flip with the theme) | `TILT.html:681`, `TILT.html:357` | open — found while mapping `--ui-bg` |
+| Low | Two focus mechanisms for the search field (global outline + `:focus-within` ring) | `home/home.css:87`,`:159`, `home/models.css:72`,`:212` | open |
+| Low | CSS cache-first vs scripts network-first | `sw.js:60-80` | open |
+| Low | three vendored twice (0.160 ESM + 0.128 UMD, ~1.96 MB) | `vendor/three/`, `vendor/three0128/` | open |
+| Low | `workflow.html` has no reduced-motion block (no motion today) | `workflow.html` | open |
+
+Level 2 code items above are guarded by `tests/test15-level2.mjs`
+(live-region contract + full canonical token set per page, aliases only
+resolving to tokens the same file defines). The bridge is vocabulary plus a
+per-page mapping rather than one shared stylesheet: a shared *value* layer
+would have to win or lose the cascade against three different dark-mode
+selectors (`.dark`, `:root[data-theme="dark"]`), and with no browser here
+that order is a regression nobody can screenshot.
 
 ## Stage 9 manual protocol (to close the open gates)
 

@@ -350,6 +350,17 @@
             --ui-radius: 14px;
             --ui-radius-sm: 10px;
             --ui-tap: 44px;
+            /* Shared UI token bridge (Level 2): the canonical --ui-* names
+                   the homepage and the studio map their palettes onto. The
+                   shell owns these names already, so this only fills the
+                   gaps - text (aliasing this page's --ui-ink), the page
+                   backdrop (the body's bg-gray-100 tone, which sits under
+                   the canvas and does not flip with the theme), the panel
+                   elevation and the focus ring colour. */
+            --ui-text: var(--ui-ink);
+            --ui-bg: #f3f4f6;
+            --ui-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+            --ui-ring: #0284c7;
         }
         .dark {
             --ui-surface: #1f1f23;
@@ -682,6 +693,10 @@
             <span id="project-name">Untitled project</span>
             <span id="save-status" data-state="saved">Saved</span>
         </button>
+        <!-- Polite live region for save outcomes: screen readers hear
+             "Offline" and the short confirmations, not every routine
+             Saving…/Saved cycle. The visible #save-status stays quiet. -->
+        <span id="save-announce" class="sr-only" role="status" aria-live="polite"></span>
         <span id="app-version" class="text-[9.5px] uppercase tracking-widest text-gray-400 dark:text-zinc-500 select-none pr-1" title="Build version"></span>
         <button type="button" class="tb-btn" id="btn-overflow" aria-label="Project menu" aria-haspopup="menu" aria-expanded="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>

@@ -1,7 +1,10 @@
 // TILT offline shell. The app is a static shell over a local SQLite API, so
 // the worker caches the pages, modules and icons only - never /api/ answers
 // or project.json, which are state and must always come from the server.
-const VERSION = 'tilt-v3';
+// v4: the Level 2 markup (#live, #save-announce) and the compiled .sr-only
+// rule must reach already-installed shells, and only a new cache name makes
+// install() re-precache the SHELL instead of keeping the old copies.
+const VERSION = 'tilt-v4';
 const SHELL = [
     '/',
     '/index.html',

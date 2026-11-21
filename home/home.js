@@ -21,6 +21,7 @@
     var scrim = $('scrim');
     var panel = $('panel');
     var toastEl = $('toast');
+    var liveEl = $('live');
     var fileInput = $('file');
     var search = $('search');
     var searchInput = $('search-input');
@@ -63,9 +64,18 @@
         return d.getFullYear() !== new Date().getFullYear() ? text + ' ' + d.getFullYear() : text;
     }
 
+    // Mirror a message into the polite live region. #toast and #notice are
+    // hidden elements, and screen readers do not reliably announce content
+    // that appears and disappears, so the announcement goes through #live,
+    // which stays in the DOM.
+    function announce(message) {
+        if (liveEl) liveEl.textContent = message;
+    }
+
     function toast(message) {
         toastEl.textContent = message;
         toastEl.hidden = false;
+        announce(message);
         clearTimeout(toastTimer);
         toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2400);
     }
@@ -275,6 +285,8 @@
         } catch (err) {
             state.projects = [];
             notice.hidden = false;
+            announce('Projects live on the server. Start bash serve.sh and '
+                + 'reload, or open the single-file viewer.');
         }
         render();
     }

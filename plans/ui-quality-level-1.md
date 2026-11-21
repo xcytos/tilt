@@ -6,7 +6,7 @@
 - **Integration base:** `selection-save-reload` at `3e6f901`.
 - **Working branch:** `ui-quality-level-1` (cut from `selection-save-reload`).
 - **Merge target:** `selection-save-reload` only. No direct `main` merge.
-- **Baseline:** 13/13 suites green before this branch; 14 suites green after
+- **Baseline:** 13/13 suites green before this branch; 15 suites green after
   Stage 8.
 
 ## 1. Level 1 outcome
@@ -118,8 +118,8 @@ These are candidate findings. Stage 1 confirms them with browser evidence.
 | Panel reads initial shadow state correctly but cannot restore it | `js/panel.js:2820` reads `shadowInfo()`; no saved value exists | UI and viewer agree on the wrong default |
 | Editor depends on Tailwind CDN | `TILT.html:10`, `TILT.standalone.html:10` | Offline styling risk, render-blocking network dependency, third-party failure |
 | Token systems are split | home uses `--bg/--surface`; shell uses `--ui-*`; studio uses `--paper` | Drift across pages that should feel like one product |
-| Some focus/outline exceptions are implicit | `home/home.css:133`, `:457`, `TILT.html:560` | Risk of invisible keyboard focus |
-| One broad transition remains | `home/home.css:258` uses `transition: all` | Unpredictable animation and non-compositor properties |
+| Some focus/outline exceptions are implicit | `home/home.css:170` (`.search input`, ring on `.search:focus-within`), `:494` (`.field`, ring on `.field:focus`), `TILT.html:576` (range, ring at `:578`) | Risk of invisible keyboard focus — each exception now has a paired visible state |
+| One broad transition remains | was `home/home.css` `transition: all`; removed by Level 1 transition hardening — no `transition: all` left in home, shell or studio | Unpredictable animation and non-compositor properties — resolved |
 | Existing quality integration is pinned | `tests/test10.mjs` covers composer + `viewerQuality` | Good baseline; extend rather than replace |
 
 ## 7. Per-surface scorecard
@@ -379,15 +379,19 @@ migration and stays. Guarded by `tests/test14-ui-quality.mjs`.
 | Focus exceptions | `:where(...):focus-visible` ring, range `:focus-visible`, `.search:focus-within` (home + models) | `TILT.html`, `home/*.css` |
 | Reduced motion missing in Studio | `@media (prefers-reduced-motion: reduce)` block | `studio/styles.css` |
 | three via jsdelivr in the Flower Studio | Vendored as `vendor/three0128/`, loaded relatively | `studio/index.html:10-15` |
-| Offline shell | `sw.js` `tilt-v3` caches `/css/tailwind.css` | `sw.js` |
+| Offline shell | `sw.js` `tilt-v4` caches `/css/tailwind.css` (bumped so installed shells re-precache the Level 2 markup) | `sw.js` |
+| Live regions missing (Level 2) | Persistent polite `#live` (home) mirrors toasts and the offline notice; `#save-announce` (editor) announces offline + flash only | `index.html:133`, `TILT.html:699`, `tests/test15-level2.mjs` |
+| Token systems split (Level 2) | Canonical `--ui-*` vocabulary mapped onto each page's palette (aliases only, no class rewritten) | `home/home.css:34`, `home/models.css:34`, `TILT.html:353`, `studio/styles.css:193` |
 
 **No runtime CDN remains anywhere in the product** — every `src`/`href`/
 `url()` that used to point at unpkg, jsdelivr or cdn.tailwindcss.com now
 resolves to `vendor/three/`, `vendor/three0128/` or `css/tailwind.css`.
 
-Residual (Level 2): home/shell/studio token systems are still separate; the
-Flower Studio visual pass and the remaining P2 surfaces are scored in
-`plans/ui-quality-level-1-scorecard.md` and scheduled there.
+Residual (Level 2): the token bridge is in place but consumers still read
+their local names — migrating classes to `--ui-*` is a class-by-class,
+screenshot-guarded job. The Flower Studio visual pass and the remaining P2
+surfaces are scored in `plans/ui-quality-level-1-scorecard.md` and scheduled
+there.
 
 ## 16. Stage 9 — release gate, rollback, handoff
 
@@ -395,7 +399,7 @@ Gate status at handoff:
 
 | Gate | State |
 |---|---|
-| 14 suites green (`node tests/run.mjs`) | **Pass** |
+| 15 suites green (`node tests/run.mjs`) | **Pass** |
 | `git diff --check` clean | **Pass** (vendor paths exempted as byte-for-byte upstream in `.gitattributes`) |
 | No runtime CDN in editor/standalone | **Pass** — and in the homepage, models page and Flower Studio too |
 | No console errors in boot/reload/selection/shadow/quality | **Open** — needs a browser; no browser automation exists here (decision §13.3) |

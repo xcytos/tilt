@@ -148,7 +148,7 @@ check('the build inlines the sheet with a function replacer (no $ expansion)',
   && buildSrc.includes('() => `<style>'));
 check('the service worker caches the local sheet for offline',
   read('sw.js').includes("'/css/tailwind.css'")
-  && read('sw.js').includes("VERSION = 'tilt-v3'"));
+  && read('sw.js').includes("VERSION = 'tilt-v4'"));
 check('vendor/three is a committed local copy, not a test fixture',
   fs.existsSync(path.join(DECOR, 'vendor/three/build/three.module.js'))
   && !/vendor\/three/.test(read('.gitignore')));

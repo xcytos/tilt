@@ -31,10 +31,43 @@
     --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 
+/* ---- shared UI token bridge (Level 2). The canonical --ui-* vocabulary
+       every TILT surface resolves, so a component can read one name on the
+       homepage, the editor and the studio. This page maps its own palette
+       onto the shared names; nothing is renamed, so no class changes. ---- */
+:root {
+    --ui-bg: var(--bg);
+    --ui-surface: var(--surface);
+    --ui-line: var(--line);
+    --ui-line-strong: var(--line);   /* no second line weight here yet */
+    --ui-text: var(--text);
+    --ui-muted: var(--muted);
+    --ui-accent: var(--accent);
+    --ui-danger: var(--danger);
+    --ui-radius: var(--radius);
+    --ui-shadow: var(--shadow);
+    --ui-tap: var(--tap);
+    --ui-ring: var(--accent);        /* the focus ring colour */
+}
+
 * { box-sizing: border-box; }
 
 /* Author display rules beat the UA sheet; make hidden authoritative. */
 [hidden] { display: none !important; }
+
+/* Visually hidden, still announced: the polite live region that carries
+   toasts and the offline notice to screen readers. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+}
 
 html, body { height: 100%; }
 
